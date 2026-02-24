@@ -13,6 +13,24 @@ Update:
 brew upgrade --cask mcpx
 ```
 
+## npm Wrapper
+
+Installs a `mcpx-go` command that downloads the matching `mcpx` binary from GitHub releases.
+
+```bash
+npm install -g mcpx-go
+mcpx-go --version
+```
+
+## PyPI Wrapper
+
+Installs a `mcpx-go` command that downloads the matching `mcpx` binary into your cache.
+
+```bash
+pip install mcpx-go
+mcpx-go --version
+```
+
 ## Manual Install
 
 1. Download the archive for your platform from the release assets.

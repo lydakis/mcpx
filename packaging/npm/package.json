@@ -1,0 +1,43 @@
+{
+  "name": "mcpx-go",
+  "version": "0.0.0",
+  "description": "Installable npm wrapper that downloads and runs the mcpx Go binary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lydakis/mcpx.git"
+  },
+  "homepage": "https://github.com/lydakis/mcpx",
+  "bugs": {
+    "url": "https://github.com/lydakis/mcpx/issues"
+  },
+  "bin": {
+    "mcpx-go": "bin/mcpx-go.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node ./lib/postinstall.js"
+  },
+  "keywords": [
+    "mcp",
+    "cli",
+    "mcpx",
+    "go"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

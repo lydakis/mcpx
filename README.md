@@ -31,6 +31,20 @@ brew tap lydakis/mcpx
 brew install --cask mcpx
 ```
 
+### npm
+
+```bash
+npm install -g mcpx-go
+mcpx-go --version
+```
+
+### PyPI
+
+```bash
+pip install mcpx-go
+mcpx-go --version
+```
+
 ### Build from source
 
 ```bash

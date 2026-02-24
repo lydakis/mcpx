@@ -90,3 +90,47 @@ jobs:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_P8_NORMALIZED: ${{ env.APP_STORE_CONNECT_API_KEY_P8_NORMALIZED }}
+
+  publish_wrappers:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate wrapper publish secrets
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [[ -z "${NPM_TOKEN}" ]]; then
+            echo "Missing required secret: NPM_TOKEN" >&2
+            exit 1
+          fi
+          if [[ -z "${PYPI_API_TOKEN}" ]]; then
+            echo "Missing required secret: PYPI_API_TOKEN" >&2
+            exit 1
+          fi
+
+      - name: Resolve release version
+        run: echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "${GITHUB_ENV}"
+
+      - name: Publish npm wrapper
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ./scripts/publish_npm_wrapper.sh "${RELEASE_VERSION}"
+
+      - name: Publish PyPI wrapper
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: ./scripts/publish_pypi_wrapper.sh "${RELEASE_VERSION}"
