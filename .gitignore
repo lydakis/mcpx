@@ -1,0 +1,10 @@
+.DS_Store
+
+# Local builds and release artifacts
+mcpx
+dist/
+
+# Go test outputs
+*.test
+*.out
+coverage.out
