@@ -21,6 +21,18 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("mcpx __complete servers")) {
 		t.Fatalf("bash completion missing internal server query: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_skill_server()")) {
+		t.Fatalf("bash completion missing skill server guard helper: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
+		t.Fatalf("bash completion missing conditional skill branch: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("if ! _mcpx_has_skill_server; then")) {
+		t.Fatalf("bash completion missing conditional skill root entry: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("--no-claude-link")) {
+		t.Fatalf("bash completion missing skill install flags: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("complete -F _mcpx_completion mcpx")) {
 		t.Fatalf("bash completion missing complete hook: %q", out.String())
 	}
@@ -55,6 +67,44 @@ func TestRunInternalCompletionRequiresQueryType(t *testing.T) {
 	}
 	if !bytes.Contains(errOut.Bytes(), []byte("usage")) {
 		t.Fatalf("stderr = %q, want usage error", errOut.String())
+	}
+}
+
+func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runCompletionCommand([]string{"zsh"}, &out, &errOut)
+	if code != ipc.ExitOK {
+		t.Fatalf("runCompletionCommand() code = %d, want %d", code, ipc.ExitOK)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_skill_server()")) {
+		t.Fatalf("zsh completion missing skill server guard helper: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
+		t.Fatalf("zsh completion missing conditional skill branch: %q", out.String())
+	}
+}
+
+func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runCompletionCommand([]string{"fish"}, &out, &errOut)
+	if code != ipc.ExitOK {
+		t.Fatalf("runCompletionCommand() code = %d, want %d", code, ipc.ExitOK)
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_skill_server")) {
+		t.Fatalf("fish completion missing skill server guard helper: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = skill; and not __mcpx_has_skill_server")) {
+		t.Fatalf("fish completion missing conditional skill branch: %q", out.String())
 	}
 }
 

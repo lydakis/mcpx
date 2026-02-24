@@ -45,6 +45,7 @@ mcpx                         # list servers
 mcpx <server>                # list tools
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> ...     # call tool
+mcpx skill install           # install built-in mcpx skill for agents
 ```
 
 Examples:
@@ -74,6 +75,25 @@ mcpx completion fish > ~/.config/fish/completions/mcpx.fish
 ```
 
 If your shell does not pick up completions immediately, restart the shell.
+
+## Skill Install
+
+Install the built-in `mcpx` skill:
+
+```bash
+mcpx skill install
+```
+
+By default this writes `SKILL.md` under `~/.agents/skills/mcpx`, then links into Claude Code at `~/.claude/skills/mcpx`.
+
+Optional flags:
+
+```bash
+mcpx skill install --no-claude-link
+mcpx skill install --codex-link
+mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
+mcpx skill install --codex-dir /custom/.codex/skills
+```
 
 ## Man Pages
 

@@ -33,6 +33,10 @@ func Run(args []string) int {
 		return code
 	}
 
+	if handled, code := maybeHandleSkillCommand(args, cfg, rootStdout, rootStderr); handled {
+		return code
+	}
+
 	if verr := config.Validate(cfg); verr != nil {
 		fmt.Fprintf(os.Stderr, "mcpx: invalid config: %v\n", verr)
 		return ipc.ExitUsageErr

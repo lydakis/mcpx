@@ -59,6 +59,7 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "  mcpx <server>")
 	fmt.Fprintln(out, "  mcpx <server> <tool> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx completion <bash|zsh|fish>")
+	fmt.Fprintln(out, "  mcpx skill install [FLAGS]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Global flags:")
 	fmt.Fprintln(out, "  --help, -h       Show help")

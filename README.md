@@ -8,6 +8,11 @@ Unix-native CLI wrapper for MCP servers.
 - `mcpx <server>` lists tools
 - `mcpx <server> <tool>` calls a tool
 
+Utility commands:
+
+- `mcpx completion <bash|zsh|fish>` prints shell completion scripts
+- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code
+
 It is designed for agent workflows and shell composition:
 
 - schema-aware `--help` (inputs + declared outputs)
@@ -52,6 +57,7 @@ mcpx
 mcpx github
 mcpx github search-repositories --help
 mcpx github search-repositories --query=mcp
+mcpx skill install
 ```
 
 ## MCP Smoke Test Commands

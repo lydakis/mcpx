@@ -41,3 +41,11 @@ mcpx completion bash > ~/.local/share/bash-completion/completions/mcpx
 mcpx completion zsh > "${fpath[1]}/_mcpx"
 mcpx completion fish > ~/.config/fish/completions/mcpx.fish
 ```
+
+## Install Built-In Agent Skill
+
+```bash
+mcpx skill install
+```
+
+This installs the built-in `mcpx` skill at `~/.agents/skills/mcpx` and creates a Claude Code symlink at `~/.claude/skills/mcpx`.
