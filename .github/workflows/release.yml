@@ -62,9 +62,17 @@ jobs:
           if [[ -z "${APP_STORE_CONNECT_API_KEY_P8}" ]]; then
             exit 0
           fi
+
+          normalized="$(printf '%b\n' "${APP_STORE_CONNECT_API_KEY_P8}")"
+          if printf '%s' "${normalized}" | base64 --decode >/dev/null 2>&1; then
+            key_payload="$(printf '%s' "${normalized}" | tr -d '\r\n')"
+          else
+            key_payload="$(printf '%s' "${normalized}" | base64 | tr -d '\r\n')"
+          fi
+
           {
             echo "APP_STORE_CONNECT_API_KEY_P8_NORMALIZED<<EOF"
-            printf '%b\n' "${APP_STORE_CONNECT_API_KEY_P8}"
+            printf '%s\n' "${key_payload}"
             echo "EOF"
           } >> "${GITHUB_ENV}"
 
