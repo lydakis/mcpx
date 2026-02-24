@@ -7,7 +7,7 @@ release:
 
 builds:
   - id: mcpx
-    main: ./cmd/mcpx
+    main: ./cmd/mcpx/main.go
     binary: mcpx
     env:
       - CGO_ENABLED=0
