@@ -67,32 +67,14 @@ func Run(args []string) int {
 	cwd := callerWorkingDirectory()
 
 	// One arg (server only): list tools
-	if handled, describe, code := parseServerListModeArgs(args[1:], os.Stderr); handled {
-		if code != ipc.ExitOK {
-			return code
-		}
-		return listTools(client, server, describe, cwd)
+	if len(args) == 1 {
+		return listTools(client, server, cwd)
 	}
 
 	tool := args[1]
 	toolArgs := args[2:]
 
 	return callTool(client, server, tool, toolArgs, cwd)
-}
-
-func parseServerListModeArgs(args []string, stderr io.Writer) (handled bool, describe bool, code int) {
-	if len(args) == 0 {
-		return true, false, ipc.ExitOK
-	}
-
-	if args[0] != "--describe" {
-		return false, false, 0
-	}
-	if len(args) > 1 {
-		fmt.Fprintln(stderr, "mcpx: usage: mcpx <server> [--describe]")
-		return true, false, ipc.ExitUsageErr
-	}
-	return true, true, ipc.ExitOK
 }
 
 func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -137,7 +119,7 @@ func listServers(cfg *config.Config) int {
 	return 0
 }
 
-func listTools(client *ipc.Client, server string, describe bool, cwd string) int {
+func listTools(client *ipc.Client, server, cwd string) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "list_tools",
 		Server: server,
@@ -150,18 +132,8 @@ func listTools(client *ipc.Client, server string, describe bool, cwd string) int
 	if resp.Stderr != "" {
 		fmt.Fprintln(os.Stderr, resp.Stderr)
 	}
-	writeListedTools(resp.Content, describe, os.Stdout)
+	os.Stdout.Write(resp.Content)
 	return resp.ExitCode
-}
-
-func writeListedTools(content []byte, describe bool, out io.Writer) {
-	if describe {
-		out.Write(content) //nolint:errcheck
-		return
-	}
-	for _, tool := range parseToolListOutput(content) {
-		fmt.Fprintln(out, tool)
-	}
 }
 
 func showHelp(client *ipc.Client, server, tool, cwd string) int {

@@ -245,8 +245,7 @@ The CLI surface is identical regardless of transport. The agent doesn't know or 
 
 ```bash
 mcpx                                    # list configured servers
-mcpx <server>                           # list tool names
-mcpx <server> --describe                # list tools with descriptions
+mcpx <server>                           # list tools
 mcpx <server> <tool> --help             # full help: params, output schema, examples
 man mcpx-<server>-<tool>                # man page (auto-generated)
 
@@ -278,8 +277,6 @@ mcpx filesystem read-file --path="./README.md" | head -20          # first 20 li
 ```
 
 Tool names are kebab-cased (`search_repositories` → `search-repositories`). Originals still work as aliases.
-
-For context efficiency, `mcpx <server>` returns names only. Use `--describe` when descriptions are needed.
 
 MCP tool parameters map to GNU-style `--long-flags`. Required params are required flags. Optional params have defaults shown in `--help`. Booleans support `--flag` (true) and `--no-flag` (false). Nested objects fall back to JSON: `--config='{"nested": "value"}'`.
 

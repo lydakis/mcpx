@@ -83,7 +83,6 @@ _mcpx_completion() {
   if [[ ${COMP_CWORD} -eq 2 ]]; then
     local tools
     tools="$(mcpx __complete tools "$first" 2>/dev/null)"
-    tools="$tools"$'\n'"--describe"
     COMPREPLY=( $(compgen -W "$tools" -- "$cur") )
     return 0
   fi
@@ -137,7 +136,6 @@ _mcpx_completion() {
 
   if (( CURRENT == 3 )); then
     tools=(${(f)"$(mcpx __complete tools ${words[2]} 2>/dev/null)"})
-    tools+=(--describe)
     _describe 'tool' tools
     return
   fi
@@ -180,7 +178,7 @@ complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "--describe (mcpx __complete tools (__mcpx_server) 2>/dev/null)"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
 `
 

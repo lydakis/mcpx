@@ -30,9 +30,6 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("bash completion missing conditional skill root entry: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("\"--describe\"")) {
-		t.Fatalf("bash completion missing --describe list mode flag: %q", out.String())
-	}
 	if !bytes.Contains(out.Bytes(), []byte("--no-claude-link")) {
 		t.Fatalf("bash completion missing skill install flags: %q", out.String())
 	}
@@ -90,9 +87,6 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("zsh completion missing conditional skill branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("tools+=(--describe)")) {
-		t.Fatalf("zsh completion missing --describe list mode flag: %q", out.String())
-	}
 }
 
 func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
@@ -111,9 +105,6 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = skill; and not __mcpx_has_skill_server")) {
 		t.Fatalf("fish completion missing conditional skill branch: %q", out.String())
-	}
-	if !bytes.Contains(out.Bytes(), []byte("-a \"--describe (mcpx __complete tools")) {
-		t.Fatalf("fish completion missing --describe list mode flag: %q", out.String())
 	}
 }
 

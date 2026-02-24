@@ -5,7 +5,7 @@ Unix-native CLI wrapper for MCP servers.
 `mcpx` keeps the command contract simple:
 
 - `mcpx` lists servers
-- `mcpx <server>` lists tool names
+- `mcpx <server>` lists tools
 - `mcpx <server> <tool>` calls a tool
 
 Utility commands:
@@ -66,7 +66,6 @@ Use these to validate a local MCP quickly:
 
 ```bash
 mcpx <server>
-mcpx <server> --describe
 mcpx <server> <tool> --help
 mcpx <server> <tool> -v
 echo $?    # inspect exit code contract
