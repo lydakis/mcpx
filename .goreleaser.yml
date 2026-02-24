@@ -1,0 +1,59 @@
+version: 2
+
+release:
+  github:
+    owner: lydakis
+    name: mcpx
+
+builds:
+  - id: mcpx
+    main: ./cmd/mcpx
+    binary: mcpx
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/lydakis/mcpx/internal/cli.buildVersion={{ .Version }}
+
+archives:
+  - id: mcpx
+    ids:
+      - mcpx
+    name_template: "mcpx_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: ["tar.gz"]
+
+checksum:
+  name_template: "checksums.txt"
+
+notarize:
+  macos:
+    - ids:
+        - mcpx
+      enabled: '{{ if and (index .Env "APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64") (index .Env "APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD") (index .Env "APP_STORE_CONNECT_KEY_ID") (index .Env "APP_STORE_CONNECT_ISSUER_ID") (index .Env "APP_STORE_CONNECT_API_KEY_P8_NORMALIZED") }}true{{ else }}false{{ end }}'
+      sign:
+        certificate: "env:APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64"
+        password: "{{ .Env.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
+      notarize:
+        key_id: "{{ .Env.APP_STORE_CONNECT_KEY_ID }}"
+        issuer_id: "{{ .Env.APP_STORE_CONNECT_ISSUER_ID }}"
+        key: "{{ .Env.APP_STORE_CONNECT_API_KEY_P8_NORMALIZED }}"
+        timeout: 20m
+        wait: true
+
+homebrew_casks:
+  - name: mcpx
+    homepage: https://github.com/lydakis/mcpx
+    description: Unix-native CLI wrapper for MCP servers
+    ids:
+      - mcpx
+    binaries:
+      - mcpx
+    repository:
+      owner: lydakis
+      name: homebrew-mcpx
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
