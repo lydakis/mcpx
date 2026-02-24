@@ -22,7 +22,32 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Validate notarization + tap secrets
+      - name: Validate release secrets
+        env:
+          GORELEASER_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
+        run: |
+          if [[ -z "${GORELEASER_TOKEN}" ]]; then
+            echo "Missing required secret: GORELEASER_TOKEN" >&2
+            exit 1
+          fi
+
+          missing_notarization=0
+          for key in \
+            APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64 \
+            APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD \
+            APPLE_DEVELOPER_ID_APPLICATION \
+            APP_STORE_CONNECT_API_KEY_P8 \
+            APP_STORE_CONNECT_KEY_ID \
+            APP_STORE_CONNECT_ISSUER_ID
+          do
+            if [[ -z "${!key:-}" ]]; then
+              echo "warning: notarization secret not set: ${key}" >&2
+              missing_notarization=1
+            fi
+          done
+          if [[ "${missing_notarization}" -ne 0 ]]; then
+            echo "warning: macOS notarization will be skipped for this release." >&2
+          fi
         env:
           APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
           APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -30,28 +55,9 @@ jobs:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          GORELEASER_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
-        run: |
-          missing=0
-          for key in \
-            APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64 \
-            APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD \
-            APPLE_DEVELOPER_ID_APPLICATION \
-            APP_STORE_CONNECT_API_KEY_P8 \
-            APP_STORE_CONNECT_KEY_ID \
-            APP_STORE_CONNECT_ISSUER_ID \
-            GORELEASER_TOKEN
-          do
-            if [[ -z "${!key}" ]]; then
-              echo "Missing required secret: ${key}" >&2
-              missing=1
-            fi
-          done
-          if [[ "${missing}" -ne 0 ]]; then
-            exit 1
-          fi
 
       - name: Normalize App Store Connect key
+        if: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
         env:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
         run: |
