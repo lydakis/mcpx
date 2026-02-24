@@ -56,10 +56,12 @@ jobs:
           fi
 
       - name: Normalize App Store Connect key
-        if: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 != '' }}
         env:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
         run: |
+          if [[ -z "${APP_STORE_CONNECT_API_KEY_P8}" ]]; then
+            exit 0
+          fi
           {
             echo "APP_STORE_CONNECT_API_KEY_P8_NORMALIZED<<EOF"
             printf '%b\n' "${APP_STORE_CONNECT_API_KEY_P8}"
