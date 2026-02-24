@@ -262,3 +262,22 @@ func (p *Pool) CloseAll() {
 		}
 	}
 }
+
+// Reset swaps the underlying config and drops all active connections.
+func (p *Pool) Reset(cfg *config.Config) {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	conns := p.conns
+	p.conns = make(map[string]*connection)
+	p.cfg = cfg
+	p.mu.Unlock()
+
+	for _, conn := range conns {
+		if conn != nil && conn.close != nil {
+			conn.close()
+		}
+	}
+}

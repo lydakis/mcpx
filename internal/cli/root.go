@@ -64,16 +64,35 @@ func Run(args []string) int {
 		return ipc.ExitInternal
 	}
 	client := ipc.NewClient(ipc.SocketPath(), nonce)
+	cwd := callerWorkingDirectory()
 
 	// One arg (server only): list tools
-	if len(args) == 1 {
-		return listTools(client, server)
+	if handled, describe, code := parseServerListModeArgs(args[1:], os.Stderr); handled {
+		if code != ipc.ExitOK {
+			return code
+		}
+		return listTools(client, server, describe, cwd)
 	}
 
 	tool := args[1]
 	toolArgs := args[2:]
 
-	return callTool(client, server, tool, toolArgs)
+	return callTool(client, server, tool, toolArgs, cwd)
+}
+
+func parseServerListModeArgs(args []string, stderr io.Writer) (handled bool, describe bool, code int) {
+	if len(args) == 0 {
+		return true, false, ipc.ExitOK
+	}
+
+	if args[0] != "--describe" {
+		return false, false, 0
+	}
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "mcpx: usage: mcpx <server> [--describe]")
+		return true, false, ipc.ExitUsageErr
+	}
+	return true, true, ipc.ExitOK
 }
 
 func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -118,10 +137,11 @@ func listServers(cfg *config.Config) int {
 	return 0
 }
 
-func listTools(client *ipc.Client, server string) int {
+func listTools(client *ipc.Client, server string, describe bool, cwd string) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "list_tools",
 		Server: server,
+		CWD:    cwd,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
@@ -130,15 +150,26 @@ func listTools(client *ipc.Client, server string) int {
 	if resp.Stderr != "" {
 		fmt.Fprintln(os.Stderr, resp.Stderr)
 	}
-	os.Stdout.Write(resp.Content)
+	writeListedTools(resp.Content, describe, os.Stdout)
 	return resp.ExitCode
 }
 
-func showHelp(client *ipc.Client, server, tool string) int {
+func writeListedTools(content []byte, describe bool, out io.Writer) {
+	if describe {
+		out.Write(content) //nolint:errcheck
+		return
+	}
+	for _, tool := range parseToolListOutput(content) {
+		fmt.Fprintln(out, tool)
+	}
+}
+
+func showHelp(client *ipc.Client, server, tool, cwd string) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "tool_schema",
 		Server: server,
 		Tool:   tool,
+		CWD:    cwd,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
@@ -166,14 +197,14 @@ func showHelp(client *ipc.Client, server, tool string) int {
 	return 0
 }
 
-func callTool(client *ipc.Client, server, tool string, rawArgs []string) int {
+func callTool(client *ipc.Client, server, tool string, rawArgs []string, cwd string) int {
 	parsed, err := parseToolCallArgs(rawArgs, os.Stdin, stdinIsTTY(os.Stdin))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
 		return ipc.ExitUsageErr
 	}
 	if parsed.help {
-		return showHelp(client, server, tool)
+		return showHelp(client, server, tool, cwd)
 	}
 
 	argsJSON, err := json.Marshal(parsed.toolArgs)
@@ -191,6 +222,7 @@ func callTool(client *ipc.Client, server, tool string, rawArgs []string) int {
 		Args:    argsJSON,
 		Cache:   parsed.cacheTTL,
 		Verbose: parsed.verbose,
+		CWD:     cwd,
 	})
 	if err != nil {
 		if !parsed.quiet {
@@ -230,4 +262,12 @@ func stdinIsTTY(file *os.File) bool {
 		return true
 	}
 	return info.Mode()&fs.ModeCharDevice != 0
+}
+
+func callerWorkingDirectory() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return cwd
 }

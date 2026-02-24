@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,9 @@ var (
 	cacheGet         = cache.Get
 	cacheGetMetadata = cache.GetMetadata
 	cachePut         = cache.Put
+	loadConfigFn     = config.Load
+	mergeFallbackFn  = config.MergeFallbackServersForCWD
+	validateConfigFn = config.Validate
 	signalShutdownFn = func() {
 		p, _ := os.FindProcess(os.Getpid())
 		_ = p.Signal(syscall.SIGTERM)
@@ -46,15 +50,9 @@ func Run() error {
 		return fmt.Errorf("creating runtime dir: %w", err)
 	}
 
-	cfg, err := config.Load()
+	cfg, err := loadValidatedConfigForCWD("")
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-	if ferr := config.MergeFallbackServers(cfg); ferr != nil {
-		fmt.Fprintf(os.Stderr, "mcpx daemon: warning: failed to load fallback MCP server config: %v\n", ferr)
-	}
-	if verr := config.Validate(cfg); verr != nil {
-		return fmt.Errorf("invalid config: %w", verr)
+		return err
 	}
 
 	nonce, err := readOrCreateNonce()
@@ -69,7 +67,17 @@ func Run() error {
 	ka.SetOnAllIdle(signalShutdownFn)
 	defer ka.Stop()
 
+	var handlerMu sync.Mutex
+	activeCWD := ""
 	handler := func(ctx context.Context, req *ipc.Request) *ipc.Response {
+		handlerMu.Lock()
+		defer handlerMu.Unlock()
+
+		if requestNeedsRuntimeConfig(req) {
+			if err := syncRuntimeConfigForRequest(req.CWD, &activeCWD, &cfg, pool, ka); err != nil {
+				return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
+			}
+		}
 		return dispatch(ctx, cfg, pool, ka, req)
 	}
 
@@ -88,6 +96,54 @@ func Run() error {
 
 	fmt.Fprintln(os.Stderr, "mcpx daemon: shutting down")
 	return nil
+}
+
+func requestNeedsRuntimeConfig(req *ipc.Request) bool {
+	if req == nil {
+		return false
+	}
+	switch req.Type {
+	case "list_servers", "list_tools", "tool_schema", "call_tool":
+		return true
+	default:
+		return false
+	}
+}
+
+func syncRuntimeConfigForRequest(reqCWD string, activeCWD *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive) error {
+	normalized := strings.TrimSpace(reqCWD)
+	if normalized == strings.TrimSpace(*activeCWD) {
+		return nil
+	}
+
+	nextCfg, err := loadValidatedConfigForCWD(normalized)
+	if err != nil {
+		return err
+	}
+
+	if ka != nil {
+		ka.Stop()
+	}
+	if pool != nil {
+		pool.Reset(nextCfg)
+	}
+	*cfg = nextCfg
+	*activeCWD = normalized
+	return nil
+}
+
+func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {
+	cfg, err := loadConfigFn()
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+	if ferr := mergeFallbackFn(cfg, cwd); ferr != nil {
+		fmt.Fprintf(os.Stderr, "mcpx daemon: warning: failed to load fallback MCP server config: %v\n", ferr)
+	}
+	if verr := validateConfigFn(cfg); verr != nil {
+		return nil, fmt.Errorf("invalid config: %w", verr)
+	}
+	return cfg, nil
 }
 
 func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request) *ipc.Response {

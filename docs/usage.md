@@ -42,7 +42,8 @@ headers = { Authorization = "Bearer ${APIFY_TOKEN}" }
 
 ```bash
 mcpx                         # list servers
-mcpx <server>                # list tools
+mcpx <server>                # list tool names
+mcpx <server> --describe     # list tools with descriptions
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> ...     # call tool
 mcpx skill install           # install built-in mcpx skill for agents
@@ -120,4 +121,8 @@ man mcpx-github-search-repositories
     - `~/.cursor/mcp.json`
     - Claude Desktop config
     - Cline MCP settings
-  - Check fallback files exist and contain a top-level `mcpServers` object.
+    - Claude Code user/local config (`~/.claude.json`)
+    - Claude Code project config (`.mcp.json`, nearest parent)
+    - Kiro user config (`~/.kiro/settings/mcp.json`)
+    - Kiro project config (`.kiro/settings/mcp.json`, nearest parent)
+  - Check fallback files exist and expose `mcpServers` (top-level for most clients; Claude Code local scope uses `projects[<path>].mcpServers`).
