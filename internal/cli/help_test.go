@@ -224,6 +224,7 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 			"cache":   map[string]any{"type": "boolean"},
 			"query":   map[string]any{"type": "string"},
 			"dry_run": map[string]any{"type": "boolean"},
+			"inputs":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
 		"required": []any{"query"},
 	}
@@ -247,6 +248,9 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--no-dry_run <boolean>")) {
 		t.Fatalf("missing boolean negation tool flag: %q", got)
 	}
+	if !bytes.Contains(out.Bytes(), []byte("--inputs <array> (optional, repeatable)")) {
+		t.Fatalf("missing array repeatable marker: %q", got)
+	}
 	if !bytes.Contains(out.Bytes(), []byte("Global flags:")) {
 		t.Fatalf("missing global flags section: %q", got)
 	}
@@ -258,6 +262,21 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("Use -- to force all following flags to tool parameters")) {
 		t.Fatalf("missing -- namespace guidance: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Type to flag forms:")) {
+		t.Fatalf("missing type-to-flag forms section: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("array: --item=a --item=b OR --items='[\"a\",\"b\"]'")) {
+		t.Fatalf("missing array flag form guidance: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Flag conventions vary by server and tool")) {
+		t.Fatalf("missing conventions caveat: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Output contract:")) {
+		t.Fatalf("missing output contract section: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Exit code caveat:")) {
+		t.Fatalf("missing exit code caveat section: %q", got)
 	}
 }
 

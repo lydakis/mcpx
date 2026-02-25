@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,6 +266,40 @@ func TestCallToolVerboseIncludesCacheAgeAndTTLWhenAvailable(t *testing.T) {
 	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, true)
 	if resp.Stderr != "mcpx: cache hit (age=23s ttl=1m0s)" {
 		t.Fatalf("callTool() stderr = %q, want %q", resp.Stderr, "mcpx: cache hit (age=23s ttl=1m0s)")
+	}
+}
+
+func TestCallToolUsageErrorIncludesStderrByDefault(t *testing.T) {
+	restore := saveCallToolHooks()
+	defer restore()
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	poolCallTool = func(_ context.Context, _ *mcppool.Pool, _, _ string, _ json.RawMessage) (*mcp.CallToolResult, error) {
+		return nil, mcp.ErrInvalidParams
+	}
+	cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
+		return nil, 0, false
+	}
+
+	resp := callTool(context.Background(), cfg, nil, ka, "github", "search", json.RawMessage(`{}`), nil, false)
+	if resp.ExitCode != ipc.ExitUsageErr {
+		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
+	}
+	if resp.Stderr == "" {
+		t.Fatal("callTool() stderr is empty, want usage diagnostics")
+	}
+	if !strings.Contains(resp.Stderr, "calling tool:") {
+		t.Fatalf("callTool() stderr = %q, want calling tool prefix", resp.Stderr)
+	}
+	if !strings.Contains(strings.ToLower(resp.Stderr), "invalid params") {
+		t.Fatalf("callTool() stderr = %q, want invalid params details", resp.Stderr)
 	}
 }
 

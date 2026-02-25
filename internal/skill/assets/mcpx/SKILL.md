@@ -32,6 +32,8 @@ mcpx <server> <tool> --param=value | head -20
 
 Use tool names exactly as exposed by the MCP server. `mcpx` does not rename or alias tool names.
 
+Flag conventions vary by tool and server. Always inspect each tool's `--help` before first use.
+
 ## Exit Codes
 
 | Code | Meaning | Agent action |
@@ -92,6 +94,14 @@ mcpx <server> <tool> --item=a --item=b
 
 # JSON array string
 mcpx <server> <tool> --items='["a","b"]'
+```
+
+## Common Pipeline
+
+```bash
+# Search -> pick URL -> read -> extract
+url="$(mcpx <server> <search-tool> --query='topic' --maxResults=5 | jq -r '.results[0].url')"
+mcpx <server> <read-tool> --inputs="[\"$url\"]" | jq '.content'
 ```
 
 ## Rules

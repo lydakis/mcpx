@@ -50,6 +50,7 @@ mcpx skill install           # install built-in mcpx skill for agents
 ```
 
 Tool names are used exactly as exposed by the server.
+Flag conventions can vary by tool and server, so run `mcpx <server> <tool> --help` before first use.
 
 Examples:
 
@@ -57,6 +58,13 @@ Examples:
 mcpx github search-repositories --query=mcp
 mcpx github search-repositories '{"query":"mcp"}'
 echo '{"query":"mcp"}' | mcpx github search-repositories
+```
+
+Generic pipeline:
+
+```bash
+url="$(mcpx <server> <search-tool> --query='topic' --maxResults=5 | jq -r '.results[0].url')"
+mcpx <server> <read-tool> --inputs="[\"$url\"]" | jq '.content'
 ```
 
 ## Caching

@@ -64,6 +64,10 @@ func printToolHelp(w io.Writer, server, tool, description string, inputSchema, o
 	fmt.Fprintln(w, "\n  Namespace:")
 	fmt.Fprintln(w, "    Prefix colliding tool params with --tool- (for example: --tool-cache).")
 	fmt.Fprintln(w, "    Use -- to force all following flags to tool parameters.")
+	fmt.Fprintln(w, "\n  Type to flag forms:")
+	printTypeToFlagForms(w)
+	fmt.Fprintln(w, "\n  Conventions:")
+	fmt.Fprintln(w, "    Flag conventions vary by server and tool. Check this help for each tool.")
 
 	if outputSchema == nil {
 		fmt.Fprintln(w, "\nOutput: not declared by server")
@@ -71,11 +75,24 @@ func printToolHelp(w io.Writer, server, tool, description string, inputSchema, o
 		fmt.Fprintln(w, "\nOutput:")
 		printSchemaProperties(w, outputSchema, false)
 	}
+	fmt.Fprintln(w, "\nOutput contract:")
+	fmt.Fprintln(w, "  - structuredContent is emitted as JSON.")
+	fmt.Fprintln(w, "  - text content blocks are emitted as text (single block as-is, multiple newline-joined).")
+	fmt.Fprintln(w, "  - mcpx does not add wrappers around server content.")
+	fmt.Fprintln(w, "\nExit code caveat:")
+	fmt.Fprintln(w, "  Some servers encode domain errors in successful (exit 0) payloads; validate response fields when scripting.")
 
 	fmt.Fprintln(w, "\nExamples:")
 	for _, ex := range toolExamples(server, tool, inputSchema) {
 		fmt.Fprintf(w, "  %s\n", ex)
 	}
+}
+
+func printTypeToFlagForms(w io.Writer) {
+	fmt.Fprintln(w, "    string/number/integer: --key=value")
+	fmt.Fprintln(w, "    boolean: --flag / --no-flag")
+	fmt.Fprintln(w, "    array: --item=a --item=b OR --items='[\"a\",\"b\"]'")
+	fmt.Fprintln(w, "    object: --config='{\"k\":\"v\"}'")
 }
 
 func printToolInputFlags(w io.Writer, schema map[string]any) {
@@ -393,11 +410,14 @@ func toStringSlice(v any) []string {
 }
 
 func optionSemantics(line schemaLine) string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
 	if line.Required {
 		parts = append(parts, "required")
 	} else {
 		parts = append(parts, "optional")
+	}
+	if line.Type == "array" {
+		parts = append(parts, "repeatable")
 	}
 	if line.HasDefault {
 		parts = append(parts, "default: "+line.Default)
