@@ -292,11 +292,22 @@ func callTool(client *ipc.Client, server, tool string, rawArgs []string, cwd str
 		}
 		return ipc.ExitInternal
 	}
-	if !parsed.quiet && resp.Stderr != "" {
-		fmt.Fprintln(os.Stderr, resp.Stderr)
-	}
-	writeToolResponse(resp, parsed.quiet, os.Stdout, os.Stderr)
+	writeCallResponse(resp, parsed.quiet, os.Stdout, os.Stderr)
 	return resp.ExitCode
+}
+
+func writeCallResponse(resp *ipc.Response, quiet bool, stdout, stderr io.Writer) {
+	if resp == nil {
+		return
+	}
+	if quiet {
+		writeToolResponse(resp, true, stdout, stderr)
+		return
+	}
+	if resp.Stderr != "" {
+		fmt.Fprintln(stderr, resp.Stderr)
+	}
+	writeToolResponse(resp, false, stdout, stderr)
 }
 
 func writeToolResponse(resp *ipc.Response, quiet bool, stdout, stderr io.Writer) {

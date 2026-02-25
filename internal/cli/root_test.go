@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
+	"github.com/lydakis/mcpx/internal/ipc"
 )
 
 func TestHandleRootFlagsVersion(t *testing.T) {
@@ -276,5 +277,24 @@ args = ["ok"]
 
 	if code := Run([]string{"github", "--help"}); code != 0 {
 		t.Fatalf("Run([github --help]) = %d, want 0", code)
+	}
+}
+
+func TestWriteCallResponseUsageErrorPrintsStderrWithoutVerbose(t *testing.T) {
+	resp := &ipc.Response{
+		ExitCode: ipc.ExitUsageErr,
+		Stderr:   "calling tool: invalid params: unknown argument \"bad\"",
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	writeCallResponse(resp, false, &out, &errOut)
+
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("invalid params")) {
+		t.Fatalf("stderr = %q, want invalid params diagnostics", errOut.String())
 	}
 }
