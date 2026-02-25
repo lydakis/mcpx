@@ -17,6 +17,8 @@ mcpx <server> -v                        # list tools (full descriptions)
 
 # 2. Inspect before calling (always do this for unfamiliar tools)
 mcpx <server> <tool> --help             # shows params, types, output schema
+# Note: tool listings can be large (50k+ chars). Pipe through grep or head for discovery:
+# mcpx <server> | grep -i "search"
 
 # 3. Call with native flags (preferred) or JSON
 mcpx <server> <tool> --param=value
@@ -81,11 +83,26 @@ mcpx unwraps MCP transport envelopes and writes content directly to stdout:
 
 mcpx does not add a wrapper like `{"content": ...}`.
 
-Some tools still return text that itself contains serialized JSON. In that case, do one extra decode step in `jq`/Python.
+Example — a tool that returns structured JSON:
+
+```
+$ mcpx github search-repositories --query=mcp --cache=60s | head -c 200
+{"total_count":1042,"items":[{"full_name":"modelcontextprotocol/servers","description":"MCP servers",...}]}
+```
+
+Compare with raw MCP SDK output for the same call:
+
+```
+[{"type":"text","text":"{\"total_count\":1042,\"items\":[...]}"}]
+```
+
+mcpx strips the `[{type, text}]` envelope. You get the content directly.
+
+Some tools still return text that itself contains serialized JSON (JSON-in-JSON). In that case, pipe through one extra `fromjson` step:
 
 ```bash
-# Example pattern when the tool returns JSON encoded inside a text field
-mcpx <server> <tool> --param=value | jq '.[0].text | fromjson'
+# Tool returns a JSON string inside a text field — double-decode
+mcpx <server> <tool> --param=value | jq 'fromjson | .content'
 ```
 
 Check `--help` for declared output schema, then pipe accordingly:
@@ -106,12 +123,20 @@ mcpx <server> <tool> --item=a --item=b
 mcpx <server> <tool> --items='["a","b"]'
 ```
 
-## Common Pipeline
+## Common Pipelines
 
 ```bash
 # Search -> pick URL -> read -> extract
 url="$(mcpx <server> <search-tool> --query='topic' --maxResults=5 | jq -r '.results[0].url')"
 mcpx <server> <read-tool> --inputs="[\"$url\"]" | jq '.content'
+
+# JSON-in-JSON: when a tool returns serialized JSON inside a text response,
+# use fromjson to unwrap it before extracting fields
+mcpx <server> <tool> --id=123 --cache=5m | jq 'fromjson | .content.packageDiffs'
+
+# Large output: cache the call and run multiple jq passes against it
+mcpx <server> <tool> --id=123 --cache=5m | jq '.summary'
+mcpx <server> <tool> --id=123 --cache=5m | jq '.files | length'
 ```
 
 ## Rules
