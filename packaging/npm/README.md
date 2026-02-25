@@ -1,6 +1,8 @@
 # mcpx-go (npm)
 
-`mcpx-go` installs the `mcpx` Go binary from GitHub Releases and exposes it as `mcpx-go`.
+`mcpx-go` is the npm distribution of [`mcpx`](https://github.com/lydakis/mcpx), a Unix-native CLI wrapper for MCP servers.
+
+This package is not a JavaScript SDK. It installs a `mcpx-go` executable that downloads and runs the official `mcpx` Go binary from GitHub Releases.
 
 ## Install
 
@@ -8,14 +10,23 @@
 npm install -g mcpx-go
 ```
 
-## Usage
+## Quick Start
 
 ```bash
 mcpx-go --version
+mcpx-go
+mcpx-go github
 mcpx-go github search-repositories --query=mcp
 ```
+
+Command contract:
+
+- `mcpx-go` lists servers
+- `mcpx-go <server>` lists tools
+- `mcpx-go <server> <tool>` calls a tool
 
 ## Notes
 
 - Supports: macOS/Linux, amd64/arm64.
 - Set `MCPX_GO_SKIP_DOWNLOAD=1` to skip downloading and rely on `mcpx` in `PATH`.
+- Full docs and source: https://github.com/lydakis/mcpx
