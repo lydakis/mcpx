@@ -16,6 +16,8 @@ type skillInstallArgs struct {
 	skipClaudeLink  bool
 	codexDir        string
 	enableCodexLink bool
+	kiroDir         string
+	enableKiroLink  bool
 	help            bool
 }
 
@@ -66,6 +68,8 @@ func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
 		SkipClaudeLink:  parsed.skipClaudeLink,
 		CodexDir:        parsed.codexDir,
 		EnableCodexLink: parsed.enableCodexLink,
+		KiroDir:         parsed.kiroDir,
+		EnableKiroLink:  parsed.enableKiroLink,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "mcpx: install skill: %v\n", err)
@@ -79,7 +83,10 @@ func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
 	if result.CodexLink != "" {
 		fmt.Fprintf(stdout, "Codex link: %s -> %s\n", result.CodexLink, result.CodexLinkTarget)
 	}
-	if result.ClaudeLink == "" && result.CodexLink == "" {
+	if result.KiroLink != "" {
+		fmt.Fprintf(stdout, "Kiro link: %s -> %s\n", result.KiroLink, result.KiroLinkTarget)
+	}
+	if result.ClaudeLink == "" && result.CodexLink == "" && result.KiroLink == "" {
 		fmt.Fprintln(stdout, "No symlinks created.")
 	}
 
@@ -89,6 +96,7 @@ func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
 func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 	parsed := &skillInstallArgs{}
 	codexDirSet := false
+	kiroDirSet := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -99,6 +107,8 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 			parsed.skipClaudeLink = true
 		case arg == "--codex-link":
 			parsed.enableCodexLink = true
+		case arg == "--kiro-link":
+			parsed.enableKiroLink = true
 		case strings.HasPrefix(arg, "--data-agent-dir="):
 			parsed.dataAgentDir = strings.TrimSpace(strings.TrimPrefix(arg, "--data-agent-dir="))
 		case arg == "--data-agent-dir":
@@ -125,6 +135,16 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 			}
 			parsed.codexDir = value
 			codexDirSet = true
+		case strings.HasPrefix(arg, "--kiro-dir="):
+			parsed.kiroDir = strings.TrimSpace(strings.TrimPrefix(arg, "--kiro-dir="))
+			kiroDirSet = true
+		case arg == "--kiro-dir":
+			value, err := parseSkillInstallPathArg(args, &i, "--kiro-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.kiroDir = value
+			kiroDirSet = true
 		case strings.HasPrefix(arg, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -136,6 +156,9 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 		if codexDirSet {
 			parsed.enableCodexLink = true
 		}
+		if kiroDirSet {
+			parsed.enableKiroLink = true
+		}
 		if parsed.dataAgentDir == "" {
 			parsed.dataAgentDir = skill.DefaultDataAgentDir()
 		}
@@ -144,6 +167,9 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 		}
 		if parsed.codexDir == "" {
 			parsed.codexDir = skill.DefaultCodexDir()
+		}
+		if parsed.kiroDir == "" {
+			parsed.kiroDir = skill.DefaultKiroDir()
 		}
 	}
 
@@ -177,8 +203,10 @@ func printSkillInstallHelp(out io.Writer) {
 	fmt.Fprintf(out, "  --data-agent-dir <path>  Skill root (default: %s)\n", skill.DefaultDataAgentDir())
 	fmt.Fprintf(out, "  --claude-dir <path>      Claude skill link root (default: %s)\n", skill.DefaultClaudeDir())
 	fmt.Fprintf(out, "  --codex-dir <path>       Legacy Codex link root (default: %s, implies --codex-link)\n", skill.DefaultCodexDir())
+	fmt.Fprintf(out, "  --kiro-dir <path>        Kiro skill link root (default: %s, implies --kiro-link)\n", skill.DefaultKiroDir())
 	fmt.Fprintln(out, "  --no-claude-link         Skip creating ~/.claude/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --codex-link             Also create ~/.codex/skills/mcpx symlink.")
+	fmt.Fprintln(out, "  --kiro-link              Also create ~/.kiro/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --help, -h               Show install help.")
 }
 

@@ -13,7 +13,7 @@ Tool names are used exactly as exposed by each server (no client-side renaming/a
 Utility commands:
 
 - `mcpx completion <bash|zsh|fish>` prints shell completion scripts
-- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code
+- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code (optional flags also link for Codex/Kiro)
 
 It is designed for agent workflows and shell composition:
 
@@ -53,6 +53,8 @@ mcpx-go --version
 go build ./...
 ./mcpx --version
 ```
+
+Windows users: use WSL2 and run install commands inside your Linux distro shell.
 
 ## Quick Start
 

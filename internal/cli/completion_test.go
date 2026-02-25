@@ -33,6 +33,9 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--no-claude-link")) {
 		t.Fatalf("bash completion missing skill install flags: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("--kiro-link")) {
+		t.Fatalf("bash completion missing kiro skill install flag: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("complete -F _mcpx_completion mcpx")) {
 		t.Fatalf("bash completion missing complete hook: %q", out.String())
 	}

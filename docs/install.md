@@ -1,5 +1,7 @@
 # Install mcpx
 
+Windows users: use WSL2 and run these commands inside your Linux distro shell.
+
 ## Homebrew (Tap Cask)
 
 ```bash
@@ -67,3 +69,11 @@ mcpx skill install
 ```
 
 This installs the built-in `mcpx` skill at `~/.agents/skills/mcpx` and creates a Claude Code symlink at `~/.claude/skills/mcpx`.
+
+Optional links:
+
+```bash
+mcpx skill install --codex-link
+mcpx skill install --kiro-link
+mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
+```

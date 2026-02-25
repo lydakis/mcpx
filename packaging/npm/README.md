@@ -10,6 +10,8 @@ This package is not a JavaScript SDK. It installs a `mcpx-go` executable that do
 npm install -g mcpx-go
 ```
 
+Windows users: use WSL2 and run npm install inside your Linux distro shell.
+
 ## Quick Start
 
 ```bash
@@ -28,5 +30,6 @@ Command contract:
 ## Notes
 
 - Supports: macOS/Linux, amd64/arm64.
+- Windows support is via WSL2 (Linux install path).
 - Set `MCPX_GO_SKIP_DOWNLOAD=1` to skip downloading and rely on `mcpx` in `PATH`.
 - Full docs and source: https://github.com/lydakis/mcpx

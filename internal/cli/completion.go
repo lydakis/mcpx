@@ -76,7 +76,7 @@ _mcpx_completion() {
       COMPREPLY=( $(compgen -W "install" -- "$cur") )
       return 0
     fi
-    COMPREPLY=( $(compgen -W "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --help -h" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h" -- "$cur") )
     return 0
   fi
 
@@ -129,7 +129,7 @@ _mcpx_completion() {
       _values 'skill command' install
       return
     fi
-    flags=(--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --help -h)
+    flags=(--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h)
     _describe 'skill flag' flags
     return
   fi
@@ -177,7 +177,7 @@ complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill_server' -a "skill"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
 `

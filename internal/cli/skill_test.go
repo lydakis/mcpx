@@ -15,6 +15,7 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 	dataDir := filepath.Join(tmp, "agents", "skills")
 	claudeDir := filepath.Join(tmp, "claude", "skills")
 	codexDir := filepath.Join(tmp, "codex", "skills")
+	kiroDir := filepath.Join(tmp, "kiro", "skills")
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	var out bytes.Buffer
@@ -27,6 +28,8 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 		"--claude-dir", claudeDir,
 		"--codex-link",
 		"--codex-dir", codexDir,
+		"--kiro-link",
+		"--kiro-dir", kiroDir,
 	}, cfg, &out, &errOut)
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -45,6 +48,7 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 
 	assertSymlinkTargets(t, filepath.Join(claudeDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
 	assertSymlinkTargets(t, filepath.Join(codexDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
+	assertSymlinkTargets(t, filepath.Join(kiroDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
 
 	if !bytes.Contains(out.Bytes(), []byte("Installed skill file:")) {
 		t.Fatalf("stdout missing install message: %q", out.String())
@@ -103,6 +107,16 @@ func TestParseSkillInstallArgsCodexDirImpliesCodexLink(t *testing.T) {
 	}
 }
 
+func TestParseSkillInstallArgsKiroDirImpliesKiroLink(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--kiro-dir", "/tmp/kiro-skills"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableKiroLink {
+		t.Fatal("enableKiroLink = false, want true when --kiro-dir is set")
+	}
+}
+
 func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -123,6 +137,11 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 			name: "codex-dir",
 			args: []string{"--codex-dir", "--no-claude-link"},
 			want: "missing value for --codex-dir",
+		},
+		{
+			name: "kiro-dir",
+			args: []string{"--kiro-dir", "--no-claude-link"},
+			want: "missing value for --kiro-dir",
 		},
 	}
 

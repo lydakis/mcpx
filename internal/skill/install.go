@@ -21,6 +21,8 @@ type InstallOptions struct {
 	SkipClaudeLink  bool
 	CodexDir        string
 	EnableCodexLink bool
+	KiroDir         string
+	EnableKiroLink  bool
 }
 
 // InstallResult describes where the skill was installed.
@@ -31,6 +33,8 @@ type InstallResult struct {
 	ClaudeLinkTarget string
 	CodexLink        string
 	CodexLinkTarget  string
+	KiroLink         string
+	KiroLinkTarget   string
 }
 
 var (
@@ -46,6 +50,11 @@ func DefaultDataAgentDir() string {
 // DefaultCodexDir returns the default Codex skills directory.
 func DefaultCodexDir() string {
 	return filepath.Join(homeDir(), ".codex", "skills")
+}
+
+// DefaultKiroDir returns the default Kiro skills directory.
+func DefaultKiroDir() string {
+	return filepath.Join(homeDir(), ".kiro", "skills")
 }
 
 // DefaultClaudeDir returns the default Claude Code skills directory.
@@ -68,6 +77,10 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 	codexDir := strings.TrimSpace(opts.CodexDir)
 	if opts.EnableCodexLink && codexDir == "" {
 		codexDir = DefaultCodexDir()
+	}
+	kiroDir := strings.TrimSpace(opts.KiroDir)
+	if opts.EnableKiroLink && kiroDir == "" {
+		kiroDir = DefaultKiroDir()
 	}
 
 	skillDir := filepath.Join(dataAgentDir, Name)
@@ -116,6 +129,20 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 		}
 		result.CodexLink = linkPath
 		result.CodexLinkTarget = linkTarget
+	}
+
+	if opts.EnableKiroLink {
+		if err := os.MkdirAll(kiroDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating kiro skills directory: %w", err)
+		}
+
+		linkPath := filepath.Join(kiroDir, Name)
+		linkTarget, err := ensureSymlink(skillDir, linkPath)
+		if err != nil {
+			return nil, fmt.Errorf("linking kiro skill: %w", err)
+		}
+		result.KiroLink = linkPath
+		result.KiroLinkTarget = linkTarget
 	}
 
 	return result, nil

@@ -18,6 +18,9 @@ func TestDefaultDirsUseHome(t *testing.T) {
 	if got, want := DefaultCodexDir(), filepath.Join("/tmp/home", ".codex", "skills"); got != want {
 		t.Fatalf("DefaultCodexDir() = %q, want %q", got, want)
 	}
+	if got, want := DefaultKiroDir(), filepath.Join("/tmp/home", ".kiro", "skills"); got != want {
+		t.Fatalf("DefaultKiroDir() = %q, want %q", got, want)
+	}
 }
 
 func TestInstallMCPXSkillCreatesSkillAndClaudeLink(t *testing.T) {
@@ -83,6 +86,27 @@ func TestInstallMCPXSkillSupportsOptionalCodexLink(t *testing.T) {
 		t.Fatal("CodexLink is empty, want symlink path")
 	}
 	assertSymlinkTarget(t, result.CodexLink, filepath.Join(dataDir, Name))
+}
+
+func TestInstallMCPXSkillSupportsOptionalKiroLink(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+	kiroDir := filepath.Join(tmp, "kiro", "skills")
+
+	result, err := InstallMCPXSkill(InstallOptions{
+		DataAgentDir:   dataDir,
+		ClaudeDir:      claudeDir,
+		KiroDir:        kiroDir,
+		EnableKiroLink: true,
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPXSkill() error = %v", err)
+	}
+	if result.KiroLink == "" {
+		t.Fatal("KiroLink is empty, want symlink path")
+	}
+	assertSymlinkTarget(t, result.KiroLink, filepath.Join(dataDir, Name))
 }
 
 func TestInstallMCPXSkillFailsWhenLinkPathExistsAsFile(t *testing.T) {

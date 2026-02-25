@@ -102,8 +102,9 @@ Optional flags:
 ```bash
 mcpx skill install --no-claude-link
 mcpx skill install --codex-link
+mcpx skill install --kiro-link
 mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
-mcpx skill install --codex-dir /custom/.codex/skills
+mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
 ```
 
 ## Man Pages
