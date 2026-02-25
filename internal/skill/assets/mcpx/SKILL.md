@@ -53,13 +53,23 @@ mcpx <server> <tool> --param=value || echo "transport-or-tool-failure"
 
 ## Caching
 
-Use `--cache` for read-only tools called in loops or repeated reasoning steps:
+Use `--cache=<ttl>` for read-only tools when you expect repeated calls with the same args in the same task (loops, retrying pipelines, multiple `jq`/Python passes). Add it on the first fetch.
 
 ```bash
-mcpx <server> <tool> --param=value --cache=60s
+# first fetch (stores cache)
+mcpx <server> <tool> --param=value --cache=10m
+
+# same call shape during the analysis window (hits cache)
+mcpx <server> <tool> --param=value --cache=10m | jq '.items[:5]'
 ```
 
-Never use `--cache` with mutating tools (`create`, `delete`, `update`, `post`).
+Notes:
+
+- Cache key is `(server, tool, args)`. Any arg change is a different cache entry.
+- `--cache` always requires a duration.
+- Use `-v` to confirm `cache hit` / `cache miss`.
+- Use `--no-cache` when you must force fresh data.
+- Never use `--cache` with mutating tools (`create`, `delete`, `update`, `post`) or when safety is unknown.
 
 ## Output
 
