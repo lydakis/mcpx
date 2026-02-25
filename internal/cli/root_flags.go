@@ -32,9 +32,7 @@ func handleRootFlags(args []string) (bool, int) {
 		return true, 0
 	case "--help", "-h":
 		printRootHelp(rootStdout)
-		if _, err := writeRootManPage(); err != nil {
-			fmt.Fprintf(rootStderr, "mcpx: warning: failed to write man page: %v\n", err)
-		}
+		maybeWriteRootManPage(rootStderr)
 		return true, 0
 	default:
 		return false, 0
@@ -74,4 +72,7 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Tool listing flags (for `mcpx <server>`):")
 	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
 	fmt.Fprintln(out, "  --json           Emit tool list as JSON")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Man pages:")
+	fmt.Fprintf(out, "  Set %s=1 to write man pages when running --help.\n", writeManPagesEnv)
 }

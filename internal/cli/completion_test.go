@@ -146,28 +146,37 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 	}
 }
 
-func TestParseToolListOutputExtractsUniqueSortedNames(t *testing.T) {
-	got := parseToolListOutput([]byte("b\tsecond\n\nc\nb\tdup\na\tfirst\n"))
+func TestToolListNamesExtractUniqueSortedNames(t *testing.T) {
+	got := toolListNames([]toolListEntry{
+		{Name: "b"},
+		{Name: "c"},
+		{Name: "b"},
+		{Name: "a"},
+	})
 	want := []string{"a", "b", "c"}
 	if len(got) != len(want) {
-		t.Fatalf("len(parseToolListOutput()) = %d, want %d (%v)", len(got), len(want), got)
+		t.Fatalf("len(toolListNames()) = %d, want %d (%v)", len(got), len(want), got)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("parseToolListOutput()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+			t.Fatalf("toolListNames()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
 		}
 	}
 }
 
-func TestParseToolListOutputPreservesNativeToolNames(t *testing.T) {
-	got := parseToolListOutput([]byte("search_repositories\tsnake\nsearch-repositories\tkebab\n"))
+func TestDecodeToolListPayloadParsesJSONEntries(t *testing.T) {
+	entries, err := decodeToolListPayload([]byte(`[{"name":"search_repositories"},{"name":"search-repositories"}]`))
+	if err != nil {
+		t.Fatalf("decodeToolListPayload() error = %v", err)
+	}
+	got := toolListNames(entries)
 	want := []string{"search-repositories", "search_repositories"}
 	if len(got) != len(want) {
-		t.Fatalf("len(parseToolListOutput()) = %d, want %d (%v)", len(got), len(want), got)
+		t.Fatalf("len(toolListNames()) = %d, want %d (%v)", len(got), len(want), got)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("parseToolListOutput()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+			t.Fatalf("toolListNames()[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
 		}
 	}
 }

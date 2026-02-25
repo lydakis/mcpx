@@ -91,6 +91,35 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", errOut.String())
 	}
 	rootManPath := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
+	if _, err := os.Stat(rootManPath); !os.IsNotExist(err) {
+		t.Fatalf("expected no root man page side effect at %q, err=%v", rootManPath, err)
+	}
+}
+
+func TestHandleRootFlagsHelpWritesManPageWhenEnabled(t *testing.T) {
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(writeManPagesEnv, "1")
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	handled, code := handleRootFlags([]string{"--help"})
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	rootManPath := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
 	if _, err := os.Stat(rootManPath); err != nil {
 		t.Fatalf("expected root man page at %q: %v", rootManPath, err)
 	}
@@ -200,8 +229,8 @@ func TestParseToolListArgsSupportsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseToolListArgs() error = %v", err)
 	}
-	if !parsed.json {
-		t.Fatal("json = false, want true")
+	if !parsed.output.isJSON() {
+		t.Fatal("output mode = text, want json")
 	}
 }
 
@@ -248,8 +277,8 @@ func TestParseServerCommandParsesToolListJSONFlag(t *testing.T) {
 	if !cmd.list {
 		t.Fatal("list = false, want true")
 	}
-	if !cmd.listOpts.json {
-		t.Fatal("json = false, want true")
+	if !cmd.listOpts.output.isJSON() {
+		t.Fatal("output mode = text, want json")
 	}
 }
 
@@ -348,35 +377,6 @@ args = ["ok"]
 	want := []string{"alpha", "beta"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("servers = %v, want %v", got, want)
-	}
-}
-
-func TestNormalizeToolListJSONPayloadAcceptsValidJSON(t *testing.T) {
-	raw := []byte(`[{"name":"list_issues","description":"List issues"}]`)
-
-	got, err := normalizeToolListJSONPayload(raw)
-	if err != nil {
-		t.Fatalf("normalizeToolListJSONPayload() error = %v", err)
-	}
-
-	var decoded []map[string]string
-	if err := json.Unmarshal(got, &decoded); err != nil {
-		t.Fatalf("json.Unmarshal(normalized payload): %v; payload=%q", err, string(got))
-	}
-
-	if len(decoded) != 1 || decoded[0]["name"] != "list_issues" {
-		t.Fatalf("normalized payload = %#v, want one list_issues entry", decoded)
-	}
-	if got[len(got)-1] != '\n' {
-		t.Fatalf("normalized payload must end with newline: %q", string(got))
-	}
-}
-
-func TestNormalizeToolListJSONPayloadRejectsLegacyTextOutput(t *testing.T) {
-	raw := []byte("list_issues\tList issues\nsearch_repositories\tSearch repositories quickly\n")
-
-	if _, err := normalizeToolListJSONPayload(raw); err == nil {
-		t.Fatal("normalizeToolListJSONPayload() error = nil, want non-nil")
 	}
 }
 

@@ -22,12 +22,12 @@ func Run(args []string) int {
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
 	}
 
 	if ferr := config.MergeFallbackServers(cfg); ferr != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: warning: failed to load fallback MCP server config: %v\n", ferr)
+		fmt.Fprintf(rootStderr, "mcpx: warning: failed to load fallback MCP server config: %v\n", ferr)
 	}
 
 	if handled, code := maybeHandleCompletionCommand(args, cfg, rootStdout, rootStderr); handled {
@@ -39,49 +39,49 @@ func Run(args []string) int {
 	}
 
 	if verr := config.Validate(cfg); verr != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: invalid config: %v\n", verr)
+		fmt.Fprintf(rootStderr, "mcpx: invalid config: %v\n", verr)
 		return ipc.ExitUsageErr
 	}
 
 	// No args: list servers
 	if len(args) == 0 {
-		return listServers(cfg, false)
+		return listServers(cfg, outputModeText)
 	}
 	if len(args) == 1 && args[0] == "--json" {
-		return listServers(cfg, true)
+		return listServers(cfg, outputModeJSON)
 	}
 
 	server := args[0]
 	if _, ok := cfg.Servers[server]; !ok {
-		fmt.Fprintf(os.Stderr, "mcpx: unknown server: %s\n", server)
-		fmt.Fprintf(os.Stderr, "Available servers:\n")
+		fmt.Fprintf(rootStderr, "mcpx: unknown server: %s\n", server)
+		fmt.Fprintln(rootStderr, "Available servers:")
 		for name := range cfg.Servers {
-			fmt.Fprintf(os.Stderr, "  %s\n", name)
+			fmt.Fprintf(rootStderr, "  %s\n", name)
 		}
 		return ipc.ExitUsageErr
 	}
 
 	cmd, err := parseServerCommand(args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitUsageErr
 	}
 	if cmd.list && cmd.listOpts.help {
-		printToolListHelp(os.Stdout, server)
+		printToolListHelp(rootStdout, server)
 		return ipc.ExitOK
 	}
 
 	// Connect to daemon
 	nonce, err := daemon.SpawnOrConnect()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
 	}
 	client := ipc.NewClient(ipc.SocketPath(), nonce)
 	cwd := callerWorkingDirectory()
 
 	if cmd.list {
-		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.json)
+		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.output)
 	}
 
 	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd)
@@ -112,19 +112,21 @@ func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, std
 	}
 }
 
-func listServers(cfg *config.Config, jsonOut bool) int {
+func listServers(cfg *config.Config, output outputMode) int {
 	names := make([]string, 0, len(cfg.Servers))
 	for name := range cfg.Servers {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if jsonOut {
+
+	if output.isJSON() {
 		if err := writeJSONLine(rootStdout, names); err != nil {
-			fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
 		return ipc.ExitOK
 	}
+
 	if len(names) == 0 {
 		fmt.Fprintln(rootStdout, "No MCP servers configured.")
 		fmt.Fprintf(rootStdout, "Create a config file at %s\n", config.ExampleConfigPath())
@@ -139,7 +141,7 @@ func listServers(cfg *config.Config, jsonOut bool) int {
 type toolListArgs struct {
 	verbose bool
 	help    bool
-	json    bool
+	output  outputMode
 }
 
 type serverCommand struct {
@@ -186,7 +188,9 @@ func parseServerCommand(args []string) (serverCommand, error) {
 }
 
 func parseToolListArgs(args []string) (toolListArgs, error) {
-	parsed := toolListArgs{}
+	parsed := toolListArgs{
+		output: outputModeText,
+	}
 	for _, arg := range args {
 		switch arg {
 		case "-v", "--verbose":
@@ -194,7 +198,7 @@ func parseToolListArgs(args []string) (toolListArgs, error) {
 		case "-h", "--help":
 			parsed.help = true
 		case "--json":
-			parsed.json = true
+			parsed.output = outputModeJSON
 		default:
 			return toolListArgs{}, fmt.Errorf("unsupported flag for tool listing: %s", arg)
 		}
@@ -222,48 +226,43 @@ func printToolListHelp(out io.Writer, server string) {
 	fmt.Fprintln(out, "  --help, -h       Show this help output")
 }
 
-func listTools(client *ipc.Client, server, cwd string, verbose, jsonOut bool) int {
+func listTools(client *ipc.Client, server, cwd string, verbose bool, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:    "list_tools",
 		Server:  server,
 		Verbose: verbose,
-		JSON:    jsonOut,
 		CWD:     cwd,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
 	}
 	if resp.Stderr != "" {
-		fmt.Fprintln(os.Stderr, resp.Stderr)
+		fmt.Fprintln(rootStderr, resp.Stderr)
 	}
 	if resp.ExitCode != ipc.ExitOK {
 		return resp.ExitCode
 	}
-	if jsonOut {
-		payload, err := normalizeToolListJSONPayload(resp.Content)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+
+	entries, err := decodeToolListPayload(resp.Content)
+	if err != nil {
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+		return ipc.ExitInternal
+	}
+
+	if output.isJSON() {
+		if err := writeJSONLine(rootStdout, entries); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
-		os.Stdout.Write(payload)
 		return resp.ExitCode
 	}
-	os.Stdout.Write(resp.Content)
-	return resp.ExitCode
-}
 
-func normalizeToolListJSONPayload(raw []byte) ([]byte, error) {
-	if json.Valid(raw) {
-		if len(raw) == 0 || raw[len(raw)-1] == '\n' {
-			return raw, nil
-		}
-		out := make([]byte, 0, len(raw)+1)
-		out = append(out, raw...)
-		out = append(out, '\n')
-		return out, nil
+	if err := writeToolListText(rootStdout, entries); err != nil {
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+		return ipc.ExitInternal
 	}
-	return nil, fmt.Errorf("invalid daemon response for --json list output: expected JSON")
+	return resp.ExitCode
 }
 
 func writeJSONLine(w io.Writer, payload any) error {
@@ -280,7 +279,14 @@ func writeJSONLine(w io.Writer, payload any) error {
 	return nil
 }
 
-func showHelp(client *ipc.Client, server, tool, cwd string, jsonOut bool) int {
+func writePayload(w io.Writer, label string, payload []byte) error {
+	if _, err := w.Write(payload); err != nil {
+		return fmt.Errorf("writing %s: %w", label, err)
+	}
+	return nil
+}
+
+func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "tool_schema",
 		Server: server,
@@ -288,59 +294,56 @@ func showHelp(client *ipc.Client, server, tool, cwd string, jsonOut bool) int {
 		CWD:    cwd,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
 	}
 	if resp.Stderr != "" {
-		fmt.Fprintln(os.Stderr, resp.Stderr)
-		return resp.ExitCode
-	}
-
-	if jsonOut {
-		toolName, desc, inputSchema, outputSchema := parseToolHelpPayload(resp.Content)
-		if inputSchema != nil {
-			if toolName == "" {
-				toolName = tool
-			}
-			if _, err := writeManPage(server, toolName, desc, inputSchema, outputSchema); err != nil {
-				fmt.Fprintf(os.Stderr, "mcpx: warning: failed to write man page: %v\n", err)
-			}
-		}
-		os.Stdout.Write(resp.Content)
+		fmt.Fprintln(rootStderr, resp.Stderr)
 		return resp.ExitCode
 	}
 
 	toolName, desc, inputSchema, outputSchema := parseToolHelpPayload(resp.Content)
+	if inputSchema != nil {
+		if toolName == "" {
+			toolName = tool
+		}
+		maybeWriteToolManPage(rootStderr, server, toolName, desc, inputSchema, outputSchema)
+	}
+
+	if output.isJSON() {
+		if err := writePayload(rootStdout, "help output", resp.Content); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		return resp.ExitCode
+	}
+
 	if inputSchema == nil {
-		os.Stdout.Write(resp.Content)
-		return 0
+		if err := writePayload(rootStdout, "help output", resp.Content); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		return resp.ExitCode
 	}
 
-	if toolName == "" {
-		toolName = tool
-	}
-
-	printToolHelp(os.Stdout, server, toolName, desc, inputSchema, outputSchema)
-	if _, err := writeManPage(server, toolName, desc, inputSchema, outputSchema); err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: warning: failed to write man page: %v\n", err)
-	}
-	return 0
+	printToolHelp(rootStdout, server, toolName, desc, inputSchema, outputSchema)
+	return resp.ExitCode
 }
 
 func callTool(client *ipc.Client, server, tool string, rawArgs []string, cwd string) int {
 	parsed, err := parseToolCallArgs(rawArgs, os.Stdin, stdinIsTTY(os.Stdin))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitUsageErr
 	}
 	if parsed.help {
-		return showHelp(client, server, tool, cwd, parsed.helpJSON)
+		return showHelp(client, server, tool, cwd, parsed.output)
 	}
 
 	argsJSON, err := json.Marshal(parsed.toolArgs)
 	if err != nil {
 		if !parsed.quiet {
-			fmt.Fprintf(os.Stderr, "mcpx: invalid arguments: %v\n", err)
+			fmt.Fprintf(rootStderr, "mcpx: invalid arguments: %v\n", err)
 		}
 		return ipc.ExitUsageErr
 	}
@@ -356,11 +359,11 @@ func callTool(client *ipc.Client, server, tool string, rawArgs []string, cwd str
 	})
 	if err != nil {
 		if !parsed.quiet {
-			fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		}
 		return ipc.ExitInternal
 	}
-	writeCallResponse(resp, parsed.quiet, os.Stdout, os.Stderr)
+	writeCallResponse(resp, parsed.quiet, rootStdout, rootStderr)
 	return resp.ExitCode
 }
 

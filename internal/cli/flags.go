@@ -14,12 +14,13 @@ type toolCallArgs struct {
 	verbose  bool
 	quiet    bool
 	help     bool
-	helpJSON bool
+	output   outputMode
 }
 
 func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCallArgs, error) {
 	parsed := &toolCallArgs{
 		toolArgs: make(map[string]any),
+		output:   outputModeText,
 	}
 
 	var positionalJSON string
@@ -49,7 +50,7 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 				hasAnyFlags = true
 				continue
 			case arg == "--json":
-				parsed.helpJSON = true
+				parsed.output = outputModeJSON
 				hasAnyFlags = true
 				continue
 			case strings.HasPrefix(arg, "--cache="):
@@ -142,7 +143,7 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 		}
 	}
 
-	if parsed.helpJSON && !parsed.help {
+	if parsed.output.isJSON() && !parsed.help {
 		return nil, fmt.Errorf("--json is only supported with --help")
 	}
 

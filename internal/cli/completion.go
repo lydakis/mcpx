@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"sort"
@@ -271,7 +270,12 @@ func completeTools(server string, stdout, stderr io.Writer) int {
 		return resp.ExitCode
 	}
 
-	tools := parseToolListOutput(resp.Content)
+	entries, err := decodeToolListPayload(resp.Content)
+	if err != nil {
+		fmt.Fprintf(stderr, "mcpx: %v\n", err)
+		return ipc.ExitInternal
+	}
+	tools := toolListNames(entries)
 	for _, tool := range tools {
 		fmt.Fprintln(stdout, tool)
 	}
@@ -346,35 +350,6 @@ func configuredServerNames(cfg *config.Config) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func parseToolListOutput(content []byte) []string {
-	lines := bytes.Split(content, []byte{'\n'})
-	out := make([]string, 0, len(lines))
-	seen := make(map[string]struct{}, len(lines))
-
-	for _, line := range lines {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-
-		name := string(line)
-		if i := strings.IndexRune(name, '\t'); i >= 0 {
-			name = name[:i]
-		}
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func toolFlagCompletions(inputSchema map[string]any) []string {

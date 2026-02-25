@@ -15,7 +15,6 @@ type Request struct {
 	Args    json.RawMessage `json:"args,omitempty"`   // tool arguments
 	Cache   *time.Duration  `json:"cache,omitempty"`  // cache TTL override
 	Verbose bool            `json:"verbose,omitempty"`
-	JSON    bool            `json:"json,omitempty"` // request JSON-formatted daemon output when supported
 }
 
 // Response is sent from the daemon back to the CLI.

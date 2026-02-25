@@ -37,14 +37,21 @@ func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) 
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", false, false)
-	want := "list_issues\tList issues\nsearch_repositories\tSearch repositories quickly with advanced filters\n"
+	resp := listTools(context.Background(), cfg, nil, ka, "github", false)
 
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
 	}
-	if string(resp.Content) != want {
-		t.Fatalf("listTools() content = %q, want %q", resp.Content, want)
+	var got []toolListEntry
+	if err := json.Unmarshal(resp.Content, &got); err != nil {
+		t.Fatalf("unmarshal json tool list: %v; payload=%q", err, string(resp.Content))
+	}
+	want := []toolListEntry{
+		{Name: "list_issues", Description: "List issues"},
+		{Name: "search_repositories", Description: "Search repositories quickly with advanced filters"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("json tool list = %#v, want %#v", got, want)
 	}
 }
 
@@ -69,14 +76,20 @@ func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", true, false)
-	want := "search_repositories\t" + fullDesc + "\n"
+	resp := listTools(context.Background(), cfg, nil, ka, "github", true)
 
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
 	}
-	if string(resp.Content) != want {
-		t.Fatalf("listTools() content = %q, want %q", resp.Content, want)
+	var got []toolListEntry
+	if err := json.Unmarshal(resp.Content, &got); err != nil {
+		t.Fatalf("unmarshal json tool list: %v; payload=%q", err, string(resp.Content))
+	}
+	want := []toolListEntry{
+		{Name: "search_repositories", Description: fullDesc},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("json tool list = %#v, want %#v", got, want)
 	}
 }
 
@@ -104,7 +117,7 @@ func TestListToolsJSONVerbosePreservesMultilineDescription(t *testing.T) {
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", true, true)
+	resp := listTools(context.Background(), cfg, nil, ka, "github", true)
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
 	}

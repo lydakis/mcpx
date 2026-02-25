@@ -23,6 +23,8 @@ type schemaLine struct {
 	Default     string
 }
 
+const writeManPagesEnv = "MCPX_WRITE_MANPAGES"
+
 func parseToolHelpPayload(raw []byte) (name, description string, inputSchema map[string]any, outputSchema map[string]any) {
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -320,6 +322,33 @@ func writeRootManPage() (string, error) {
 		return "", err
 	}
 	return outPath, nil
+}
+
+func shouldWriteManPages() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(writeManPagesEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func maybeWriteRootManPage(stderr io.Writer) {
+	if !shouldWriteManPages() {
+		return
+	}
+	if _, err := writeRootManPage(); err != nil {
+		fmt.Fprintf(stderr, "mcpx: warning: failed to write man page: %v\n", err)
+	}
+}
+
+func maybeWriteToolManPage(stderr io.Writer, server, tool, description string, inputSchema, outputSchema map[string]any) {
+	if !shouldWriteManPages() {
+		return
+	}
+	if _, err := writeManPage(server, tool, description, inputSchema, outputSchema); err != nil {
+		fmt.Fprintf(stderr, "mcpx: warning: failed to write man page: %v\n", err)
+	}
 }
 
 func manPagePath(server, tool string) string {

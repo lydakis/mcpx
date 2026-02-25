@@ -179,8 +179,8 @@ func TestParseToolCallArgsParsesExplicitJSONHelpFlag(t *testing.T) {
 	if !parsed.help {
 		t.Fatal("help = false, want true")
 	}
-	if !parsed.helpJSON {
-		t.Fatal("helpJSON = false, want true")
+	if !parsed.output.isJSON() {
+		t.Fatal("output mode = text, want json")
 	}
 	if len(parsed.toolArgs) != 0 {
 		t.Fatalf("toolArgs = %#v, want empty", parsed.toolArgs)
@@ -195,8 +195,8 @@ func TestParseToolCallArgsParsesJSONHelpFlagBeforeHelp(t *testing.T) {
 	if !parsed.help {
 		t.Fatal("help = false, want true")
 	}
-	if !parsed.helpJSON {
-		t.Fatal("helpJSON = false, want true")
+	if !parsed.output.isJSON() {
+		t.Fatal("output mode = text, want json")
 	}
 }
 
@@ -214,8 +214,8 @@ func TestParseToolCallArgsDoesNotTreatToolJSONAsJSONHelpFlag(t *testing.T) {
 	if !parsed.help {
 		t.Fatal("help = false, want true")
 	}
-	if parsed.helpJSON {
-		t.Fatal("helpJSON = true, want false")
+	if parsed.output.isJSON() {
+		t.Fatal("output mode = json, want text")
 	}
 	if parsed.toolArgs["json"] != true {
 		t.Fatalf("json tool arg = %#v, want true", parsed.toolArgs["json"])
@@ -230,8 +230,8 @@ func TestParseToolCallArgsPositionalJSONDoesNotTriggerJSONHelpFlag(t *testing.T)
 	if !parsed.help {
 		t.Fatal("help = false, want true")
 	}
-	if parsed.helpJSON {
-		t.Fatal("helpJSON = true, want false")
+	if parsed.output.isJSON() {
+		t.Fatal("output mode = json, want text")
 	}
 	if parsed.toolArgs["json"] != true {
 		t.Fatalf("json tool arg = %#v, want true", parsed.toolArgs["json"])

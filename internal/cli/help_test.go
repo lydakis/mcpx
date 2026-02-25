@@ -197,6 +197,38 @@ func TestWriteRootManPageCreatesFileUnderXDGDataHome(t *testing.T) {
 	}
 }
 
+func TestMaybeWriteToolManPageSkipsWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(writeManPagesEnv, "0")
+
+	input := map[string]any{"type": "object"}
+	output := map[string]any{"type": "object"}
+
+	maybeWriteToolManPage(&bytes.Buffer{}, "github", "search_repositories", "Search repos", input, output)
+
+	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected no man page at %q, err=%v", path, err)
+	}
+}
+
+func TestMaybeWriteToolManPageWritesWhenEnabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(writeManPagesEnv, "1")
+
+	input := map[string]any{"type": "object"}
+	output := map[string]any{"type": "object"}
+
+	maybeWriteToolManPage(&bytes.Buffer{}, "github", "search_repositories", "Search repos", input, output)
+
+	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected man page at %q: %v", path, err)
+	}
+}
+
 func TestPrintToolHelpIncludesOptionSemanticsAndExamples(t *testing.T) {
 	input := map[string]any{
 		"type": "object",
