@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/lydakis/mcpx/internal/config"
@@ -193,27 +192,7 @@ func canonicalToolName(tools []ToolInfo, requested string) (string, bool) {
 			return t.Name, true
 		}
 	}
-
-	alias := normalizeToolAlias(requested)
-	if alias == requested {
-		return "", false
-	}
-	for _, t := range tools {
-		if t.Name == alias {
-			return t.Name, true
-		}
-	}
 	return "", false
-}
-
-func normalizeToolAlias(name string) string {
-	if strings.Contains(name, "-") {
-		return strings.ReplaceAll(name, "-", "_")
-	}
-	if strings.Contains(name, "_") {
-		return strings.ReplaceAll(name, "_", "-")
-	}
-	return name
 }
 
 func marshalInputSchema(t mcp.Tool) (json.RawMessage, error) {

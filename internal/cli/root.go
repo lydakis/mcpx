@@ -159,7 +159,7 @@ func showHelp(client *ipc.Client, server, tool, cwd string) int {
 	}
 
 	if toolName == "" {
-		toolName = toKebabToolName(tool)
+		toolName = tool
 	}
 
 	printToolHelp(os.Stdout, server, toolName, desc, inputSchema, outputSchema)

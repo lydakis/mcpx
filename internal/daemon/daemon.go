@@ -193,7 +193,10 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 
 	displayNames := make(map[string]string, len(tools))
 	for _, t := range tools {
-		name := toKebabToolName(t.Name)
+		name := strings.TrimSpace(t.Name)
+		if name == "" {
+			continue
+		}
 		if _, exists := displayNames[name]; exists {
 			continue
 		}
@@ -234,7 +237,7 @@ func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka 
 	}
 
 	payload := map[string]any{
-		"name":        toKebabToolName(info.Name),
+		"name":        info.Name,
 		"description": info.Description,
 	}
 
@@ -274,17 +277,15 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	}
 	var logs []string
 	if shouldCache {
-		for _, cacheTool := range toolAliases(tool) {
-			if out, exitCode, ok := cacheGet(server, cacheTool, args); ok {
-				if verbose {
-					if age, ttl, ok := cacheGetMetadata(server, cacheTool, args); ok {
-						logs = append(logs, fmt.Sprintf("mcpx: cache hit (age=%s ttl=%s)", age, ttl))
-					} else {
-						logs = append(logs, "mcpx: cache hit")
-					}
+		if out, exitCode, ok := cacheGet(server, tool, args); ok {
+			if verbose {
+				if age, ttl, ok := cacheGetMetadata(server, tool, args); ok {
+					logs = append(logs, fmt.Sprintf("mcpx: cache hit (age=%s ttl=%s)", age, ttl))
+				} else {
+					logs = append(logs, "mcpx: cache hit")
 				}
-				return &ipc.Response{Content: out, ExitCode: exitCode, Stderr: joinLogs(logs)}
 			}
+			return &ipc.Response{Content: out, ExitCode: exitCode, Stderr: joinLogs(logs)}
 		}
 		if verbose {
 			logs = append(logs, "mcpx: cache miss")
@@ -365,46 +366,20 @@ func parseDefaultCacheTTL(scfg config.ServerConfig) (time.Duration, bool, error)
 }
 
 func lookupToolCacheOverride(scfg config.ServerConfig, tool string) (bool, bool) {
-	for _, name := range toolAliases(tool) {
-		if tc, ok := scfg.Tools[name]; ok && tc.Cache != nil {
-			return *tc.Cache, true
-		}
+	if tc, ok := scfg.Tools[tool]; ok && tc.Cache != nil {
+		return *tc.Cache, true
 	}
 	return false, false
 }
 
 func matchesNoCachePattern(scfg config.ServerConfig, tool string) bool {
-	aliases := toolAliases(tool)
 	for _, pattern := range scfg.NoCacheTools {
-		for _, name := range aliases {
-			matched, err := path.Match(pattern, name)
-			if err == nil && matched {
-				return true
-			}
+		matched, err := path.Match(pattern, tool)
+		if err == nil && matched {
+			return true
 		}
 	}
 	return false
-}
-
-func toolAliases(tool string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, 3)
-	for _, name := range []string{
-		tool,
-		strings.ReplaceAll(tool, "-", "_"),
-		strings.ReplaceAll(tool, "_", "-"),
-	} {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
-}
-
-func toKebabToolName(name string) string {
-	return strings.ReplaceAll(name, "_", "-")
 }
 
 func resolveCanonicalToolName(ctx context.Context, pool *mcppool.Pool, server, requested string) (string, error) {

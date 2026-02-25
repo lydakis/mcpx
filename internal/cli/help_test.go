@@ -63,7 +63,7 @@ func TestParseToolHelpPayloadSupportsStructuredAndLegacy(t *testing.T) {
 		"output_schema":{"type":"object","properties":{"items":{"type":"array"}}}
 	}`)
 	name, desc, in, out := parseToolHelpPayload(structured)
-	if name != "search-repositories" || desc != "Search repos" || in == nil || out == nil {
+	if name != "search_repositories" || desc != "Search repos" || in == nil || out == nil {
 		t.Fatalf("parse structured payload failed: name=%q desc=%q in=%v out=%v", name, desc, in, out)
 	}
 
@@ -154,7 +154,7 @@ func TestWriteManPageCreatesFileUnderXDGDataHome(t *testing.T) {
 		t.Fatalf("writeManPage() error = %v", err)
 	}
 
-	expected := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search-repositories.1")
+	expected := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
 	if path != expected {
 		t.Fatalf("man page path = %q, want %q", path, expected)
 	}

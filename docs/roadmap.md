@@ -40,7 +40,7 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
   - `--cache`, `--no-cache`, `-v/--verbose`, `-q/--quiet`, `--version`.
 - ✅ Implement tool flag collision handling (`--tool-*`) and `--` separator.
 - ✅ Support positional JSON args and stdin JSON input when no flags are provided.
-- ✅ Support tool-name aliases (snake_case and kebab-case).
+- ✅ Preserve server-native tool names without client-side rewriting.
 
 ## Phase 3: Help and Discoverability
 - ✅ Include output schema details in `--help` when `outputSchema` exists.

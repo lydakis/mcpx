@@ -9,7 +9,7 @@ import (
 	"github.com/lydakis/mcpx/internal/mcppool"
 )
 
-func TestListToolsOutputsKebabCaseAndDeduplicatesAliases(t *testing.T) {
+func TestListToolsOutputsNativeNamesAndDeduplicatesExactDuplicates(t *testing.T) {
 	oldPoolListTools := poolListTools
 	defer func() {
 		poolListTools = oldPoolListTools
@@ -26,13 +26,13 @@ func TestListToolsOutputsKebabCaseAndDeduplicatesAliases(t *testing.T) {
 	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return []mcppool.ToolInfo{
 			{Name: "search_repositories", Description: "Search repos"},
-			{Name: "search-repositories", Description: "Duplicate alias"},
+			{Name: "search_repositories", Description: "Duplicate exact"},
 			{Name: "list_issues", Description: "List issues"},
 		}, nil
 	}
 
 	resp := listTools(context.Background(), cfg, nil, ka, "github")
-	want := "list-issues\tList issues\nsearch-repositories\tSearch repos\n"
+	want := "list_issues\tList issues\nsearch_repositories\tSearch repos\n"
 
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
@@ -42,7 +42,7 @@ func TestListToolsOutputsKebabCaseAndDeduplicatesAliases(t *testing.T) {
 	}
 }
 
-func TestToolSchemaPayloadUsesKebabDisplayName(t *testing.T) {
+func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 	oldPoolToolInfoByName := poolToolInfoByName
 	defer func() {
 		poolToolInfoByName = oldPoolToolInfoByName
@@ -65,7 +65,7 @@ func TestToolSchemaPayloadUsesKebabDisplayName(t *testing.T) {
 		}, nil
 	}
 
-	resp := toolSchema(context.Background(), cfg, nil, ka, "github", "search-repositories")
+	resp := toolSchema(context.Background(), cfg, nil, ka, "github", "search_repositories")
 	if resp.ExitCode != 0 {
 		t.Fatalf("toolSchema() exit = %d, want 0", resp.ExitCode)
 	}
@@ -74,7 +74,7 @@ func TestToolSchemaPayloadUsesKebabDisplayName(t *testing.T) {
 	if err := json.Unmarshal(resp.Content, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if payload["name"] != "search-repositories" {
-		t.Fatalf("payload name = %v, want %q", payload["name"], "search-repositories")
+	if payload["name"] != "search_repositories" {
+		t.Fatalf("payload name = %v, want %q", payload["name"], "search_repositories")
 	}
 }

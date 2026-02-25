@@ -268,7 +268,7 @@ func TestCallToolVerboseIncludesCacheAgeAndTTLWhenAvailable(t *testing.T) {
 	}
 }
 
-func TestCallToolCacheKeyCanonicalizesAliasSpellings(t *testing.T) {
+func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
 	restore := saveCallToolHooks()
 	defer restore()
 
@@ -285,8 +285,8 @@ func TestCallToolCacheKeyCanonicalizesAliasSpellings(t *testing.T) {
 	poolCalls := 0
 	cacheStore := map[string][]byte{}
 
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _ string, _ string) (*mcppool.ToolInfo, error) {
-		return &mcppool.ToolInfo{Name: "search_repositories"}, nil
+	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _ string, tool string) (*mcppool.ToolInfo, error) {
+		return &mcppool.ToolInfo{Name: tool}, nil
 	}
 	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
@@ -307,7 +307,7 @@ func TestCallToolCacheKeyCanonicalizesAliasSpellings(t *testing.T) {
 	}
 
 	dummyPool := &mcppool.Pool{}
-	first := callTool(context.Background(), cfg, dummyPool, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
+	first := callTool(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
 	second := callTool(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
 
 	if poolCalls != 1 {
@@ -318,49 +318,5 @@ func TestCallToolCacheKeyCanonicalizesAliasSpellings(t *testing.T) {
 	}
 	if _, ok := cacheStore["search_repositories"]; !ok {
 		t.Fatalf("cache store missing key %q", "search_repositories")
-	}
-	if _, ok := cacheStore["search-repositories"]; ok {
-		t.Fatalf("cache store unexpectedly has alias key %q", "search-repositories")
-	}
-}
-
-func TestCallToolReturnsAliasCacheHitWithoutResolvingTool(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
-	}
-	ka := NewKeepalive(nil)
-	defer ka.Stop()
-
-	reqCache := 30 * time.Second
-	resolveCalls := 0
-
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
-		resolveCalls++
-		return nil, errors.New("tool lookup should not run on cache hit")
-	}
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, _, _ string, _ json.RawMessage) (*mcp.CallToolResult, error) {
-		return nil, errors.New("pool should not be called on cache hit")
-	}
-	cacheGet = func(_ string, tool string, _ json.RawMessage) ([]byte, int, bool) {
-		if tool != "search_repositories" {
-			return nil, 0, false
-		}
-		return []byte("cached\n"), ipc.ExitOK, true
-	}
-
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
-	if resp.ExitCode != ipc.ExitOK {
-		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
-	}
-	if string(resp.Content) != "cached\n" {
-		t.Fatalf("callTool() content = %q, want %q", resp.Content, "cached\n")
-	}
-	if resolveCalls != 0 {
-		t.Fatalf("resolve calls = %d, want 0", resolveCalls)
 	}
 }

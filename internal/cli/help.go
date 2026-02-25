@@ -33,7 +33,7 @@ func parseToolHelpPayload(raw []byte) (name, description string, inputSchema map
 	if in, ok := payload["input_schema"].(map[string]any); ok {
 		description, _ = payload["description"].(string)
 		if rawName, ok := payload["name"].(string); ok {
-			name = toKebabToolName(rawName)
+			name = rawName
 		}
 		inputSchema = in
 		if out, ok := payload["output_schema"].(map[string]any); ok {
@@ -292,19 +292,17 @@ func writeManPage(server, tool, description string, inputSchema, outputSchema ma
 }
 
 func manPagePath(server, tool string) string {
-	kebabTool := strings.ReplaceAll(tool, "_", "-")
-	name := fmt.Sprintf("mcpx-%s-%s.1", server, kebabTool)
+	name := fmt.Sprintf("mcpx-%s-%s.1", server, tool)
 	return filepath.Join(paths.ManDir(), name)
 }
 
 func renderManPage(server, tool, description string, inputSchema, outputSchema map[string]any) string {
-	kebabTool := strings.ReplaceAll(tool, "_", "-")
-	title := strings.ToUpper(fmt.Sprintf("MCPX-%s-%s", server, kebabTool))
+	title := strings.ToUpper(fmt.Sprintf("MCPX-%s-%s", server, tool))
 
 	var b strings.Builder
 	fmt.Fprintf(&b, ".TH %s 1\n", roffEscape(title))
 	fmt.Fprintln(&b, ".SH NAME")
-	nameLine := fmt.Sprintf("mcpx %s %s", server, kebabTool)
+	nameLine := fmt.Sprintf("mcpx %s %s", server, tool)
 	if description != "" {
 		fmt.Fprintf(&b, "%s \\- %s\n", roffEscape(nameLine), roffEscape(description))
 	} else {
@@ -325,7 +323,7 @@ func renderManPage(server, tool, description string, inputSchema, outputSchema m
 	}
 
 	fmt.Fprintln(&b, ".SH EXAMPLES")
-	writeRoffExamples(&b, toolExamples(server, kebabTool, inputSchema))
+	writeRoffExamples(&b, toolExamples(server, tool, inputSchema))
 
 	return b.String()
 }

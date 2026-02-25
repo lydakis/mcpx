@@ -361,7 +361,7 @@ func parseToolListOutput(content []byte) []string {
 		if i := strings.IndexRune(name, '\t'); i >= 0 {
 			name = name[:i]
 		}
-		name = strings.TrimSpace(toKebabToolName(name))
+		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}

@@ -53,7 +53,7 @@ func TestPoolStdioIntegrationListToolsAndCallTool(t *testing.T) {
 		t.Fatalf("tools[0].OutputSchema = %s, want field echo", tools[0].OutputSchema)
 	}
 
-	result, err := pool.CallTool(ctx, "stdio", "echo-tool", json.RawMessage(`{"query":"hello"}`))
+	result, err := pool.CallTool(ctx, "stdio", "echo_tool", json.RawMessage(`{"query":"hello"}`))
 	if err != nil {
 		t.Fatalf("CallTool() error = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestPoolHTTPIntegrationListToolsCallToolAndHeaders(t *testing.T) {
 		t.Fatal("tools[0].OutputSchema is empty, want declared schema")
 	}
 
-	result, err := pool.CallTool(ctx, "http", "sum-values", json.RawMessage(`{"a":2,"b":3}`))
+	result, err := pool.CallTool(ctx, "http", "sum_values", json.RawMessage(`{"a":2,"b":3}`))
 	if err != nil {
 		t.Fatalf("CallTool() error = %v", err)
 	}

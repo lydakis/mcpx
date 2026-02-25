@@ -152,9 +152,9 @@ func TestParseToolListOutputExtractsUniqueSortedNames(t *testing.T) {
 	}
 }
 
-func TestParseToolListOutputNormalizesAliasesToKebabCase(t *testing.T) {
+func TestParseToolListOutputPreservesNativeToolNames(t *testing.T) {
 	got := parseToolListOutput([]byte("search_repositories\tsnake\nsearch-repositories\tkebab\n"))
-	want := []string{"search-repositories"}
+	want := []string{"search-repositories", "search_repositories"}
 	if len(got) != len(want) {
 		t.Fatalf("len(parseToolListOutput()) = %d, want %d (%v)", len(got), len(want), got)
 	}

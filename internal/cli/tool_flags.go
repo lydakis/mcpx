@@ -14,7 +14,3 @@ func toolFlagNames(name, typ string) (base string, negative string) {
 	}
 	return base, negative
 }
-
-func toKebabToolName(name string) string {
-	return strings.ReplaceAll(name, "_", "-")
-}

@@ -77,18 +77,26 @@ func TestCallToolErrorInvalidatesConnection(t *testing.T) {
 	}
 }
 
-func TestCanonicalToolNameSupportsKebabSnakeAliases(t *testing.T) {
+func TestCanonicalToolNameMatchesOnlyExactNames(t *testing.T) {
 	tools := []ToolInfo{
 		{Name: "search_repositories"},
 		{Name: "list-issues"},
 	}
 
-	if got, ok := canonicalToolName(tools, "search-repositories"); !ok || got != "search_repositories" {
-		t.Fatalf("canonicalToolName(kebab->snake) = (%q, %v), want (%q, true)", got, ok, "search_repositories")
+	if got, ok := canonicalToolName(tools, "search_repositories"); !ok || got != "search_repositories" {
+		t.Fatalf("canonicalToolName(exact snake) = (%q, %v), want (%q, true)", got, ok, "search_repositories")
 	}
 
-	if got, ok := canonicalToolName(tools, "list_issues"); !ok || got != "list-issues" {
-		t.Fatalf("canonicalToolName(snake->kebab) = (%q, %v), want (%q, true)", got, ok, "list-issues")
+	if got, ok := canonicalToolName(tools, "list-issues"); !ok || got != "list-issues" {
+		t.Fatalf("canonicalToolName(exact kebab) = (%q, %v), want (%q, true)", got, ok, "list-issues")
+	}
+
+	if _, ok := canonicalToolName(tools, "search-repositories"); ok {
+		t.Fatal("canonicalToolName(alias kebab) = found, want not found")
+	}
+
+	if _, ok := canonicalToolName(tools, "list_issues"); ok {
+		t.Fatal("canonicalToolName(alias snake) = found, want not found")
 	}
 
 	if _, ok := canonicalToolName(tools, "missing-tool"); ok {
@@ -96,7 +104,7 @@ func TestCanonicalToolNameSupportsKebabSnakeAliases(t *testing.T) {
 	}
 }
 
-func TestCallToolResolvesKebabAliasBeforeInvocation(t *testing.T) {
+func TestCallToolInvokesExactToolName(t *testing.T) {
 	var calledWith string
 	conn := &connection{
 		listTools: func(context.Context) ([]mcp.Tool, error) {
@@ -115,7 +123,7 @@ func TestCallToolResolvesKebabAliasBeforeInvocation(t *testing.T) {
 		conns: map[string]*connection{"github": conn},
 	}
 
-	if _, err := p.CallTool(context.Background(), "github", "search-repositories", []byte(`{"q":"mcp"}`)); err != nil {
+	if _, err := p.CallTool(context.Background(), "github", "search_repositories", []byte(`{"q":"mcp"}`)); err != nil {
 		t.Fatalf("CallTool() error = %v", err)
 	}
 

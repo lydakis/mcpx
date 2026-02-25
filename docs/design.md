@@ -65,7 +65,7 @@ mcpx github search-repositories --query="mcp" --page=2
 mcpx github search-repositories '{"query": "mcp", "page": 2}'
 ```
 
-Tool names are kebab-cased automatically (`search_repositories` → `search-repositories`) to match CLI conventions. The original name still works.
+Tool names are used exactly as exposed by the MCP server. mcpx does not rewrite tool names.
 
 For output schema discovery: two-tier approach.
 1. If the MCP tool declares `outputSchema` → generate from it
@@ -91,7 +91,7 @@ mcpx github search-repositories --query="mcp" --cache=60s -v
 # stderr: mcpx: cache hit (age=23s ttl=60s)
 ```
 
-Cache is keyed on `(server, canonical_tool_name, args_hash)` so kebab/snake aliases share the same entry. Stored in `$XDG_CACHE_HOME/mcpx/`. Per-server AND per-tool config:
+Cache is keyed on `(server, tool_name, args_hash)` and stored in `$XDG_CACHE_HOME/mcpx/`. Per-server AND per-tool config:
 
 ```toml
 [servers.github]
@@ -276,7 +276,7 @@ mcpx filesystem read-file --path="./README.md" | head -20          # first 20 li
 --help              help
 ```
 
-Tool names are kebab-cased (`search_repositories` → `search-repositories`). Originals still work as aliases.
+Tool names are passed through exactly as exposed by the server.
 
 MCP tool parameters map to GNU-style `--long-flags`. Required params are required flags. Optional params have defaults shown in `--help`. Booleans support `--flag` (true) and `--no-flag` (false). Nested objects fall back to JSON: `--config='{"nested": "value"}'`.
 
