@@ -72,12 +72,23 @@ Run:
 
 ```bash
 mcpx
+mcpx --json
 mcpx github
+mcpx github --json
 mcpx github -v
 mcpx github search-repositories --help
+mcpx github search-repositories --help --json
 mcpx github search-repositories --query=mcp
 mcpx skill install
 ```
+
+`--json` applies only to mcpx-owned output surfaces:
+
+- `mcpx`
+- `mcpx <server>`
+- `mcpx <server> <tool> --help`
+
+Normal tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
 
 ## MCP Smoke Test Commands
 
@@ -85,8 +96,10 @@ Use these to validate a local MCP quickly:
 
 ```bash
 mcpx <server>
+mcpx <server> --json       # machine-readable list output
 mcpx <server> -v            # full tool descriptions
 mcpx <server> <tool> --help
+mcpx <server> <tool> --help --json
 mcpx <server> <tool> -v
 echo $?    # inspect exit code contract
 ```

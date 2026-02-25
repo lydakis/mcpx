@@ -25,6 +25,7 @@ var (
 		"-v",
 		"--quiet",
 		"-q",
+		"--json",
 		"--help",
 		"-h",
 	}
@@ -33,6 +34,7 @@ var (
 		"no-cache": {},
 		"verbose":  {},
 		"quiet":    {},
+		"json":     {},
 		"help":     {},
 		"version":  {},
 	}
@@ -57,7 +59,7 @@ _mcpx_completion() {
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     local words
     words="$(mcpx __complete servers 2>/dev/null)"
-    words="$words"$'\n'"completion"$'\n'"--help"$'\n'"-h"$'\n'"--version"$'\n'"-V"
+    words="$words"$'\n'"completion"$'\n'"--help"$'\n'"-h"$'\n'"--version"$'\n'"-V"$'\n'"--json"
     if ! _mcpx_has_skill_server; then
       words="$words"$'\n'"skill"
     fi
@@ -111,7 +113,7 @@ _mcpx_completion() {
 
   if (( CURRENT == 2 )); then
     servers=(${(f)"$(mcpx __complete servers 2>/dev/null)"})
-    servers+=(completion --help -h --version -V)
+    servers+=(completion --help -h --version -V --json)
     if ! _mcpx_has_skill_server; then
       servers+=(skill)
     fi
@@ -173,7 +175,7 @@ function __mcpx_has_skill_server
     return 1
 end
 
-complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h --version -V (mcpx __complete servers 2>/dev/null)"
+complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h --version -V --json (mcpx __complete servers 2>/dev/null)"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill_server' -a "skill"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"

@@ -171,6 +171,73 @@ func TestParseToolCallArgsSupportsVerboseQuietAndHelp(t *testing.T) {
 	}
 }
 
+func TestParseToolCallArgsParsesExplicitJSONHelpFlag(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{"--help", "--json"}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if !parsed.help {
+		t.Fatal("help = false, want true")
+	}
+	if !parsed.helpJSON {
+		t.Fatal("helpJSON = false, want true")
+	}
+	if len(parsed.toolArgs) != 0 {
+		t.Fatalf("toolArgs = %#v, want empty", parsed.toolArgs)
+	}
+}
+
+func TestParseToolCallArgsParsesJSONHelpFlagBeforeHelp(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{"--json", "--help"}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if !parsed.help {
+		t.Fatal("help = false, want true")
+	}
+	if !parsed.helpJSON {
+		t.Fatal("helpJSON = false, want true")
+	}
+}
+
+func TestParseToolCallArgsRejectsJSONFlagWithoutHelp(t *testing.T) {
+	if _, err := parseToolCallArgs([]string{"--json"}, bytes.NewBuffer(nil), true); err == nil {
+		t.Fatal("parseToolCallArgs() error = nil, want non-nil")
+	}
+}
+
+func TestParseToolCallArgsDoesNotTreatToolJSONAsJSONHelpFlag(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{"--help", "--tool-json"}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if !parsed.help {
+		t.Fatal("help = false, want true")
+	}
+	if parsed.helpJSON {
+		t.Fatal("helpJSON = true, want false")
+	}
+	if parsed.toolArgs["json"] != true {
+		t.Fatalf("json tool arg = %#v, want true", parsed.toolArgs["json"])
+	}
+}
+
+func TestParseToolCallArgsPositionalJSONDoesNotTriggerJSONHelpFlag(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{"--help", `{"json":true}`}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if !parsed.help {
+		t.Fatal("help = false, want true")
+	}
+	if parsed.helpJSON {
+		t.Fatal("helpJSON = true, want false")
+	}
+	if parsed.toolArgs["json"] != true {
+		t.Fatalf("json tool arg = %#v, want true", parsed.toolArgs["json"])
+	}
+}
+
 func TestParseToolCallArgsPreservesNoPrefixedLiteralFlagAndArrayFlags(t *testing.T) {
 	parsed, err := parseToolCallArgs([]string{"--no-dry-run", "--tag=a", "--tag=b"}, bytes.NewBuffer(nil), true)
 	if err != nil {

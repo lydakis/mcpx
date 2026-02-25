@@ -171,6 +171,32 @@ func TestWriteManPageCreatesFileUnderXDGDataHome(t *testing.T) {
 	}
 }
 
+func TestWriteRootManPageCreatesFileUnderXDGDataHome(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	path, err := writeRootManPage()
+	if err != nil {
+		t.Fatalf("writeRootManPage() error = %v", err)
+	}
+
+	expected := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
+	if path != expected {
+		t.Fatalf("root man page path = %q, want %q", path, expected)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading root man page: %v", err)
+	}
+	if !bytes.Contains(data, []byte(".SH NAME")) {
+		t.Fatalf("root man page missing NAME section: %q", string(data))
+	}
+	if !bytes.Contains(data, []byte("\\fB--json\\fR")) {
+		t.Fatalf("root man page missing --json option docs: %q", string(data))
+	}
+}
+
 func TestPrintToolHelpIncludesOptionSemanticsAndExamples(t *testing.T) {
 	input := map[string]any{
 		"type": "object",

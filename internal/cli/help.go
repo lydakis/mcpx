@@ -119,6 +119,7 @@ func printGlobalFlags(w io.Writer) {
 	fmt.Fprintln(w, "    --no-cache           Disable cache for this call.")
 	fmt.Fprintln(w, "    --verbose, -v        Print verbose diagnostics to stderr.")
 	fmt.Fprintln(w, "    --quiet, -q          Suppress stderr output.")
+	fmt.Fprintln(w, "    --json               With --help, emit raw schema JSON from mcpx.")
 	fmt.Fprintln(w, "    --help, -h           Show this help output.")
 }
 
@@ -308,9 +309,58 @@ func writeManPage(server, tool, description string, inputSchema, outputSchema ma
 	return outPath, nil
 }
 
+func writeRootManPage() (string, error) {
+	outPath := filepath.Join(paths.ManDir(), "mcpx.1")
+	if err := paths.EnsureDir(filepath.Dir(outPath)); err != nil {
+		return "", err
+	}
+
+	content := renderRootManPage()
+	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
 func manPagePath(server, tool string) string {
 	name := fmt.Sprintf("mcpx-%s-%s.1", server, tool)
 	return filepath.Join(paths.ManDir(), name)
+}
+
+func renderRootManPage() string {
+	var b strings.Builder
+	fmt.Fprintln(&b, ".TH MCPX 1")
+	fmt.Fprintln(&b, ".SH NAME")
+	fmt.Fprintln(&b, "mcpx \\- MCP tools as Unix commands")
+	fmt.Fprintln(&b, ".SH SYNOPSIS")
+	fmt.Fprintln(&b, "\\fBmcpx\\fR")
+	fmt.Fprintln(&b, "\\fBmcpx --json\\fR")
+	fmt.Fprintln(&b, "\\fBmcpx\\fR \\fIserver\\fR [\\fIFLAGS\\fR]")
+	fmt.Fprintln(&b, "\\fBmcpx\\fR \\fIserver\\fR \\fItool\\fR [\\fIFLAGS\\fR]")
+	fmt.Fprintln(&b, ".SH DESCRIPTION")
+	fmt.Fprintln(&b, "List configured MCP servers, list server tools, inspect schema-aware help, and invoke tools.")
+	fmt.Fprintln(&b, ".SH OUTPUT")
+	fmt.Fprintln(&b, "By default, mcpx writes content to stdout and diagnostics to stderr.")
+	fmt.Fprintln(&b, ".TP")
+	fmt.Fprintln(&b, "\\fB--json\\fR")
+	fmt.Fprintln(&b, "Emits mcpx-owned outputs as JSON for:")
+	fmt.Fprintln(&b, "mcpx, mcpx <server>, and mcpx <server> <tool> --help.")
+	fmt.Fprintln(&b, "Normal tool-call output is not transformed.")
+	fmt.Fprintln(&b, ".SH EXIT STATUS")
+	fmt.Fprintln(&b, "0 success")
+	fmt.Fprintln(&b, "1 tool error (tool returned isError)")
+	fmt.Fprintln(&b, "2 usage error")
+	fmt.Fprintln(&b, "3 internal/transport error")
+	fmt.Fprintln(&b, ".SH EXAMPLES")
+	fmt.Fprintln(&b, ".nf")
+	fmt.Fprintln(&b, roffEscape("mcpx"))
+	fmt.Fprintln(&b, roffEscape("mcpx --json"))
+	fmt.Fprintln(&b, roffEscape("mcpx <server>"))
+	fmt.Fprintln(&b, roffEscape("mcpx <server> --json"))
+	fmt.Fprintln(&b, roffEscape("mcpx <server> <tool> --help"))
+	fmt.Fprintln(&b, roffEscape("mcpx <server> <tool> --help --json"))
+	fmt.Fprintln(&b, ".fi")
+	return b.String()
 }
 
 func renderManPage(server, tool, description string, inputSchema, outputSchema map[string]any) string {

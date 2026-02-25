@@ -42,15 +42,20 @@ headers = { Authorization = "Bearer ${APIFY_TOKEN}" }
 
 ```bash
 mcpx                         # list servers
+mcpx --json                  # list servers as JSON
 mcpx <server>                # list tools (short descriptions)
+mcpx <server> --json         # list tools as JSON
 mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
+mcpx <server> <tool> --help --json  # raw schema payload JSON
 mcpx <server> <tool> ...     # call tool
 mcpx skill install           # install built-in mcpx skill for agents
 ```
 
 Tool names are used exactly as exposed by the server.
 Flag conventions can vary by tool and server, so run `mcpx <server> <tool> --help` before first use.
+
+`--json` is only for mcpx-owned outputs (`mcpx`, `mcpx <server>`, and `mcpx <server> <tool> --help`). Tool call output is not transformed.
 
 Examples:
 
@@ -109,13 +114,17 @@ mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/sk
 
 ## Man Pages
 
-`mcpx <server> <tool> --help` writes a man page under:
+`mcpx --help` writes a root man page and `mcpx <server> <tool> --help` writes tool man pages under:
 
 - `$XDG_DATA_HOME/man/man1` (default: `~/.local/share/man/man1`)
 
 Example:
 
 ```bash
+mcpx --help
+man mcpx
+
+mcpx github search-repositories --help
 man mcpx-github-search-repositories
 ```
 

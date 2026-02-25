@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
@@ -55,6 +57,8 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 		rootStdout = oldOut
 		rootStderr = oldErr
 	}()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -85,6 +89,10 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	rootManPath := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
+	if _, err := os.Stat(rootManPath); err != nil {
+		t.Fatalf("expected root man page at %q: %v", rootManPath, err)
 	}
 }
 
@@ -187,6 +195,16 @@ func TestParseToolListArgsHelpAndVerbose(t *testing.T) {
 	}
 }
 
+func TestParseToolListArgsSupportsJSON(t *testing.T) {
+	parsed, err := parseToolListArgs([]string{"--json"})
+	if err != nil {
+		t.Fatalf("parseToolListArgs() error = %v", err)
+	}
+	if !parsed.json {
+		t.Fatal("json = false, want true")
+	}
+}
+
 func TestParseToolListArgsRejectsUnknownFlags(t *testing.T) {
 	if _, err := parseToolListArgs([]string{"--cache=10s"}); err == nil {
 		t.Fatal("parseToolListArgs() error = nil, want non-nil")
@@ -219,6 +237,19 @@ func TestParseServerCommandParsesToolListFlags(t *testing.T) {
 	}
 	if !cmd.listOpts.verbose {
 		t.Fatal("verbose = false, want true")
+	}
+}
+
+func TestParseServerCommandParsesToolListJSONFlag(t *testing.T) {
+	cmd, err := parseServerCommand([]string{"--json"})
+	if err != nil {
+		t.Fatalf("parseServerCommand() error = %v", err)
+	}
+	if !cmd.list {
+		t.Fatal("list = false, want true")
+	}
+	if !cmd.listOpts.json {
+		t.Fatal("json = false, want true")
 	}
 }
 
@@ -277,6 +308,75 @@ args = ["ok"]
 
 	if code := Run([]string{"github", "--help"}); code != 0 {
 		t.Fatalf("Run([github --help]) = %d, want 0", code)
+	}
+}
+
+func TestRunRootJSONListsServers(t *testing.T) {
+	tmp := t.TempDir()
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	configDir := filepath.Join(xdgConfigHome, "mcpx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(configDir): %v", err)
+	}
+	configToml := []byte(`[servers.beta]
+command = "echo"
+args = ["ok"]
+
+[servers.alpha]
+command = "echo"
+args = ["ok"]
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), configToml, 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml): %v", err)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+
+	oldOut := rootStdout
+	defer func() { rootStdout = oldOut }()
+	var out bytes.Buffer
+	rootStdout = &out
+
+	if code := Run([]string{"--json"}); code != ipc.ExitOK {
+		t.Fatalf("Run([--json]) = %d, want %d", code, ipc.ExitOK)
+	}
+
+	var got []string
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal(root output): %v", err)
+	}
+	want := []string{"alpha", "beta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("servers = %v, want %v", got, want)
+	}
+}
+
+func TestNormalizeToolListJSONPayloadAcceptsValidJSON(t *testing.T) {
+	raw := []byte(`[{"name":"list_issues","description":"List issues"}]`)
+
+	got, err := normalizeToolListJSONPayload(raw)
+	if err != nil {
+		t.Fatalf("normalizeToolListJSONPayload() error = %v", err)
+	}
+
+	var decoded []map[string]string
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(normalized payload): %v; payload=%q", err, string(got))
+	}
+
+	if len(decoded) != 1 || decoded[0]["name"] != "list_issues" {
+		t.Fatalf("normalized payload = %#v, want one list_issues entry", decoded)
+	}
+	if got[len(got)-1] != '\n' {
+		t.Fatalf("normalized payload must end with newline: %q", string(got))
+	}
+}
+
+func TestNormalizeToolListJSONPayloadRejectsLegacyTextOutput(t *testing.T) {
+	raw := []byte("list_issues\tList issues\nsearch_repositories\tSearch repositories quickly\n")
+
+	if _, err := normalizeToolListJSONPayload(raw); err == nil {
+		t.Fatal("normalizeToolListJSONPayload() error = nil, want non-nil")
 	}
 }
 

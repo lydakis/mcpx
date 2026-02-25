@@ -116,6 +116,7 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 		"type": "object",
 		"properties": map[string]any{
 			"cache":   map[string]any{"type": "boolean"},
+			"json":    map[string]any{"type": "boolean"},
 			"query":   map[string]any{"type": "string"},
 			"verbose": map[string]any{"type": "string"},
 			"dry_run": map[string]any{"type": "boolean"},
@@ -126,11 +127,14 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 	want := []string{
 		"--tool-cache",
 		"--tool-no-cache",
+		"--tool-json",
+		"--tool-no-json",
 		"--tool-verbose",
 		"--query",
 		"--dry_run",
 		"--no-dry_run",
 		"--cache",
+		"--json",
 		"--verbose",
 		"--help",
 		"--no-cache",

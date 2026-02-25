@@ -12,11 +12,14 @@ Use `mcpx` as the MCP execution surface. Never call MCP servers directly via SDK
 ```bash
 # 1. Discover what's available
 mcpx                                    # list configured servers
+mcpx --json                             # list configured servers as JSON
 mcpx <server>                           # list tools (short descriptions)
+mcpx <server> --json                    # list tools as JSON
 mcpx <server> -v                        # list tools (full descriptions)
 
 # 2. Inspect before calling (always do this for unfamiliar tools)
 mcpx <server> <tool> --help             # shows params, types, output schema
+mcpx <server> <tool> --help --json      # raw schema payload JSON
 # Note: tool listings can be large (50k+ chars). Pipe through grep or head for discovery:
 # mcpx <server> | grep -i "search"
 
@@ -35,6 +38,14 @@ mcpx <server> <tool> --param=value | head -20
 Use tool names exactly as exposed by the MCP server. `mcpx` does not rename or alias tool names.
 
 Flag conventions vary by tool and server. Always inspect each tool's `--help` before first use.
+
+`--json` only formats mcpx-owned outputs:
+
+- `mcpx`
+- `mcpx <server>`
+- `mcpx <server> <tool> --help`
+
+Tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
 
 ## Exit Codes
 
@@ -142,15 +153,16 @@ mcpx <server> <tool> --id=123 --cache=5m | jq '.files | length'
 ## Rules
 
 1. Always inspect first. Run `--help` before the first call to any unfamiliar tool. It shows params, types, required/optional, and output schema.
-2. Prefer flags over JSON for simple params. Use JSON for nested objects and complex payloads.
-3. Booleans from schema. `--flag` sends true, `--no-flag` sends false when the tool parameter is boolean in the declared schema.
-4. Stdin. Only consumed as JSON args when no flags are provided. If flags are present, stdin is not consumed.
-5. Flag collisions. If a tool has a param named `cache`, `verbose`, `help`, etc., use `--tool-cache` or pass everything after `--`: `mcpx server tool -- --cache=value`.
-6. Keep it composable. Pipe, filter, and chain calls:
+2. Use `--json` only for mcpx discovery/help surfaces (`mcpx`, `mcpx <server>`, `mcpx <server> <tool> --help`).
+3. Prefer flags over JSON for simple params. Use JSON for nested objects and complex payloads.
+4. Booleans from schema. `--flag` sends true, `--no-flag` sends false when the tool parameter is boolean in the declared schema.
+5. Stdin. Only consumed as JSON args when no flags are provided. If flags are present, stdin is not consumed.
+6. Flag collisions. If a tool has a param named `cache`, `verbose`, `help`, etc., use `--tool-cache` or pass everything after `--`: `mcpx server tool -- --cache=value`.
+7. Keep it composable. Pipe, filter, and chain calls:
 
 ```bash
 id="$(mcpx <server> <tool-a> --param=value | jq -r '.items[0].id')"
 mcpx <server> <tool-b> --id="$id"
 ```
 
-7. No interactive use. Every mcpx call is a single command that exits. No shell mode, no prompts.
+8. No interactive use. Every mcpx call is a single command that exits. No shell mode, no prompts.

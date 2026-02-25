@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) 
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", false)
+	resp := listTools(context.Background(), cfg, nil, ka, "github", false, false)
 	want := "list_issues\tList issues\nsearch_repositories\tSearch repositories quickly with advanced filters\n"
 
 	if resp.ExitCode != 0 {
@@ -68,7 +69,7 @@ func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", true)
+	resp := listTools(context.Background(), cfg, nil, ka, "github", true, false)
 	want := "search_repositories\t" + fullDesc + "\n"
 
 	if resp.ExitCode != 0 {
@@ -76,6 +77,49 @@ func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
 	}
 	if string(resp.Content) != want {
 		t.Fatalf("listTools() content = %q, want %q", resp.Content, want)
+	}
+}
+
+func TestListToolsJSONVerbosePreservesMultilineDescription(t *testing.T) {
+	oldPoolListTools := poolListTools
+	defer func() {
+		poolListTools = oldPoolListTools
+	}()
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		return []mcppool.ToolInfo{
+			{
+				Name:        "search_repositories",
+				Description: "Search repositories quickly\nReturns:\n- id\n- name",
+			},
+			{Name: "list_issues"},
+		}, nil
+	}
+
+	resp := listTools(context.Background(), cfg, nil, ka, "github", true, true)
+	if resp.ExitCode != 0 {
+		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
+	}
+
+	var got []toolListEntry
+	if err := json.Unmarshal(resp.Content, &got); err != nil {
+		t.Fatalf("unmarshal json tool list: %v; payload=%q", err, string(resp.Content))
+	}
+
+	want := []toolListEntry{
+		{Name: "list_issues"},
+		{Name: "search_repositories", Description: "Search repositories quickly\nReturns:\n- id\n- name"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("json tool list = %#v, want %#v", got, want)
 	}
 }
 

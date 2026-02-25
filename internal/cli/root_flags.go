@@ -32,6 +32,9 @@ func handleRootFlags(args []string) (bool, int) {
 		return true, 0
 	case "--help", "-h":
 		printRootHelp(rootStdout)
+		if _, err := writeRootManPage(); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: warning: failed to write man page: %v\n", err)
+		}
 		return true, 0
 	default:
 		return false, 0
@@ -56,6 +59,7 @@ func resolveBuildVersion(defaultVersion string) string {
 func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  mcpx")
+	fmt.Fprintln(out, "  mcpx --json")
 	fmt.Fprintln(out, "  mcpx <server> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx <server> <tool> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx completion <bash|zsh|fish>")
@@ -64,7 +68,10 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Global flags:")
 	fmt.Fprintln(out, "  --help, -h       Show help")
 	fmt.Fprintln(out, "  --version, -V    Show version")
+	fmt.Fprintln(out, "  --json           Emit mcpx-owned output as JSON for:")
+	fmt.Fprintln(out, "                   mcpx, mcpx <server>, and mcpx <server> <tool> --help")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Tool listing flags (for `mcpx <server>`):")
 	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
+	fmt.Fprintln(out, "  --json           Emit tool list as JSON")
 }

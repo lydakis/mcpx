@@ -14,6 +14,7 @@ type toolCallArgs struct {
 	verbose  bool
 	quiet    bool
 	help     bool
+	helpJSON bool
 }
 
 func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCallArgs, error) {
@@ -45,6 +46,10 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 				continue
 			case arg == "-h" || arg == "--help":
 				parsed.help = true
+				hasAnyFlags = true
+				continue
+			case arg == "--json":
+				parsed.helpJSON = true
 				hasAnyFlags = true
 				continue
 			case strings.HasPrefix(arg, "--cache="):
@@ -122,10 +127,7 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 			return nil, err
 		}
 		parsed.toolArgs = obj
-		return parsed, nil
-	}
-
-	if !hasAnyFlags && !hasToolFlags && !stdinIsTTY && stdin != nil {
+	} else if !hasAnyFlags && !hasToolFlags && !stdinIsTTY && stdin != nil {
 		data, err := io.ReadAll(stdin)
 		if err != nil {
 			return nil, fmt.Errorf("reading stdin: %w", err)
@@ -138,6 +140,10 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 			}
 			parsed.toolArgs = obj
 		}
+	}
+
+	if parsed.helpJSON && !parsed.help {
+		return nil, fmt.Errorf("--json is only supported with --help")
 	}
 
 	return parsed, nil

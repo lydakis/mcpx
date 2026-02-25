@@ -151,7 +151,7 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	case "list_servers":
 		return listServers(cfg)
 	case "list_tools":
-		return listTools(ctx, cfg, pool, ka, req.Server, req.Verbose)
+		return listTools(ctx, cfg, pool, ka, req.Server, req.Verbose, req.JSON)
 	case "tool_schema":
 		return toolSchema(ctx, cfg, pool, ka, req.Server, req.Tool)
 	case "call_tool":
@@ -178,7 +178,12 @@ func listServers(cfg *config.Config) *ipc.Response {
 	return &ipc.Response{Content: out}
 }
 
-func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool) *ipc.Response {
+type toolListEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose, jsonOut bool) *ipc.Response {
 	if _, ok := cfg.Servers[server]; !ok {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
 	}
@@ -212,6 +217,22 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
+	if jsonOut {
+		entries := make([]toolListEntry, 0, len(names))
+		for _, name := range names {
+			entries = append(entries, toolListEntry{
+				Name:        name,
+				Description: strings.TrimSpace(displayNames[name]),
+			})
+		}
+		data, err := json.Marshal(entries)
+		if err != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("encoding tool list: %v", err)}
+		}
+		data = append(data, '\n')
+		return &ipc.Response{Content: data}
+	}
 
 	var out []byte
 	for _, name := range names {
