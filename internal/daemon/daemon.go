@@ -151,7 +151,7 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	case "list_servers":
 		return listServers(cfg)
 	case "list_tools":
-		return listTools(ctx, cfg, pool, ka, req.Server)
+		return listTools(ctx, cfg, pool, ka, req.Server, req.Verbose)
 	case "tool_schema":
 		return toolSchema(ctx, cfg, pool, ka, req.Server, req.Tool)
 	case "call_tool":
@@ -178,7 +178,7 @@ func listServers(cfg *config.Config) *ipc.Response {
 	return &ipc.Response{Content: out}
 }
 
-func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string) *ipc.Response {
+func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool) *ipc.Response {
 	if _, ok := cfg.Servers[server]; !ok {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
 	}
@@ -200,7 +200,11 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 		if _, exists := displayNames[name]; exists {
 			continue
 		}
-		displayNames[name] = t.Description
+		desc := strings.TrimSpace(t.Description)
+		if !verbose {
+			desc = summarizeToolDescription(desc)
+		}
+		displayNames[name] = desc
 	}
 
 	names := make([]string, 0, len(displayNames))
@@ -218,6 +222,31 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 		out = append(out, []byte(line+"\n")...)
 	}
 	return &ipc.Response{Content: out}
+}
+
+const shortToolDescriptionMaxLen = 120
+
+func summarizeToolDescription(desc string) string {
+	if desc == "" {
+		return ""
+	}
+
+	for _, line := range strings.Split(desc, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		desc = strings.Join(strings.Fields(line), " ")
+		break
+	}
+
+	if desc == "" {
+		return ""
+	}
+	if len(desc) <= shortToolDescriptionMaxLen {
+		return desc
+	}
+	return strings.TrimSpace(desc[:shortToolDescriptionMaxLen-3]) + "..."
 }
 
 func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string) *ipc.Response {

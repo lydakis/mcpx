@@ -42,11 +42,14 @@ headers = { Authorization = "Bearer ${APIFY_TOKEN}" }
 
 ```bash
 mcpx                         # list servers
-mcpx <server>                # list tools
+mcpx <server>                # list tools (short descriptions)
+mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> ...     # call tool
 mcpx skill install           # install built-in mcpx skill for agents
 ```
+
+Tool names are used exactly as exposed by the server.
 
 Examples:
 

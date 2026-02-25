@@ -8,6 +8,8 @@ Unix-native CLI wrapper for MCP servers.
 - `mcpx <server>` lists tools
 - `mcpx <server> <tool>` calls a tool
 
+Tool names are used exactly as exposed by each server (no client-side renaming/aliasing).
+
 Utility commands:
 
 - `mcpx completion <bash|zsh|fish>` prints shell completion scripts
@@ -69,6 +71,7 @@ Run:
 ```bash
 mcpx
 mcpx github
+mcpx github -v
 mcpx github search-repositories --help
 mcpx github search-repositories --query=mcp
 mcpx skill install
@@ -80,6 +83,7 @@ Use these to validate a local MCP quickly:
 
 ```bash
 mcpx <server>
+mcpx <server> -v            # full tool descriptions
 mcpx <server> <tool> --help
 mcpx <server> <tool> -v
 echo $?    # inspect exit code contract

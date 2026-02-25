@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
@@ -155,5 +157,124 @@ func TestResolveBuildVersionHonorsInjectedValue(t *testing.T) {
 	got := resolveBuildVersion("1.2.3")
 	if got != "1.2.3" {
 		t.Fatalf("resolveBuildVersion(injected) = %q, want %q", got, "1.2.3")
+	}
+}
+
+func TestParseToolListArgsVerbose(t *testing.T) {
+	parsed, err := parseToolListArgs([]string{"--verbose"})
+	if err != nil {
+		t.Fatalf("parseToolListArgs() error = %v", err)
+	}
+	if !parsed.verbose {
+		t.Fatal("verbose = false, want true")
+	}
+	if parsed.help {
+		t.Fatal("help = true, want false")
+	}
+}
+
+func TestParseToolListArgsHelpAndVerbose(t *testing.T) {
+	parsed, err := parseToolListArgs([]string{"-h", "-v"})
+	if err != nil {
+		t.Fatalf("parseToolListArgs() error = %v", err)
+	}
+	if !parsed.verbose {
+		t.Fatal("verbose = false, want true")
+	}
+	if !parsed.help {
+		t.Fatal("help = false, want true")
+	}
+}
+
+func TestParseToolListArgsRejectsUnknownFlags(t *testing.T) {
+	if _, err := parseToolListArgs([]string{"--cache=10s"}); err == nil {
+		t.Fatal("parseToolListArgs() error = nil, want non-nil")
+	}
+}
+
+func TestParseServerCommandDefaultsToToolList(t *testing.T) {
+	cmd, err := parseServerCommand(nil)
+	if err != nil {
+		t.Fatalf("parseServerCommand() error = %v", err)
+	}
+	if !cmd.list {
+		t.Fatal("list = false, want true")
+	}
+	if cmd.listOpts.verbose {
+		t.Fatal("verbose = true, want false")
+	}
+	if cmd.listOpts.help {
+		t.Fatal("help = true, want false")
+	}
+}
+
+func TestParseServerCommandParsesToolListFlags(t *testing.T) {
+	cmd, err := parseServerCommand([]string{"-v"})
+	if err != nil {
+		t.Fatalf("parseServerCommand() error = %v", err)
+	}
+	if !cmd.list {
+		t.Fatal("list = false, want true")
+	}
+	if !cmd.listOpts.verbose {
+		t.Fatal("verbose = false, want true")
+	}
+}
+
+func TestParseServerCommandTreatsUnknownDashTokenAsToolName(t *testing.T) {
+	cmd, err := parseServerCommand([]string{"--status", "--json=true"})
+	if err != nil {
+		t.Fatalf("parseServerCommand() error = %v", err)
+	}
+	if cmd.list {
+		t.Fatal("list = true, want false")
+	}
+	if cmd.tool != "--status" {
+		t.Fatalf("tool = %q, want %q", cmd.tool, "--status")
+	}
+	if len(cmd.toolArgs) != 1 || cmd.toolArgs[0] != "--json=true" {
+		t.Fatalf("toolArgs = %v, want [--json=true]", cmd.toolArgs)
+	}
+}
+
+func TestParseServerCommandSeparatorForcesToolMode(t *testing.T) {
+	cmd, err := parseServerCommand([]string{"--", "--help"})
+	if err != nil {
+		t.Fatalf("parseServerCommand() error = %v", err)
+	}
+	if cmd.list {
+		t.Fatal("list = true, want false")
+	}
+	if cmd.tool != "--help" {
+		t.Fatalf("tool = %q, want %q", cmd.tool, "--help")
+	}
+}
+
+func TestParseServerCommandSeparatorRequiresToolName(t *testing.T) {
+	if _, err := parseServerCommand([]string{"--"}); err == nil {
+		t.Fatal("parseServerCommand() error = nil, want non-nil")
+	}
+}
+
+func TestRunServerHelpDoesNotRequireDaemon(t *testing.T) {
+	tmp := t.TempDir()
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	configDir := filepath.Join(xdgConfigHome, "mcpx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(configDir): %v", err)
+	}
+	configToml := []byte(`[servers.github]
+command = "echo"
+args = ["ok"]
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), configToml, 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml): %v", err)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("XDG_RUNTIME_DIR", "/dev/null")
+
+	if code := Run([]string{"github", "--help"}); code != 0 {
+		t.Fatalf("Run([github --help]) = %d, want 0", code)
 	}
 }

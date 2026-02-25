@@ -56,7 +56,7 @@ func resolveBuildVersion(defaultVersion string) string {
 func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  mcpx")
-	fmt.Fprintln(out, "  mcpx <server>")
+	fmt.Fprintln(out, "  mcpx <server> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx <server> <tool> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx completion <bash|zsh|fish>")
 	fmt.Fprintln(out, "  mcpx skill install [FLAGS]")
@@ -64,4 +64,7 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Global flags:")
 	fmt.Fprintln(out, "  --help, -h       Show help")
 	fmt.Fprintln(out, "  --version, -V    Show version")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Tool listing flags (for `mcpx <server>`):")
+	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
 }

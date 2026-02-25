@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/daemon"
@@ -57,6 +58,16 @@ func Run(args []string) int {
 		return ipc.ExitUsageErr
 	}
 
+	cmd, err := parseServerCommand(args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
+		return ipc.ExitUsageErr
+	}
+	if cmd.list && cmd.listOpts.help {
+		printToolListHelp(os.Stdout, server)
+		return ipc.ExitOK
+	}
+
 	// Connect to daemon
 	nonce, err := daemon.SpawnOrConnect()
 	if err != nil {
@@ -66,15 +77,11 @@ func Run(args []string) int {
 	client := ipc.NewClient(ipc.SocketPath(), nonce)
 	cwd := callerWorkingDirectory()
 
-	// One arg (server only): list tools
-	if len(args) == 1 {
-		return listTools(client, server, cwd)
+	if cmd.list {
+		return listTools(client, server, cwd, cmd.listOpts.verbose)
 	}
 
-	tool := args[1]
-	toolArgs := args[2:]
-
-	return callTool(client, server, tool, toolArgs, cwd)
+	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd)
 }
 
 func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -119,11 +126,94 @@ func listServers(cfg *config.Config) int {
 	return 0
 }
 
-func listTools(client *ipc.Client, server, cwd string) int {
+type toolListArgs struct {
+	verbose bool
+	help    bool
+}
+
+type serverCommand struct {
+	list     bool
+	listOpts toolListArgs
+	tool     string
+	toolArgs []string
+}
+
+func parseServerCommand(args []string) (serverCommand, error) {
+	if len(args) == 0 {
+		return serverCommand{list: true}, nil
+	}
+
+	// Force tool mode for dash-prefixed tool names:
+	// mcpx <server> -- --help
+	if args[0] == "--" {
+		if len(args) == 1 {
+			return serverCommand{}, fmt.Errorf("missing tool name after --")
+		}
+		return serverCommand{
+			tool:     args[1],
+			toolArgs: args[2:],
+		}, nil
+	}
+
+	if strings.HasPrefix(args[0], "-") {
+		opts, err := parseToolListArgs(args)
+		if err == nil {
+			return serverCommand{
+				list:     true,
+				listOpts: opts,
+			}, nil
+		}
+		if isToolListFlag(args[0]) {
+			return serverCommand{}, err
+		}
+	}
+
+	return serverCommand{
+		tool:     args[0],
+		toolArgs: args[1:],
+	}, nil
+}
+
+func parseToolListArgs(args []string) (toolListArgs, error) {
+	parsed := toolListArgs{}
+	for _, arg := range args {
+		switch arg {
+		case "-v", "--verbose":
+			parsed.verbose = true
+		case "-h", "--help":
+			parsed.help = true
+		default:
+			return toolListArgs{}, fmt.Errorf("unsupported flag for tool listing: %s", arg)
+		}
+	}
+	return parsed, nil
+}
+
+func isToolListFlag(arg string) bool {
+	switch arg {
+	case "-v", "--verbose", "-h", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
+func printToolListHelp(out io.Writer, server string) {
+	fmt.Fprintf(out, "Usage: mcpx %s [FLAGS]\n", server)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "List tools exposed by the server.")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Flags:")
+	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
+	fmt.Fprintln(out, "  --help, -h       Show this help output")
+}
+
+func listTools(client *ipc.Client, server, cwd string, verbose bool) int {
 	resp, err := client.Send(&ipc.Request{
-		Type:   "list_tools",
-		Server: server,
-		CWD:    cwd,
+		Type:    "list_tools",
+		Server:  server,
+		Verbose: verbose,
+		CWD:     cwd,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcpx: %v\n", err)
