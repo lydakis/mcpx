@@ -5,13 +5,9 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/lydakis/mcpx/internal/paths"
 )
 
 type schemaLine struct {
@@ -22,8 +18,6 @@ type schemaLine struct {
 	HasDefault  bool
 	Default     string
 }
-
-const writeManPagesEnv = "MCPX_WRITE_MANPAGES"
 
 func parseToolHelpPayload(raw []byte) (name, description string, inputSchema map[string]any, outputSchema map[string]any) {
 	var payload map[string]any
@@ -296,168 +290,6 @@ func collectSchemaLines(lines *[]schemaLine, path string, schema map[string]any,
 		}
 		collectSchemaLines(lines, path+"[]", items, false, true)
 	}
-}
-
-func writeManPage(server, tool, description string, inputSchema, outputSchema map[string]any) (string, error) {
-	outPath := manPagePath(server, tool)
-	if err := paths.EnsureDir(filepath.Dir(outPath)); err != nil {
-		return "", err
-	}
-
-	content := renderManPage(server, tool, description, inputSchema, outputSchema)
-	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
-		return "", err
-	}
-	return outPath, nil
-}
-
-func writeRootManPage() (string, error) {
-	outPath := filepath.Join(paths.ManDir(), "mcpx.1")
-	if err := paths.EnsureDir(filepath.Dir(outPath)); err != nil {
-		return "", err
-	}
-
-	content := renderRootManPage()
-	if err := os.WriteFile(outPath, []byte(content), 0644); err != nil {
-		return "", err
-	}
-	return outPath, nil
-}
-
-func shouldWriteManPages() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(writeManPagesEnv))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
-}
-
-func maybeWriteRootManPage(stderr io.Writer) {
-	if !shouldWriteManPages() {
-		return
-	}
-	if _, err := writeRootManPage(); err != nil {
-		fmt.Fprintf(stderr, "mcpx: warning: failed to write man page: %v\n", err)
-	}
-}
-
-func maybeWriteToolManPage(stderr io.Writer, server, tool, description string, inputSchema, outputSchema map[string]any) {
-	if !shouldWriteManPages() {
-		return
-	}
-	if _, err := writeManPage(server, tool, description, inputSchema, outputSchema); err != nil {
-		fmt.Fprintf(stderr, "mcpx: warning: failed to write man page: %v\n", err)
-	}
-}
-
-func manPagePath(server, tool string) string {
-	name := fmt.Sprintf("mcpx-%s-%s.1", server, tool)
-	return filepath.Join(paths.ManDir(), name)
-}
-
-func renderRootManPage() string {
-	var b strings.Builder
-	fmt.Fprintln(&b, ".TH MCPX 1")
-	fmt.Fprintln(&b, ".SH NAME")
-	fmt.Fprintln(&b, "mcpx \\- MCP tools as Unix commands")
-	fmt.Fprintln(&b, ".SH SYNOPSIS")
-	fmt.Fprintln(&b, "\\fBmcpx\\fR")
-	fmt.Fprintln(&b, "\\fBmcpx --json\\fR")
-	fmt.Fprintln(&b, "\\fBmcpx\\fR \\fIserver\\fR [\\fIFLAGS\\fR]")
-	fmt.Fprintln(&b, "\\fBmcpx\\fR \\fIserver\\fR \\fItool\\fR [\\fIFLAGS\\fR]")
-	fmt.Fprintln(&b, ".SH DESCRIPTION")
-	fmt.Fprintln(&b, "List configured MCP servers, list server tools, inspect schema-aware help, and invoke tools.")
-	fmt.Fprintln(&b, ".SH OUTPUT")
-	fmt.Fprintln(&b, "By default, mcpx writes content to stdout and diagnostics to stderr.")
-	fmt.Fprintln(&b, ".TP")
-	fmt.Fprintln(&b, "\\fB--json\\fR")
-	fmt.Fprintln(&b, "Emits mcpx-owned outputs as JSON for:")
-	fmt.Fprintln(&b, "mcpx, mcpx <server>, and mcpx <server> <tool> --help.")
-	fmt.Fprintln(&b, "Normal tool-call output is not transformed.")
-	fmt.Fprintln(&b, ".SH EXIT STATUS")
-	fmt.Fprintln(&b, "0 success")
-	fmt.Fprintln(&b, "1 tool error (tool returned isError)")
-	fmt.Fprintln(&b, "2 usage error")
-	fmt.Fprintln(&b, "3 internal/transport error")
-	fmt.Fprintln(&b, ".SH EXAMPLES")
-	fmt.Fprintln(&b, ".nf")
-	fmt.Fprintln(&b, roffEscape("mcpx"))
-	fmt.Fprintln(&b, roffEscape("mcpx --json"))
-	fmt.Fprintln(&b, roffEscape("mcpx <server>"))
-	fmt.Fprintln(&b, roffEscape("mcpx <server> --json"))
-	fmt.Fprintln(&b, roffEscape("mcpx <server> <tool> --help"))
-	fmt.Fprintln(&b, roffEscape("mcpx <server> <tool> --help --json"))
-	fmt.Fprintln(&b, ".fi")
-	return b.String()
-}
-
-func renderManPage(server, tool, description string, inputSchema, outputSchema map[string]any) string {
-	title := strings.ToUpper(fmt.Sprintf("MCPX-%s-%s", server, tool))
-
-	var b strings.Builder
-	fmt.Fprintf(&b, ".TH %s 1\n", roffEscape(title))
-	fmt.Fprintln(&b, ".SH NAME")
-	nameLine := fmt.Sprintf("mcpx %s %s", server, tool)
-	if description != "" {
-		fmt.Fprintf(&b, "%s \\- %s\n", roffEscape(nameLine), roffEscape(description))
-	} else {
-		fmt.Fprintf(&b, "%s\n", roffEscape(nameLine))
-	}
-
-	fmt.Fprintln(&b, ".SH SYNOPSIS")
-	fmt.Fprintf(&b, "%s [FLAGS]\n", roffEscape(nameLine))
-
-	fmt.Fprintln(&b, ".SH OPTIONS")
-	writeRoffSchemaLines(&b, schemaLines(inputSchema), true)
-
-	fmt.Fprintln(&b, ".SH OUTPUT")
-	if outputSchema == nil {
-		fmt.Fprintln(&b, "Output not declared by server.")
-	} else {
-		writeRoffSchemaLines(&b, schemaLines(outputSchema), false)
-	}
-
-	fmt.Fprintln(&b, ".SH EXAMPLES")
-	writeRoffExamples(&b, toolExamples(server, tool, inputSchema))
-
-	return b.String()
-}
-
-func writeRoffSchemaLines(w io.Writer, lines []schemaLine, includeSemantics bool) {
-	if len(lines) == 0 {
-		fmt.Fprintln(w, "None.")
-		return
-	}
-	for _, line := range lines {
-		semantics := ""
-		if includeSemantics {
-			semantics = optionSemantics(line)
-		}
-		fmt.Fprintf(w, ".TP\n\\fB%s\\fR <%s>%s\n", roffEscape(line.Path), roffEscape(line.Type), roffEscape(semantics))
-		if line.Description != "" {
-			fmt.Fprintf(w, "%s\n", roffEscape(line.Description))
-		}
-	}
-}
-
-func writeRoffExamples(w io.Writer, examples []string) {
-	if len(examples) == 0 {
-		fmt.Fprintln(w, "None.")
-		return
-	}
-
-	fmt.Fprintln(w, ".nf")
-	for _, ex := range examples {
-		fmt.Fprintf(w, "%s\n", roffEscape(ex))
-	}
-	fmt.Fprintln(w, ".fi")
-}
-
-func roffEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "-", `\-`)
-	return s
 }
 
 func propType(prop map[string]any) string {

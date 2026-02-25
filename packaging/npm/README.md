@@ -31,5 +31,6 @@ Command contract:
 
 - Supports: macOS/Linux, amd64/arm64.
 - Windows support is via WSL2 (Linux install path).
+- Installs `mcpx.1` to `${XDG_DATA_HOME:-~/.local/share}/man/man1` when available.
 - Set `MCPX_GO_SKIP_DOWNLOAD=1` to skip downloading and rely on `mcpx` in `PATH`.
 - Full docs and source: https://github.com/lydakis/mcpx

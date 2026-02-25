@@ -114,18 +114,17 @@ mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/sk
 
 ## Man Pages
 
-Set `MCPX_WRITE_MANPAGES=1` to write man pages from help commands. With that env var enabled, `mcpx --help` writes a root man page and `mcpx <server> <tool> --help` writes tool man pages under:
+`mcpx` ships a root CLI man page (`mcpx.1`). Package installs place it in your manpath.
+For manual installs from release archives, copy `man/man1/mcpx.1` into your local or system man directory, for example:
 
 - `$XDG_DATA_HOME/man/man1` (default: `~/.local/share/man/man1`)
 
 Example:
 
 ```bash
-MCPX_WRITE_MANPAGES=1 mcpx --help
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+cp man/man1/mcpx.1 "${XDG_DATA_HOME:-$HOME/.local/share}/man/man1/"
 man mcpx
-
-MCPX_WRITE_MANPAGES=1 mcpx github search-repositories --help
-man mcpx-github-search-repositories
 ```
 
 ## Troubleshooting

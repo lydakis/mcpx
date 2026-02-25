@@ -1,0 +1,31 @@
+.TH MCPX 1
+.SH NAME
+mcpx \- MCP tools as Unix commands
+.SH SYNOPSIS
+\fBmcpx\fR
+\fBmcpx --json\fR
+\fBmcpx\fR \fIserver\fR [\fIFLAGS\fR]
+\fBmcpx\fR \fIserver\fR \fItool\fR [\fIFLAGS\fR]
+.SH DESCRIPTION
+List configured MCP servers, list server tools, inspect schema-aware help, and invoke tools.
+.SH OUTPUT
+By default, mcpx writes content to stdout and diagnostics to stderr.
+.TP
+\fB--json\fR
+Emits mcpx-owned outputs as JSON for:
+mcpx, mcpx <server>, and mcpx <server> <tool> --help.
+Normal tool-call output is not transformed.
+.SH EXIT STATUS
+0 success
+1 tool error (tool returned isError)
+2 usage error
+3 internal/transport error
+.SH EXAMPLES
+.nf
+mcpx
+mcpx --json
+mcpx <server>
+mcpx <server> --json
+mcpx <server> <tool> --help
+mcpx <server> <tool> --help --json
+.fi

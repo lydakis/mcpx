@@ -132,100 +132,20 @@ func TestPrintToolHelpHandlesRootArrayOutputSchema(t *testing.T) {
 	}
 }
 
-func TestWriteManPageCreatesFileUnderXDGDataHome(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-
-	input := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"query": map[string]any{"type": "string"},
-		},
-	}
-	output := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"items": map[string]any{"type": "array"},
-		},
-	}
-
-	path, err := writeManPage("github", "search_repositories", "Search repos", input, output)
-	if err != nil {
-		t.Fatalf("writeManPage() error = %v", err)
-	}
-
-	expected := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
-	if path != expected {
-		t.Fatalf("man page path = %q, want %q", path, expected)
-	}
-
+func TestPackagedRootManPageHasExpectedSections(t *testing.T) {
+	path := filepath.Join("..", "..", "packaging", "man", "man1", "mcpx.1")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reading man page: %v", err)
+		t.Fatalf("reading packaged root man page: %v", err)
 	}
 	if !bytes.Contains(data, []byte(".SH NAME")) {
-		t.Fatalf("man page missing NAME section: %q", string(data))
+		t.Fatalf("packaged root man page missing NAME section: %q", string(data))
 	}
-	if !bytes.Contains(data, []byte(".SH OUTPUT")) {
-		t.Fatalf("man page missing OUTPUT section: %q", string(data))
+	if !bytes.Contains(data, []byte("mcpx \\- MCP tools as Unix commands")) {
+		t.Fatalf("packaged root man page missing command description: %q", string(data))
 	}
-}
-
-func TestWriteRootManPageCreatesFileUnderXDGDataHome(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-
-	path, err := writeRootManPage()
-	if err != nil {
-		t.Fatalf("writeRootManPage() error = %v", err)
-	}
-
-	expected := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
-	if path != expected {
-		t.Fatalf("root man page path = %q, want %q", path, expected)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading root man page: %v", err)
-	}
-	if !bytes.Contains(data, []byte(".SH NAME")) {
-		t.Fatalf("root man page missing NAME section: %q", string(data))
-	}
-	if !bytes.Contains(data, []byte("\\fB--json\\fR")) {
-		t.Fatalf("root man page missing --json option docs: %q", string(data))
-	}
-}
-
-func TestMaybeWriteToolManPageSkipsWhenDisabled(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv(writeManPagesEnv, "0")
-
-	input := map[string]any{"type": "object"}
-	output := map[string]any{"type": "object"}
-
-	maybeWriteToolManPage(&bytes.Buffer{}, "github", "search_repositories", "Search repos", input, output)
-
-	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("expected no man page at %q, err=%v", path, err)
-	}
-}
-
-func TestMaybeWriteToolManPageWritesWhenEnabled(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv(writeManPagesEnv, "1")
-
-	input := map[string]any{"type": "object"}
-	output := map[string]any{"type": "object"}
-
-	maybeWriteToolManPage(&bytes.Buffer{}, "github", "search_repositories", "Search repos", input, output)
-
-	path := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx-github-search_repositories.1")
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected man page at %q: %v", path, err)
+	if !bytes.Contains(data, []byte("mcpx <server> <tool> --help")) {
+		t.Fatalf("packaged root man page missing tool help example: %q", string(data))
 	}
 }
 
@@ -353,27 +273,5 @@ func TestToolExamplesUseToolPrefixForReservedFlags(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(examples[0]), []byte("--tool-cache")) {
 		t.Fatalf("expected reserved flag to use --tool- prefix, got %q", examples[0])
-	}
-}
-
-func TestRenderManPageIncludesExamplesAndOptionSemantics(t *testing.T) {
-	input := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"query": map[string]any{"type": "string"},
-			"page":  map[string]any{"type": "integer", "default": float64(2)},
-		},
-		"required": []any{"query"},
-	}
-
-	content := renderManPage("github", "search_repositories", "Search repos", input, nil)
-	if !bytes.Contains([]byte(content), []byte(".SH EXAMPLES")) {
-		t.Fatalf("man page missing EXAMPLES section: %q", content)
-	}
-	if !bytes.Contains([]byte(content), []byte("(required)")) {
-		t.Fatalf("man page missing required marker: %q", content)
-	}
-	if !bytes.Contains([]byte(content), []byte("(optional, default: 2)")) {
-		t.Fatalf("man page missing default marker: %q", content)
 	}
 }

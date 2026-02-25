@@ -26,6 +26,15 @@ archives:
       - mcpx
     name_template: "mcpx_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: ["tar.gz"]
+    files:
+      - src: license*
+      - src: LICENSE*
+      - src: readme*
+      - src: README*
+      - src: changelog*
+      - src: CHANGELOG*
+      - src: packaging/man/man1/mcpx.1
+        dst: man/man1
 
 checksum:
   name_template: "checksums.txt"
@@ -53,6 +62,8 @@ homebrew_casks:
       - mcpx
     binaries:
       - mcpx
+    manpages:
+      - man/man1/mcpx.1
     repository:
       owner: lydakis
       name: homebrew-mcpx

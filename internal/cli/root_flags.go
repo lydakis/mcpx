@@ -32,7 +32,6 @@ func handleRootFlags(args []string) (bool, int) {
 		return true, 0
 	case "--help", "-h":
 		printRootHelp(rootStdout)
-		maybeWriteRootManPage(rootStderr)
 		return true, 0
 	default:
 		return false, 0
@@ -73,6 +72,6 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
 	fmt.Fprintln(out, "  --json           Emit tool list as JSON")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Man pages:")
-	fmt.Fprintf(out, "  Set %s=1 to write man pages when running --help.\n", writeManPagesEnv)
+	fmt.Fprintln(out, "Man page:")
+	fmt.Fprintln(out, "  man mcpx")
 }

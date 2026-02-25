@@ -46,6 +46,28 @@ function releaseAssetURL(version, goos, goarch) {
   return `${baseURL}/${tag}/${asset}`;
 }
 
+function dataHome() {
+  const xdgDataHome = process.env.XDG_DATA_HOME;
+  if (xdgDataHome && xdgDataHome.trim() !== '') {
+    return xdgDataHome.trim();
+  }
+  return path.join(os.homedir(), '.local', 'share');
+}
+
+function installManPage(vendorDir) {
+  const sourcePath = path.join(vendorDir, 'man', 'man1', 'mcpx.1');
+  if (!fs.existsSync(sourcePath)) {
+    return;
+  }
+
+  const targetDir = path.join(dataHome(), 'man', 'man1');
+  const targetPath = path.join(targetDir, 'mcpx.1');
+
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+  fs.chmodSync(targetPath, 0o644);
+}
+
 function download(url, destination, redirects) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, (res) => {
@@ -131,6 +153,11 @@ async function install() {
       throw new Error('archive extraction did not produce mcpx binary');
     }
     fs.chmodSync(binaryPath, 0o755);
+    try {
+      installManPage(vendorDir);
+    } catch (error) {
+      console.warn(`mcpx-go: warning: failed to install man page: ${error.message}`);
+    }
   } finally {
     fs.unlink(archivePath, () => {});
   }

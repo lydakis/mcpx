@@ -16,7 +16,7 @@
 
 - `mcpx` with no config prints setup guidance.
 - `mcpx completion bash` returns script text.
-- `mcpx <server> <tool> --help` renders options/output and writes a man page.
+- `mcpx <server> <tool> --help` renders options/output.
 - One stdio server call and one HTTP server call succeed end-to-end.
 
 ## Binary
@@ -45,6 +45,7 @@
 - Tag release (`v*`) and verify workflow publishes:
   - `mcpx_<version>_<os>_<arch>.tar.gz`
   - `checksums.txt`
+  - root man page in archives (`man/man1/mcpx.1`)
   - Homebrew cask update in tap repo.
 - Include release notes with:
   - new behavior

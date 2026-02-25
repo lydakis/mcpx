@@ -22,7 +22,7 @@ It is designed for agent workflows and shell composition:
 - standardized exit mapping (`0/1/2/3`)
 - optional response caching with TTL and config overrides
 - stdio + HTTP transports via a local daemon
-- generated shell completions and optional man pages (`MCPX_WRITE_MANPAGES=1`)
+- generated shell completions and packaged root man page (`man mcpx`)
 
 ## Install
 

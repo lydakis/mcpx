@@ -46,7 +46,7 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
 - ✅ Include output schema details in `--help` when `outputSchema` exists.
 - ✅ Show explicit fallback message when output schema is absent.
 - ✅ Expand help text with required/optional/default semantics and examples.
-- ✅ Generate/manage man pages under XDG data path.
+- ✅ Package root CLI man page (`mcpx.1`) for install-time availability.
 - ✅ Add shell completion generation (bash/zsh/fish).
 
 ## Phase 4: Caching Engine Integration

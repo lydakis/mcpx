@@ -96,39 +96,24 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 	}
 }
 
-func TestHandleRootFlagsHelpWritesManPageWhenEnabled(t *testing.T) {
-	oldOut := rootStdout
-	oldErr := rootStderr
-	defer func() {
-		rootStdout = oldOut
-		rootStderr = oldErr
-	}()
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv(writeManPagesEnv, "1")
-
-	var out bytes.Buffer
-	var errOut bytes.Buffer
-	rootStdout = &out
-	rootStderr = &errOut
-
-	handled, code := handleRootFlags([]string{"--help"})
-	if !handled {
-		t.Fatal("handled = false, want true")
-	}
-	if code != 0 {
-		t.Fatalf("code = %d, want 0", code)
-	}
-	rootManPath := filepath.Join(os.Getenv("XDG_DATA_HOME"), "man", "man1", "mcpx.1")
-	if _, err := os.Stat(rootManPath); err != nil {
-		t.Fatalf("expected root man page at %q: %v", rootManPath, err)
-	}
-}
-
 func TestHandleRootFlagsDoesNotTreatCompletionAsGlobal(t *testing.T) {
 	handled, _ := handleRootFlags([]string{"completion", "zsh"})
 	if handled {
 		t.Fatal("handled = true, want false")
+	}
+}
+
+func TestResolvedToolHelpNamePrefersPayloadName(t *testing.T) {
+	got := resolvedToolHelpName("search-repositories", "search_repositories")
+	if got != "search_repositories" {
+		t.Fatalf("resolvedToolHelpName() = %q, want %q", got, "search_repositories")
+	}
+}
+
+func TestResolvedToolHelpNameFallsBackToRequestedTool(t *testing.T) {
+	got := resolvedToolHelpName("search-repositories", "")
+	if got != "search-repositories" {
+		t.Fatalf("resolvedToolHelpName() = %q, want %q", got, "search-repositories")
 	}
 }
 

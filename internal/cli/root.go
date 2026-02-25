@@ -286,6 +286,13 @@ func writePayload(w io.Writer, label string, payload []byte) error {
 	return nil
 }
 
+func resolvedToolHelpName(requested, payloadName string) string {
+	if payloadName != "" {
+		return payloadName
+	}
+	return requested
+}
+
 func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "tool_schema",
@@ -302,14 +309,6 @@ func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) i
 		return resp.ExitCode
 	}
 
-	toolName, desc, inputSchema, outputSchema := parseToolHelpPayload(resp.Content)
-	if inputSchema != nil {
-		if toolName == "" {
-			toolName = tool
-		}
-		maybeWriteToolManPage(rootStderr, server, toolName, desc, inputSchema, outputSchema)
-	}
-
 	if output.isJSON() {
 		if err := writePayload(rootStdout, "help output", resp.Content); err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -318,6 +317,7 @@ func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) i
 		return resp.ExitCode
 	}
 
+	toolName, desc, inputSchema, outputSchema := parseToolHelpPayload(resp.Content)
 	if inputSchema == nil {
 		if err := writePayload(rootStdout, "help output", resp.Content); err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -325,6 +325,7 @@ func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) i
 		}
 		return resp.ExitCode
 	}
+	toolName = resolvedToolHelpName(tool, toolName)
 
 	printToolHelp(rootStdout, server, toolName, desc, inputSchema, outputSchema)
 	return resp.ExitCode

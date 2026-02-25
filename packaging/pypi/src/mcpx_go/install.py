@@ -52,9 +52,20 @@ def cache_root() -> Path:
     return Path.home() / ".cache"
 
 
+def data_root() -> Path:
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return Path(xdg_data_home)
+    return Path.home() / ".local" / "share"
+
+
 def binary_path(version: str | None = None) -> Path:
     selected_version = version or package_version()
     return cache_root() / "mcpx-go" / selected_version / "mcpx"
+
+
+def manpage_path() -> Path:
+    return data_root() / "man" / "man1" / "mcpx.1"
 
 
 def release_asset_url(version: str, goos: str, goarch: str) -> str:
@@ -65,23 +76,38 @@ def release_asset_url(version: str, goos: str, goarch: str) -> str:
     return f"{base}/{tag}/{asset}"
 
 
+def _extract_member(tar: tarfile.TarFile, member: tarfile.TarInfo, output_path: Path, mode: int) -> None:
+    extracted = tar.extractfile(member)
+    if extracted is None:
+        raise RuntimeError(f"failed to read {member.name} from archive")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("wb") as out:
+        shutil.copyfileobj(extracted, out)
+    output_path.chmod(mode)
+
+
 def _extract_binary(archive_path: Path, output_path: Path) -> None:
     with tarfile.open(archive_path, mode="r:gz") as tar:
-        member = next(
+        binary_member = next(
             (item for item in tar.getmembers() if item.isfile() and Path(item.name).name == "mcpx"),
             None,
         )
-        if member is None:
+        if binary_member is None:
             raise RuntimeError("archive did not contain mcpx binary")
 
-        extracted = tar.extractfile(member)
-        if extracted is None:
-            raise RuntimeError("failed to read mcpx binary from archive")
+        _extract_member(tar, binary_member, output_path, 0o755)
 
-        with output_path.open("wb") as out:
-            shutil.copyfileobj(extracted, out)
-
-    output_path.chmod(0o755)
+        man_member = next(
+            (item for item in tar.getmembers() if item.isfile() and Path(item.name).name == "mcpx.1"),
+            None,
+        )
+        if man_member is not None:
+            try:
+                _extract_member(tar, man_member, manpage_path(), 0o644)
+            except (OSError, RuntimeError):
+                # Man page install is optional; keep the binary usable.
+                pass
 
 
 def ensure_binary(force: bool = False) -> Path:

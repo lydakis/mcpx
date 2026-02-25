@@ -22,7 +22,7 @@ These are the only things `mcpx` does beyond basic discover/inspect/call. Each o
 
 ### Design Principle: It's Just a CLI
 
-Once you pick your server and tool, `mcpx` behaves exactly like any native Unix command. No invented syntax. No invented behavior. If you know `grep --help`, `man curl`, or `ls | head -5`, you already know how to use `mcpx`. MCP tool parameters become CLI flags. MCP tool descriptions become man pages and `--help` text. Everything follows POSIX conventions. Output goes to stdout, errors go to stderr, and you pipe to whatever you want.
+Once you pick your server and tool, `mcpx` behaves exactly like any native Unix command. No invented syntax. No invented behavior. If you know `grep --help`, `man curl`, or `ls | head -5`, you already know how to use `mcpx`. MCP tool parameters become CLI flags, and tool descriptions power `--help` output. Everything follows POSIX conventions. Output goes to stdout, errors go to stderr, and you pipe to whatever you want.
 
 ### 1. Output Schema Awareness
 
@@ -53,8 +53,8 @@ mcpx github search-repositories --help
 #     mcpx github search-repositories --query="mcp"
 #     mcpx github search-repositories --query="mcp" | head -5
 
-# Man page also works
-man mcpx-github-search-repositories
+# Root CLI man page
+man mcpx
 ```
 
 MCP tool parameters are translated to GNU-style long flags. `{"query": "mcp", "page": 2}` becomes `--query=mcp --page=2`. JSON input is still supported for complex args, but simple calls look like any other CLI:
@@ -247,7 +247,7 @@ The CLI surface is identical regardless of transport. The agent doesn't know or 
 mcpx                                    # list configured servers
 mcpx <server>                           # list tools
 mcpx <server> <tool> --help             # full help: params, output schema, examples
-man mcpx-<server>-<tool>                # man page (auto-generated)
+man mcpx                                # root CLI man page
 
 # Calling tools — MCP params become CLI flags
 mcpx github search-repositories --query="mcp"
@@ -298,7 +298,7 @@ MCP tool parameters map to GNU-style `--long-flags`. Required params are require
 
 **No tool subcommands.** `mcpx` (bare) lists servers, and the first positional argument is the server namespace. The only reserved utility commands are `completion` and `__complete` for shell integration; they explicitly defer to same-named servers when configured.
 
-**Man page generation:** Auto-generated from MCP tool descriptions and schemas. `man mcpx-github-search-repositories` just works. Pages written to `$XDG_DATA_HOME/man/man1/` (usually `~/.local/share/man/man1/`). Generated lazily on first `--help` or `man` call. Note: some Linux distros require `mandb` re-indexing to pick up new pages; mcpx can trigger this automatically or document it in install instructions.
+**Man pages:** Ship a static root man page (`mcpx.1`) in release artifacts and install it as part of package installation (`man mcpx`). Tool-level docs are served through `mcpx <server> <tool> --help` rather than generated tool man pages.
 
 **Tab completion:** Generates completions for bash/zsh/fish. Server names, tool names, and flag names all completable. Install via `mcpx completion bash > /etc/bash_completion.d/mcpx`.
 
@@ -307,7 +307,7 @@ MCP tool parameters map to GNU-style `--long-flags`. Required params are require
 2. If not → `--help` shows "OUTPUT: not declared by server"
 No inference, no caching of observed shapes. A tool can return different structures depending on inputs, so guessing the schema from a previous call would be actively misleading.
 
-**XDG compliance:** Config in `$XDG_CONFIG_HOME/mcpx/`, cache in `$XDG_CACHE_HOME/mcpx/`, daemon socket in `$XDG_RUNTIME_DIR/mcpx/` (fallback: `$XDG_STATE_HOME/mcpx/`), man pages in `$XDG_DATA_HOME/man/man1/`.
+**XDG compliance:** Config in `$XDG_CONFIG_HOME/mcpx/`, cache in `$XDG_CACHE_HOME/mcpx/`, daemon socket in `$XDG_RUNTIME_DIR/mcpx/` (fallback: `$XDG_STATE_HOME/mcpx/`).
 
 **Config fallback:** On startup, if no servers are defined in `config.toml`, mcpx reads `mcpServers` from configured fallback JSON sources. By default it checks common MCP client locations; `fallback_sources` can override this list or disable fallback entirely.
 

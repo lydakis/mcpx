@@ -38,6 +38,7 @@ mcpx-go --version
 1. Download the archive for your platform from the release assets.
 2. Extract the archive.
 3. Move `mcpx` into your `PATH`.
+4. Install `mcpx.1` into your manpath.
 
 Example (macOS arm64):
 
@@ -46,12 +47,15 @@ curl -L -o mcpx.tar.gz https://github.com/lydakis/mcpx/releases/download/v0.1.0/
 tar -xzf mcpx.tar.gz
 chmod +x mcpx
 mv mcpx /usr/local/bin/mcpx
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+cp man/man1/mcpx.1 "${XDG_DATA_HOME:-$HOME/.local/share}/man/man1/"
 ```
 
 Verify:
 
 ```bash
 mcpx --version
+man mcpx
 ```
 
 ## Shell Completion Install
