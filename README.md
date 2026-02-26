@@ -23,6 +23,7 @@ It is designed for agent workflows and shell composition:
 - native flag surface from MCP `inputSchema`
 - standardized exit mapping (`0/1/2/3`)
 - optional response caching with TTL and config overrides
+- optional Codex Apps compatibility via virtual per-app servers
 - stdio + HTTP transports via a local daemon
 - generated shell completions and packaged root man page (`man mcpx`)
 
@@ -83,6 +84,18 @@ mcpx github search-repositories --help --json
 mcpx github search-repositories --query=mcp
 mcpx skill install
 ```
+
+## Codex Apps (Optional)
+
+When Codex Apps are enabled in local Codex config, `mcpx` can expose connected apps as normal MCP servers (for example, `linear` or `zillow`) through the same command contract:
+
+```bash
+mcpx linear
+mcpx linear <tool> --help
+mcpx linear <tool> ...
+```
+
+Auth is still managed by Codex. `mcpx` does not run OAuth flows or store third-party app credentials.
 
 `--json` applies only to mcpx-owned output surfaces:
 

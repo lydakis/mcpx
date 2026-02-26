@@ -31,6 +31,7 @@ Command contract:
 
 - Supports: macOS/Linux, amd64/arm64.
 - Windows support is via WSL2 (Linux install path).
+- Optional: when Codex Apps are enabled locally, `mcpx` can expose connected apps as virtual MCP servers. Auth remains managed by Codex.
 - Installs `mcpx.1` to `${XDG_DATA_HOME:-~/.local/share}/man/man1` when available.
 - Set `MCPX_GO_SKIP_DOWNLOAD=1` to skip downloading and rely on `mcpx` in `PATH`.
 - Full docs and source: https://github.com/lydakis/mcpx
