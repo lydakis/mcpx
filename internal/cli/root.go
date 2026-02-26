@@ -72,6 +72,42 @@ func Run(args []string) int {
 		return ipc.ExitUsageErr
 	}
 	if cmd.list && cmd.listOpts.help {
+		if isConfiguredAddressableServer(cfg, server) {
+			printToolListHelp(rootStdout, server)
+			return ipc.ExitOK
+		}
+
+		if _, hasCodexApps := cfg.Servers[codexAppsServerName]; !hasCodexApps {
+			printUnknownServer(server, configuredAddressableServerNames(cfg))
+			return ipc.ExitUsageErr
+		}
+
+		nonce, err := daemon.SpawnOrConnect()
+		if err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		client := ipc.NewClient(ipc.SocketPath(), nonce)
+		resp, err := client.Send(&ipc.Request{
+			Type: "list_servers",
+			CWD:  callerWorkingDirectory(),
+		})
+		if err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		if resp.Stderr != "" {
+			fmt.Fprintln(rootStderr, resp.Stderr)
+		}
+		if resp.ExitCode != ipc.ExitOK {
+			return resp.ExitCode
+		}
+
+		knownServers := decodeServerListPayload(resp.Content)
+		if !containsServerName(knownServers, server) {
+			printUnknownServer(server, knownServers)
+			return ipc.ExitUsageErr
+		}
 		printToolListHelp(rootStdout, server)
 		return ipc.ExitOK
 	}
@@ -349,6 +385,50 @@ func decodeServerListPayload(payload []byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func configuredAddressableServerNames(cfg *config.Config) []string {
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(cfg.Servers))
+	for name := range cfg.Servers {
+		if strings.TrimSpace(name) == "" || name == codexAppsServerName {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func isConfiguredAddressableServer(cfg *config.Config, server string) bool {
+	if strings.TrimSpace(server) == "" || server == codexAppsServerName || cfg == nil {
+		return false
+	}
+	_, ok := cfg.Servers[server]
+	return ok
+}
+
+func containsServerName(names []string, server string) bool {
+	for _, name := range names {
+		if name == server {
+			return true
+		}
+	}
+	return false
+}
+
+func printUnknownServer(server string, names []string) {
+	fmt.Fprintf(rootStderr, "mcpx: unknown server: %s\n", server)
+	if len(names) == 0 {
+		return
+	}
+	fmt.Fprintln(rootStderr, "Available servers:")
+	for _, name := range names {
+		fmt.Fprintf(rootStderr, "  %s\n", name)
+	}
 }
 
 func resolvedToolHelpName(requested, payloadName string) string {

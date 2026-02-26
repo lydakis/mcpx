@@ -126,6 +126,34 @@ func TestResolveForToolFastPathUsesToolPrefix(t *testing.T) {
 	}
 }
 
+func TestResolveForToolCollisionUsesDisambiguatedVirtualMapping(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			CodexAppsServerName: {},
+		},
+	}
+	catalog := New(cfg, func(_ context.Context, _ string) ([]mcppool.ToolInfo, error) {
+		return []mcppool.ToolInfo{
+			{Name: "google calendar_search"},
+			{Name: "google-calendar_search"},
+		}, nil
+	})
+
+	route, found, err := catalog.ResolveForTool(context.Background(), "google_calendar", "google-calendar_search")
+	if err != nil {
+		t.Fatalf("ResolveForTool() error = %v", err)
+	}
+	if !found {
+		t.Fatal("ResolveForTool() found = false, want true")
+	}
+	if route.VirtualPrefix != "google calendar" {
+		t.Fatalf("ResolveForTool() route = %#v, want disambiguated prefix %q", route, "google calendar")
+	}
+	if catalog.ToolBelongsToRoute(route, "google-calendar_search") {
+		t.Fatal("ToolBelongsToRoute(google-calendar_search) = true, want false for unsuffixed alias")
+	}
+}
+
 func TestToolInfoAndToolBelongsToRoute(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{

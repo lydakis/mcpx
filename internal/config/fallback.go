@@ -249,13 +249,18 @@ func loadCodexConfigFile(path string) (map[string]ServerConfig, error) {
 		})
 	}
 
-	if _, exists := servers[codexAppsServerName]; !exists {
+	if _, exists := servers[codexAppsServerName]; !exists && !codexAppsExplicitlyDisabled(doc) {
 		if appServer, ok := codexAppsServerFromConfig(path, doc); ok {
 			servers[codexAppsServerName] = appServer
 		}
 	}
 
 	return servers, nil
+}
+
+func codexAppsExplicitlyDisabled(doc codexConfigDocument) bool {
+	entry, ok := doc.MCPServers[codexAppsServerName]
+	return ok && entry.Enabled != nil && !*entry.Enabled
 }
 
 func codexAppsServerFromConfig(configPath string, doc codexConfigDocument) (ServerConfig, bool) {
@@ -298,6 +303,9 @@ func codexAppsURL(doc codexConfigDocument) string {
 		baseURL = defaultCodexChatGPTBaseURL
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	if strings.Contains(baseURL, "/api/codex") {
+		return baseURL + "/apps"
+	}
 	if (strings.HasPrefix(baseURL, "https://chatgpt.com") ||
 		strings.HasPrefix(baseURL, "https://chat.openai.com")) &&
 		!strings.Contains(baseURL, "/backend-api") {
@@ -305,9 +313,6 @@ func codexAppsURL(doc codexConfigDocument) string {
 	}
 	if strings.Contains(baseURL, "/backend-api") {
 		return baseURL + "/wham/apps"
-	}
-	if strings.Contains(baseURL, "/api/codex") {
-		return baseURL + "/apps"
 	}
 	return baseURL + "/api/codex/apps"
 }

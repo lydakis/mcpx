@@ -325,6 +325,52 @@ args = ["ok"]
 	}
 }
 
+func TestRunUnknownServerHelpReturnsUsageErrorWithoutDaemon(t *testing.T) {
+	tmp := t.TempDir()
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	configDir := filepath.Join(xdgConfigHome, "mcpx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(configDir): %v", err)
+	}
+	configToml := []byte(`[servers.github]
+command = "echo"
+args = ["ok"]
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), configToml, 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml): %v", err)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("XDG_RUNTIME_DIR", "/dev/null")
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	if code := Run([]string{"unknown", "--help"}); code != ipc.ExitUsageErr {
+		t.Fatalf("Run([unknown --help]) = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("unknown server: unknown")) {
+		t.Fatalf("stderr = %q, want unknown server error", errOut.String())
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("Available servers:")) {
+		t.Fatalf("stderr = %q, want available servers header", errOut.String())
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("  github")) {
+		t.Fatalf("stderr = %q, want configured server listing", errOut.String())
+	}
+}
+
 func TestRunRootJSONListsServers(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")

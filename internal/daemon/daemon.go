@@ -237,7 +237,7 @@ func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka
 	var warn string
 	if err != nil {
 		warn = fmt.Sprintf("mcpx: warning: failed to enumerate codex apps: %v", err)
-		names = nil
+		names = configuredServerNames(cfg)
 	}
 
 	var out []byte
@@ -245,6 +245,22 @@ func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka
 		out = append(out, []byte(name+"\n")...)
 	}
 	return &ipc.Response{Content: out, Stderr: warn}
+}
+
+func configuredServerNames(cfg *config.Config) []string {
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(cfg.Servers))
+	for name := range cfg.Servers {
+		if strings.TrimSpace(name) == "" || name == codexAppsServerName {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func newServerCatalog(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *servercatalog.Catalog {

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -227,6 +228,41 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 		if name == codexAppsServerName {
 			t.Fatalf("server list = %#v, want %q omitted", got, codexAppsServerName)
 		}
+	}
+}
+
+func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing.T) {
+	oldPoolListTools := poolListTools
+	defer func() {
+		poolListTools = oldPoolListTools
+	}()
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github":            {},
+			codexAppsServerName: {},
+			"supermemory":       {},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		return nil, errors.New("token expired")
+	}
+
+	resp := listServers(context.Background(), cfg, nil, ka)
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+
+	got := decodeServerLines(resp.Content)
+	want := []string{"github", "supermemory"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("server list = %#v, want %#v", got, want)
+	}
+	if !strings.Contains(resp.Stderr, "failed to enumerate codex apps") {
+		t.Fatalf("listServers() stderr = %q, want codex-apps warning", resp.Stderr)
 	}
 }
 

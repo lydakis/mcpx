@@ -436,6 +436,42 @@ apps = true
 	}
 }
 
+func TestLoadCodexConfigFileRespectsDisabledCodexAppsEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+[features]
+apps = true
+
+[mcp_servers.codex_apps]
+enabled = false
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	authRaw := []byte(`{"tokens":{"access_token":"access-123","account_id":"acct-456"}}`)
+	if err := os.WriteFile(filepath.Join(codexDir, "auth.json"), authRaw, 0600); err != nil {
+		t.Fatalf("write codex auth: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	if _, ok := servers[codexAppsServerName]; ok {
+		t.Fatalf("servers = %#v, want %q omitted when explicitly disabled", servers, codexAppsServerName)
+	}
+}
+
 func TestLoadCodexConfigFileCodexAppsUsesMCPGatewayURL(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -467,6 +503,40 @@ apps_mcp_gateway = true
 	}
 	if apps.URL != "https://api.openai.com/v1/connectors/gateways/flat/mcp" {
 		t.Fatalf("codex_apps url = %q, want %q", apps.URL, "https://api.openai.com/v1/connectors/gateways/flat/mcp")
+	}
+}
+
+func TestLoadCodexConfigFileCodexAppsPreservesExplicitCodexPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(codexConnectorsTokenEnvVar, "connectors-123")
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+chatgpt_base_url = "https://chatgpt.com/api/codex"
+[features]
+apps = true
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	apps, ok := servers[codexAppsServerName]
+	if !ok {
+		t.Fatalf("servers = %#v, want %q", servers, codexAppsServerName)
+	}
+	if apps.URL != "https://chatgpt.com/api/codex/apps" {
+		t.Fatalf("codex_apps url = %q, want %q", apps.URL, "https://chatgpt.com/api/codex/apps")
 	}
 }
 

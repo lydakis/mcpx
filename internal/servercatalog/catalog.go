@@ -130,7 +130,7 @@ func (c *Catalog) ResolveForTool(ctx context.Context, requested, tool string) (R
 	}
 
 	prefix, hasPrefix := connectorPrefixFromToolName(tool)
-	if hasPrefix && normalizeCodexVirtualServerName(prefix) == requested {
+	if hasPrefix && prefix == requested && normalizeCodexVirtualServerName(prefix) == requested {
 		return Route{
 			Backend:       CodexAppsServerName,
 			ConfigServer:  CodexAppsServerName,
