@@ -56,6 +56,8 @@ var (
 	}
 )
 
+const codexAppsServerName = "codex_apps"
+
 // Run starts the daemon process. Called when argv[1] == "__daemon".
 func Run() error {
 	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
@@ -213,7 +215,7 @@ func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {
 func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request) *ipc.Response {
 	switch req.Type {
 	case "list_servers":
-		return listServers(cfg)
+		return listServers(ctx, cfg, pool, ka)
 	case "list_tools":
 		return listTools(ctx, cfg, pool, ka, req.Server, req.Verbose)
 	case "tool_schema":
@@ -228,18 +230,55 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	}
 }
 
-func listServers(cfg *config.Config) *ipc.Response {
-	names := make([]string, 0, len(cfg.Servers))
+type serverRoute struct {
+	backend       string
+	configServer  string
+	virtualName   string
+	virtualPrefix string
+}
+
+func (r serverRoute) isVirtual() bool {
+	return strings.TrimSpace(r.virtualPrefix) != ""
+}
+
+func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *ipc.Response {
+	names := make(map[string]struct{}, len(cfg.Servers))
 	for name := range cfg.Servers {
-		names = append(names, name)
+		if name == codexAppsServerName {
+			continue
+		}
+		names[name] = struct{}{}
 	}
-	sort.Strings(names)
+
+	var warn string
+	if _, ok := cfg.Servers[codexAppsServerName]; ok {
+		tools, err := listCodexAppsTools(ctx, pool, ka)
+		if err != nil {
+			warn = fmt.Sprintf("mcpx: warning: failed to enumerate codex apps: %v", err)
+		} else {
+			for name := range codexVirtualServerMap(tools) {
+				if strings.TrimSpace(name) == "" {
+					continue
+				}
+				if _, exists := cfg.Servers[name]; exists {
+					continue
+				}
+				names[name] = struct{}{}
+			}
+		}
+	}
+
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
 
 	var out []byte
-	for _, name := range names {
+	for _, name := range sorted {
 		out = append(out, []byte(name+"\n")...)
 	}
-	return &ipc.Response{Content: out}
+	return &ipc.Response{Content: out, Stderr: warn}
 }
 
 type toolListEntry struct {
@@ -248,16 +287,25 @@ type toolListEntry struct {
 }
 
 func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool) *ipc.Response {
-	if _, ok := cfg.Servers[server]; !ok {
+	route, routeTools, found, err := resolveServerRoute(ctx, cfg, pool, ka, server)
+	if err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
+	}
+	if !found {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
 	}
 
-	ka.Begin(server)
-	defer ka.End(server)
+	tools := routeTools
+	if !route.isVirtual() {
+		ka.Begin(route.backend)
+		defer ka.End(route.backend)
 
-	tools, err := poolListTools(ctx, pool, server)
-	if err != nil {
-		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("listing tools: %v", err)}
+		tools, err = poolListTools(ctx, pool, route.backend)
+		if err != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("listing tools: %v", err)}
+		}
+	} else {
+		tools = filterToolsByPrefix(tools, route.virtualPrefix)
 	}
 
 	displayNames := make(map[string]string, len(tools))
@@ -323,18 +371,34 @@ func summarizeToolDescription(desc string) string {
 }
 
 func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string) *ipc.Response {
-	if _, ok := cfg.Servers[server]; !ok {
+	route, routeTools, found, err := resolveServerRoute(ctx, cfg, pool, ka, server)
+	if err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
+	}
+	if !found {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
 	}
 
-	ka.Begin(server)
-	defer ka.End(server)
+	var info *mcppool.ToolInfo
+	if route.isVirtual() {
+		toolInfo, ok := toolInfoByNameAndPrefix(routeTools, tool, route.virtualPrefix)
+		if !ok {
+			return &ipc.Response{
+				ExitCode: ipc.ExitUsageErr,
+				Stderr:   fmt.Sprintf("tool %s not found on server %s", tool, server),
+			}
+		}
+		info = toolInfo
+	} else {
+		ka.Begin(route.backend)
+		defer ka.End(route.backend)
 
-	info, err := poolToolInfoByName(ctx, pool, server, tool)
-	if err != nil {
-		return &ipc.Response{
-			ExitCode: classifyToolLookupError(err),
-			Stderr:   fmt.Sprintf("getting schema: %v", err),
+		info, err = poolToolInfoByName(ctx, pool, route.backend, tool)
+		if err != nil {
+			return &ipc.Response{
+				ExitCode: classifyToolLookupError(err),
+				Stderr:   fmt.Sprintf("getting schema: %v", err),
+			}
 		}
 	}
 
@@ -362,13 +426,20 @@ func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka 
 }
 
 func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, reqCache *time.Duration, verbose bool) *ipc.Response {
-	scfg, ok := cfg.Servers[server]
+	route, found, err := resolveServerRouteForTool(ctx, cfg, pool, ka, server, tool)
+	if err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
+	}
+	if !found {
+		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
+	}
+	scfg, ok := cfg.Servers[route.configServer]
 	if !ok {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
 	}
 
-	ka.Begin(server)
-	defer ka.End(server)
+	ka.Begin(route.backend)
+	defer ka.End(route.backend)
 
 	cacheTTL, shouldCache, err := effectiveCacheTTL(scfg, tool, reqCache)
 	if err != nil {
@@ -395,12 +466,24 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	}
 
 	info := &mcppool.ToolInfo{Name: tool}
+	if route.isVirtual() && !toolMatchesPrefix(tool, route.virtualPrefix) {
+		return &ipc.Response{
+			ExitCode: ipc.ExitUsageErr,
+			Stderr:   fmt.Sprintf("resolving tool: tool %s not found on server %s", tool, server),
+		}
+	}
 	if pool != nil {
-		resolvedInfo, err := poolToolInfoByName(ctx, pool, server, tool)
+		resolvedInfo, err := poolToolInfoByName(ctx, pool, route.backend, tool)
 		if err != nil {
 			return &ipc.Response{
 				ExitCode: classifyToolLookupError(err),
 				Stderr:   fmt.Sprintf("resolving tool: %v", err),
+			}
+		}
+		if route.isVirtual() && (resolvedInfo == nil || !toolMatchesPrefix(resolvedInfo.Name, route.virtualPrefix)) {
+			return &ipc.Response{
+				ExitCode: ipc.ExitUsageErr,
+				Stderr:   fmt.Sprintf("resolving tool: tool %s not found on server %s", tool, server),
 			}
 		}
 		if resolvedInfo != nil {
@@ -412,7 +495,7 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 		cacheTool = info.Name
 	}
 
-	result, err := poolCallToolWithInfo(ctx, pool, server, info, args)
+	result, err := poolCallToolWithInfo(ctx, pool, route.backend, info, args)
 	if err != nil {
 		return &ipc.Response{
 			ExitCode: classifyCallToolError(err),
@@ -428,6 +511,197 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 		}
 	}
 	return &ipc.Response{Content: out, ExitCode: exitCode, Stderr: joinLogs(logs)}
+}
+
+func resolveServerRoute(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, requested string) (serverRoute, []mcppool.ToolInfo, bool, error) {
+	if cfg != nil && requested != codexAppsServerName {
+		if _, ok := cfg.Servers[requested]; ok {
+			return serverRoute{
+				backend:      requested,
+				configServer: requested,
+			}, nil, true, nil
+		}
+	}
+
+	if cfg == nil {
+		return serverRoute{}, nil, false, nil
+	}
+	if _, ok := cfg.Servers[codexAppsServerName]; !ok {
+		return serverRoute{}, nil, false, nil
+	}
+
+	tools, err := listCodexAppsTools(ctx, pool, ka)
+	if err != nil {
+		return serverRoute{}, nil, false, err
+	}
+	prefix, ok := codexVirtualServerMap(tools)[requested]
+	if !ok {
+		return serverRoute{}, nil, false, nil
+	}
+
+	return serverRoute{
+		backend:       codexAppsServerName,
+		configServer:  codexAppsServerName,
+		virtualName:   requested,
+		virtualPrefix: prefix,
+	}, tools, true, nil
+}
+
+func resolveServerRouteForTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, requested, tool string) (serverRoute, bool, error) {
+	if cfg != nil && requested != codexAppsServerName {
+		if _, ok := cfg.Servers[requested]; ok {
+			return serverRoute{
+				backend:      requested,
+				configServer: requested,
+			}, true, nil
+		}
+	}
+	if cfg == nil {
+		return serverRoute{}, false, nil
+	}
+	if _, ok := cfg.Servers[codexAppsServerName]; !ok {
+		return serverRoute{}, false, nil
+	}
+
+	prefix, hasPrefix := connectorPrefixFromToolName(tool)
+	if hasPrefix && normalizeCodexVirtualServerName(prefix) == requested {
+		return serverRoute{
+			backend:       codexAppsServerName,
+			configServer:  codexAppsServerName,
+			virtualName:   requested,
+			virtualPrefix: prefix,
+		}, true, nil
+	}
+
+	route, _, found, err := resolveServerRoute(ctx, cfg, pool, ka, requested)
+	if err != nil {
+		return serverRoute{}, false, err
+	}
+	if !found || !route.isVirtual() {
+		return serverRoute{}, false, nil
+	}
+	return route, true, nil
+}
+
+func listCodexAppsTools(ctx context.Context, pool *mcppool.Pool, ka *Keepalive) ([]mcppool.ToolInfo, error) {
+	if ka != nil {
+		ka.Begin(codexAppsServerName)
+		defer ka.End(codexAppsServerName)
+	}
+	return poolListTools(ctx, pool, codexAppsServerName)
+}
+
+func codexVirtualServerMap(tools []mcppool.ToolInfo) map[string]string {
+	prefixes := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		prefix, ok := connectorPrefixFromToolName(tool.Name)
+		if !ok {
+			continue
+		}
+		prefixes[prefix] = struct{}{}
+	}
+
+	sortedPrefixes := make([]string, 0, len(prefixes))
+	for prefix := range prefixes {
+		sortedPrefixes = append(sortedPrefixes, prefix)
+	}
+	sort.Strings(sortedPrefixes)
+
+	out := make(map[string]string, len(sortedPrefixes))
+	for _, prefix := range sortedPrefixes {
+		base := normalizeCodexVirtualServerName(prefix)
+		if base == "" {
+			continue
+		}
+		name := base
+		if existingPrefix, exists := out[name]; exists && existingPrefix != prefix {
+			for i := 2; ; i++ {
+				candidate := fmt.Sprintf("%s_%d", base, i)
+				if _, inUse := out[candidate]; inUse {
+					continue
+				}
+				name = candidate
+				break
+			}
+		}
+		out[name] = prefix
+	}
+	return out
+}
+
+func connectorPrefixFromToolName(toolName string) (string, bool) {
+	sep := strings.Index(toolName, "_")
+	if sep <= 0 {
+		return "", false
+	}
+	prefix := strings.TrimSpace(toolName[:sep])
+	if prefix == "" {
+		return "", false
+	}
+	return prefix, true
+}
+
+func normalizeCodexVirtualServerName(prefix string) string {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range prefix {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevUnderscore = false
+			continue
+		}
+		if b.Len() == 0 || prevUnderscore {
+			continue
+		}
+		b.WriteByte('_')
+		prevUnderscore = true
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func toolMatchesPrefix(name, prefix string) bool {
+	return strings.HasPrefix(name, prefix+"_")
+}
+
+func filterToolsByPrefix(tools []mcppool.ToolInfo, prefix string) []mcppool.ToolInfo {
+	filtered := make([]mcppool.ToolInfo, 0, len(tools))
+	for _, tool := range tools {
+		if toolMatchesPrefix(tool.Name, prefix) {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
+
+func canonicalToolNameForPrefix(tools []mcppool.ToolInfo, requested, prefix string) (string, bool) {
+	for _, tool := range tools {
+		if !toolMatchesPrefix(tool.Name, prefix) {
+			continue
+		}
+		if tool.Name == requested {
+			return tool.Name, true
+		}
+	}
+	return "", false
+}
+
+func toolInfoByNameAndPrefix(tools []mcppool.ToolInfo, requested, prefix string) (*mcppool.ToolInfo, bool) {
+	canonical, ok := canonicalToolNameForPrefix(tools, requested, prefix)
+	if !ok {
+		return nil, false
+	}
+	for i := range tools {
+		if tools[i].Name == canonical {
+			toolCopy := tools[i]
+			return &toolCopy, true
+		}
+	}
+	return nil, false
 }
 
 func effectiveCacheTTL(scfg config.ServerConfig, tool string, reqCache *time.Duration) (time.Duration, bool, error) {

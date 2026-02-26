@@ -14,6 +14,8 @@ import (
 	"github.com/lydakis/mcpx/internal/ipc"
 )
 
+const codexAppsServerName = "codex_apps"
+
 // Run is the main CLI entry point. Returns an exit code.
 func Run(args []string) int {
 	if handled, code := handleRootFlags(args); handled {
@@ -44,22 +46,25 @@ func Run(args []string) int {
 	}
 
 	// No args: list servers
-	if len(args) == 0 {
-		return listServers(cfg, outputModeText)
-	}
-	if len(args) == 1 && args[0] == "--json" {
-		return listServers(cfg, outputModeJSON)
+	if len(args) == 0 || (len(args) == 1 && args[0] == "--json") {
+		output := outputModeText
+		if len(args) == 1 && args[0] == "--json" {
+			output = outputModeJSON
+		}
+		if _, hasCodexApps := cfg.Servers[codexAppsServerName]; !hasCodexApps {
+			return listConfiguredServers(cfg, output)
+		}
+
+		nonce, err := daemon.SpawnOrConnect()
+		if err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		client := ipc.NewClient(ipc.SocketPath(), nonce)
+		return listServersFromDaemon(client, callerWorkingDirectory(), output)
 	}
 
 	server := args[0]
-	if _, ok := cfg.Servers[server]; !ok {
-		fmt.Fprintf(rootStderr, "mcpx: unknown server: %s\n", server)
-		fmt.Fprintln(rootStderr, "Available servers:")
-		for name := range cfg.Servers {
-			fmt.Fprintf(rootStderr, "  %s\n", name)
-		}
-		return ipc.ExitUsageErr
-	}
 
 	cmd, err := parseServerCommand(args[1:])
 	if err != nil {
@@ -112,7 +117,7 @@ func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, std
 	}
 }
 
-func listServers(cfg *config.Config, output outputMode) int {
+func listConfiguredServers(cfg *config.Config, output outputMode) int {
 	names := make([]string, 0, len(cfg.Servers))
 	for name := range cfg.Servers {
 		names = append(names, name)
@@ -136,6 +141,43 @@ func listServers(cfg *config.Config, output outputMode) int {
 		fmt.Fprintln(rootStdout, name)
 	}
 	return ipc.ExitOK
+}
+
+func listServersFromDaemon(client *ipc.Client, cwd string, output outputMode) int {
+	resp, err := client.Send(&ipc.Request{
+		Type: "list_servers",
+		CWD:  cwd,
+	})
+	if err != nil {
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+		return ipc.ExitInternal
+	}
+	if resp.Stderr != "" {
+		fmt.Fprintln(rootStderr, resp.Stderr)
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		return resp.ExitCode
+	}
+
+	names := decodeServerListPayload(resp.Content)
+
+	if output.isJSON() {
+		if err := writeJSONLine(rootStdout, names); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		return ipc.ExitOK
+	}
+
+	if len(names) == 0 {
+		fmt.Fprintln(rootStdout, "No MCP servers configured.")
+		fmt.Fprintf(rootStdout, "Create a config file at %s\n", config.ExampleConfigPath())
+		return ipc.ExitOK
+	}
+	for _, name := range names {
+		fmt.Fprintln(rootStdout, name)
+	}
+	return resp.ExitCode
 }
 
 type toolListArgs struct {
@@ -284,6 +326,29 @@ func writePayload(w io.Writer, label string, payload []byte) error {
 		return fmt.Errorf("writing %s: %w", label, err)
 	}
 	return nil
+}
+
+func decodeServerListPayload(payload []byte) []string {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(string(payload), "\n")
+	seen := make(map[string]struct{}, len(lines))
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func resolvedToolHelpName(requested, payloadName string) string {

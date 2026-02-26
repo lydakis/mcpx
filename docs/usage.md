@@ -143,7 +143,7 @@ man mcpx
     - Claude Desktop config
     - Cline MCP settings
     - Claude Code user/local config (`~/.claude.json`)
-    - Codex config (`~/.codex/config.toml`, `mcp_servers.*`)
+    - Codex config (`~/.codex/config.toml`, `mcp_servers.*`; when `[features].apps = true`, `mcpx` adds virtual per-app servers like `linear`/`zillow`, backed by Codex connector auth from `CODEX_CONNECTORS_TOKEN` or `~/.codex/auth.json`)
     - Claude Code project config (`.mcp.json`, nearest parent)
     - Kiro user config (`~/.kiro/settings/mcp.json`)
     - Kiro project config (`.kiro/settings/mcp.json`, nearest parent)

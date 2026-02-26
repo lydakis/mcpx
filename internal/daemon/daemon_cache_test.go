@@ -355,3 +355,54 @@ func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
 		t.Fatalf("cache store missing key %q", "search_repositories")
 	}
 }
+
+func TestCallToolVirtualServerRoutesThroughCodexApps(t *testing.T) {
+	restore := saveCallToolHooks()
+	oldPoolListTools := poolListTools
+	defer restore()
+	defer func() {
+		poolListTools = oldPoolListTools
+	}()
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			codexAppsServerName: {},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
+		return nil, 0, false
+	}
+	cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
+		return nil
+	}
+	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		t.Fatal("poolListTools should not be called for direct virtual-server tool routing")
+		return nil, nil
+	}
+	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
+		t.Fatal("poolToolInfoByName should not be called for virtual-server tool routing")
+		return nil, nil
+	}
+	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, _ json.RawMessage) (*mcp.CallToolResult, error) {
+		if server != codexAppsServerName {
+			t.Fatalf("poolCallTool server = %q, want %q", server, codexAppsServerName)
+		}
+		if tool != "linear_get_profile" {
+			t.Fatalf("poolCallTool tool = %q, want %q", tool, "linear_get_profile")
+		}
+		return &mcp.CallToolResult{
+			StructuredContent: map[string]any{"ok": true},
+		}, nil
+	}
+
+	resp := callTool(context.Background(), cfg, nil, ka, "linear", "linear_get_profile", json.RawMessage(`{}`), nil, false)
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+	if string(resp.Content) != "{\"ok\":true}\n" {
+		t.Fatalf("callTool() content = %q, want %q", string(resp.Content), "{\"ok\":true}\n")
+	}
+}

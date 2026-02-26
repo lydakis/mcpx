@@ -30,7 +30,14 @@ type mcpServerEntry struct {
 }
 
 type codexConfigDocument struct {
-	MCPServers map[string]codexMCPServerEntry `toml:"mcp_servers"`
+	MCPServers     map[string]codexMCPServerEntry `toml:"mcp_servers"`
+	Features       codexFeaturesDocument          `toml:"features"`
+	ChatGPTBaseURL string                         `toml:"chatgpt_base_url"`
+}
+
+type codexFeaturesDocument struct {
+	Apps           *bool `toml:"apps"`
+	AppsMCPGateway *bool `toml:"apps_mcp_gateway"`
 }
 
 type codexMCPServerEntry struct {
@@ -46,6 +53,29 @@ type codexMCPServerEntry struct {
 
 	Enabled *bool `toml:"enabled"`
 }
+
+type codexAuthDocument struct {
+	Tokens *codexAuthTokens `json:"tokens"`
+}
+
+type codexAuthTokens struct {
+	AccessToken string `json:"access_token"`
+	AccountID   string `json:"account_id"`
+}
+
+const (
+	codexAppsServerName                  = "codex_apps"
+	codexConnectorsTokenEnvVar           = "CODEX_CONNECTORS_TOKEN"
+	defaultCodexChatGPTBaseURL           = "https://chatgpt.com/backend-api"
+	openAIConnectorsMCPBaseURL           = "https://api.openai.com"
+	openAIConnectorsMCPPath              = "/v1/connectors/gateways/flat/mcp"
+	codexConfigName                      = "config.toml"
+	codexConfigDirName                   = ".codex"
+	codexAuthFileName                    = "auth.json"
+	chatGPTAccountIDHeader               = "ChatGPT-Account-ID"
+	authorizationHeader                  = "Authorization"
+	bearerAuthPrefix                     = "Bearer "
+)
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources
 // when the primary config has no servers.
@@ -219,7 +249,108 @@ func loadCodexConfigFile(path string) (map[string]ServerConfig, error) {
 		})
 	}
 
+	if _, exists := servers[codexAppsServerName]; !exists {
+		if appServer, ok := codexAppsServerFromConfig(path, doc); ok {
+			servers[codexAppsServerName] = appServer
+		}
+	}
+
 	return servers, nil
+}
+
+func codexAppsServerFromConfig(configPath string, doc codexConfigDocument) (ServerConfig, bool) {
+	if doc.Features.Apps == nil || !*doc.Features.Apps {
+		return ServerConfig{}, false
+	}
+
+	token := strings.TrimSpace(os.Getenv(codexConnectorsTokenEnvVar))
+	accountID := ""
+	if token == "" {
+		var ok bool
+		token, accountID, ok = readCodexAuthTokens(codexAuthFilePath(configPath))
+		if !ok {
+			return ServerConfig{}, false
+		}
+	} else {
+		_, accountID, _ = readCodexAuthTokens(codexAuthFilePath(configPath))
+	}
+
+	headers := map[string]string{
+		authorizationHeader: bearerAuthPrefix + token,
+	}
+	if accountID != "" {
+		headers[chatGPTAccountIDHeader] = accountID
+	}
+
+	return ServerConfig{
+		URL:     codexAppsURL(doc),
+		Headers: headers,
+	}, true
+}
+
+func codexAppsURL(doc codexConfigDocument) string {
+	if doc.Features.AppsMCPGateway != nil && *doc.Features.AppsMCPGateway {
+		return openAIConnectorsMCPBaseURL + openAIConnectorsMCPPath
+	}
+
+	baseURL := strings.TrimSpace(doc.ChatGPTBaseURL)
+	if baseURL == "" {
+		baseURL = defaultCodexChatGPTBaseURL
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if (strings.HasPrefix(baseURL, "https://chatgpt.com") ||
+		strings.HasPrefix(baseURL, "https://chat.openai.com")) &&
+		!strings.Contains(baseURL, "/backend-api") {
+		baseURL += "/backend-api"
+	}
+	if strings.Contains(baseURL, "/backend-api") {
+		return baseURL + "/wham/apps"
+	}
+	if strings.Contains(baseURL, "/api/codex") {
+		return baseURL + "/apps"
+	}
+	return baseURL + "/api/codex/apps"
+}
+
+func codexAuthFilePath(configPath string) string {
+	if codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME")); codexHome != "" {
+		return filepath.Join(codexHome, codexAuthFileName)
+	}
+
+	configDir := filepath.Dir(configPath)
+	if filepath.Base(strings.TrimSpace(configPath)) == codexConfigName &&
+		filepath.Base(configDir) == codexConfigDirName {
+		return filepath.Join(configDir, codexAuthFileName)
+	}
+
+	home, _ := os.UserHomeDir()
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, codexConfigDirName, codexAuthFileName)
+}
+
+func readCodexAuthTokens(path string) (token string, accountID string, ok bool) {
+	if strings.TrimSpace(path) == "" {
+		return "", "", false
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", false
+	}
+
+	var doc codexAuthDocument
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Tokens == nil {
+		return "", "", false
+	}
+
+	token = strings.TrimSpace(doc.Tokens.AccessToken)
+	accountID = strings.TrimSpace(doc.Tokens.AccountID)
+	if token == "" {
+		return "", "", false
+	}
+	return token, accountID, true
 }
 
 func copyStringMap(src map[string]string) map[string]string {

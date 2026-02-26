@@ -320,6 +320,156 @@ bearer_token_env_var = "REMOTE_TOKEN"
 	}
 }
 
+func TestLoadCodexConfigFileAddsCodexAppsServerFromAuthFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+[features]
+apps = true
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	authRaw := []byte(`{"tokens":{"access_token":"access-123","account_id":"acct-456"}}`)
+	if err := os.WriteFile(filepath.Join(codexDir, "auth.json"), authRaw, 0600); err != nil {
+		t.Fatalf("write codex auth: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	apps, ok := servers[codexAppsServerName]
+	if !ok {
+		t.Fatalf("servers = %#v, want %q", servers, codexAppsServerName)
+	}
+	if apps.URL != "https://chatgpt.com/backend-api/wham/apps" {
+		t.Fatalf("codex_apps url = %q, want %q", apps.URL, "https://chatgpt.com/backend-api/wham/apps")
+	}
+	if got := apps.Headers["Authorization"]; got != "Bearer access-123" {
+		t.Fatalf("codex_apps Authorization = %q, want %q", got, "Bearer access-123")
+	}
+	if got := apps.Headers["ChatGPT-Account-ID"]; got != "acct-456" {
+		t.Fatalf("codex_apps ChatGPT-Account-ID = %q, want %q", got, "acct-456")
+	}
+}
+
+func TestLoadCodexConfigFileCodexAppsUsesConnectorsTokenEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(codexConnectorsTokenEnvVar, "connectors-999")
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+chatgpt_base_url = "https://chatgpt.com"
+[features]
+apps = true
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	authRaw := []byte(`{"tokens":{"access_token":"ignored","account_id":"acct-789"}}`)
+	if err := os.WriteFile(filepath.Join(codexDir, "auth.json"), authRaw, 0600); err != nil {
+		t.Fatalf("write codex auth: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	apps, ok := servers[codexAppsServerName]
+	if !ok {
+		t.Fatalf("servers = %#v, want %q", servers, codexAppsServerName)
+	}
+	if apps.URL != "https://chatgpt.com/backend-api/wham/apps" {
+		t.Fatalf("codex_apps url = %q, want %q", apps.URL, "https://chatgpt.com/backend-api/wham/apps")
+	}
+	if got := apps.Headers["Authorization"]; got != "Bearer connectors-999" {
+		t.Fatalf("codex_apps Authorization = %q, want %q", got, "Bearer connectors-999")
+	}
+	if got := apps.Headers["ChatGPT-Account-ID"]; got != "acct-789" {
+		t.Fatalf("codex_apps ChatGPT-Account-ID = %q, want %q", got, "acct-789")
+	}
+}
+
+func TestLoadCodexConfigFileSkipsCodexAppsWithoutToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+[features]
+apps = true
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	if _, ok := servers[codexAppsServerName]; ok {
+		t.Fatalf("servers = %#v, want %q omitted when auth token is unavailable", servers, codexAppsServerName)
+	}
+}
+
+func TestLoadCodexConfigFileCodexAppsUsesMCPGatewayURL(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(codexConnectorsTokenEnvVar, "connectors-123")
+
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatalf("mkdir codex dir: %v", err)
+	}
+
+	configPath := filepath.Join(codexDir, "config.toml")
+	configRaw := []byte(`
+[features]
+apps = true
+apps_mcp_gateway = true
+`)
+	if err := os.WriteFile(configPath, configRaw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	apps, ok := servers[codexAppsServerName]
+	if !ok {
+		t.Fatalf("servers = %#v, want %q", servers, codexAppsServerName)
+	}
+	if apps.URL != "https://api.openai.com/v1/connectors/gateways/flat/mcp" {
+		t.Fatalf("codex_apps url = %q, want %q", apps.URL, "https://api.openai.com/v1/connectors/gateways/flat/mcp")
+	}
+}
+
 func TestLoadMCPServersFileReadsClaudeCodeProjectServers(t *testing.T) {
 	root := t.TempDir()
 	projectRoot := filepath.Join(root, "project")
