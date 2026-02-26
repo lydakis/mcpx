@@ -1,12 +1,18 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/mcppool"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
@@ -127,5 +133,83 @@ func TestRequestNeedsRuntimeConfig(t *testing.T) {
 		if got := requestNeedsRuntimeConfig(tc.req); got != tc.want {
 			t.Fatalf("requestNeedsRuntimeConfig(%#v) = %v, want %v", tc.req, got, tc.want)
 		}
+	}
+}
+
+func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
+	restore := saveCallToolHooks()
+	defer restore()
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {},
+		},
+	}
+
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	handler := newRuntimeRequestHandler(cfg, &mcppool.Pool{}, ka)
+	handler.activeCWD = "/tmp/project"
+
+	var inFlight int32
+	var maxInFlight int32
+
+	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
+		n := atomic.AddInt32(&inFlight, 1)
+		for {
+			currentMax := atomic.LoadInt32(&maxInFlight)
+			if n <= currentMax {
+				break
+			}
+			if atomic.CompareAndSwapInt32(&maxInFlight, currentMax, n) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
+		return &mcppool.ToolInfo{Name: "search"}, nil
+	}
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			StructuredContent: map[string]any{"ok": true},
+		}, nil
+	}
+
+	const workers = 4
+	start := make(chan struct{})
+	results := make(chan *ipc.Response, workers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- handler.handle(context.Background(), &ipc.Request{
+				Type:   "call_tool",
+				Server: "github",
+				Tool:   "search",
+				CWD:    "/tmp/project",
+				Args:   json.RawMessage(`{"query":"mcp"}`),
+			})
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+
+	for resp := range results {
+		if resp == nil {
+			t.Fatal("handler returned nil response")
+		}
+		if resp.ExitCode != ipc.ExitOK {
+			t.Fatalf("handler exit code = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+		}
+	}
+
+	if got := atomic.LoadInt32(&maxInFlight); got < 2 {
+		t.Fatalf("max concurrent tool resolution = %d, want >= 2 for same-CWD parallel dispatch", got)
 	}
 }

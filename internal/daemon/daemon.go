@@ -29,8 +29,8 @@ var (
 	poolToolInfoByName = func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error) {
 		return pool.ToolInfoByName(ctx, server, tool)
 	}
-	poolCallTool = func(ctx context.Context, pool *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
-		return pool.CallTool(ctx, server, tool, args)
+	poolCallToolWithInfo = func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+		return pool.CallToolWithInfo(ctx, server, info, args)
 	}
 	cacheGet         = cache.Get
 	cacheGetMetadata = cache.GetMetadata
@@ -67,21 +67,9 @@ func Run() error {
 	ka.SetOnAllIdle(signalShutdownFn)
 	defer ka.Stop()
 
-	var handlerMu sync.Mutex
-	activeCWD := ""
-	handler := func(ctx context.Context, req *ipc.Request) *ipc.Response {
-		handlerMu.Lock()
-		defer handlerMu.Unlock()
+	handler := newRuntimeRequestHandler(cfg, pool, ka)
 
-		if requestNeedsRuntimeConfig(req) {
-			if err := syncRuntimeConfigForRequest(req.CWD, &activeCWD, &cfg, pool, ka); err != nil {
-				return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
-			}
-		}
-		return dispatch(ctx, cfg, pool, ka, req)
-	}
-
-	srv := ipc.NewServer(paths.SocketPath(), nonce, handler)
+	srv := ipc.NewServer(paths.SocketPath(), nonce, handler.handle)
 	if err := srv.Start(); err != nil {
 		return err
 	}
@@ -96,6 +84,54 @@ func Run() error {
 
 	fmt.Fprintln(os.Stderr, "mcpx daemon: shutting down")
 	return nil
+}
+
+type runtimeRequestHandler struct {
+	mu        sync.RWMutex
+	activeCWD string
+	cfg       *config.Config
+	pool      *mcppool.Pool
+	ka        *Keepalive
+}
+
+func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *runtimeRequestHandler {
+	return &runtimeRequestHandler{
+		cfg:  cfg,
+		pool: pool,
+		ka:   ka,
+	}
+}
+
+func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *ipc.Response {
+	if req == nil {
+		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "nil request"}
+	}
+
+	if !requestNeedsRuntimeConfig(req) {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return dispatch(ctx, h.cfg, h.pool, h.ka, req)
+	}
+
+	normalizedCWD := strings.TrimSpace(req.CWD)
+
+	h.mu.RLock()
+	if normalizedCWD == strings.TrimSpace(h.activeCWD) {
+		// Safe to dispatch concurrently for same-CWD requests.
+		// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
+		defer h.mu.RUnlock()
+		return dispatch(ctx, h.cfg, h.pool, h.ka, req)
+	}
+	h.mu.RUnlock()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if err := syncRuntimeConfigForRequest(normalizedCWD, &h.activeCWD, &h.cfg, h.pool, h.ka); err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
+	}
+
+	return dispatch(ctx, h.cfg, h.pool, h.ka, req)
 }
 
 func requestNeedsRuntimeConfig(req *ipc.Request) bool {
@@ -330,16 +366,25 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 		}
 	}
 
-	canonicalTool, err := resolveCanonicalToolName(ctx, pool, server, tool)
-	if err != nil {
-		return &ipc.Response{
-			ExitCode: classifyToolLookupError(err),
-			Stderr:   fmt.Sprintf("resolving tool: %v", err),
+	info := &mcppool.ToolInfo{Name: tool}
+	if pool != nil {
+		resolvedInfo, err := poolToolInfoByName(ctx, pool, server, tool)
+		if err != nil {
+			return &ipc.Response{
+				ExitCode: classifyToolLookupError(err),
+				Stderr:   fmt.Sprintf("resolving tool: %v", err),
+			}
+		}
+		if resolvedInfo != nil {
+			info = resolvedInfo
 		}
 	}
-	cacheTool := canonicalTool
+	cacheTool := tool
+	if info.Name != "" {
+		cacheTool = info.Name
+	}
 
-	result, err := poolCallTool(ctx, pool, server, canonicalTool, args)
+	result, err := poolCallToolWithInfo(ctx, pool, server, info, args)
 	if err != nil {
 		return &ipc.Response{
 			ExitCode: classifyCallToolError(err),
@@ -418,21 +463,6 @@ func matchesNoCachePattern(scfg config.ServerConfig, tool string) bool {
 		}
 	}
 	return false
-}
-
-func resolveCanonicalToolName(ctx context.Context, pool *mcppool.Pool, server, requested string) (string, error) {
-	if pool == nil {
-		return requested, nil
-	}
-
-	info, err := poolToolInfoByName(ctx, pool, server, requested)
-	if err != nil {
-		return "", err
-	}
-	if info == nil || info.Name == "" {
-		return requested, nil
-	}
-	return info.Name, nil
 }
 
 func joinLogs(lines []string) string {

@@ -30,7 +30,7 @@ func TestCallToolUsesCachedResponseWhenPresent(t *testing.T) {
 	poolCalls := 0
 	cacheWrites := 0
 
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
 		return nil, errors.New("pool should not be called on cache hit")
 	}
@@ -75,7 +75,7 @@ func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
 	var wroteExit int
 	var wroteContent string
 
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
 		return &mcp.CallToolResult{
 			StructuredContent: map[string]any{"ok": true},
@@ -114,14 +114,14 @@ func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
 }
 
 func saveCallToolHooks() func() {
-	oldPoolCallTool := poolCallTool
+	oldPoolCallToolWithInfo := poolCallToolWithInfo
 	oldPoolToolInfoByName := poolToolInfoByName
 	oldCacheGet := cacheGet
 	oldCacheGetMetadata := cacheGetMetadata
 	oldCachePut := cachePut
 
 	return func() {
-		poolCallTool = oldPoolCallTool
+		poolCallToolWithInfo = oldPoolCallToolWithInfo
 		poolToolInfoByName = oldPoolToolInfoByName
 		cacheGet = oldCacheGet
 		cacheGetMetadata = oldCacheGetMetadata
@@ -220,7 +220,7 @@ func TestCallToolVerboseIncludesCacheHitLog(t *testing.T) {
 
 	reqCache := 30 * time.Second
 
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, errors.New("pool should not be called on cache hit")
 	}
 	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
@@ -250,7 +250,7 @@ func TestCallToolVerboseIncludesCacheAgeAndTTLWhenAvailable(t *testing.T) {
 
 	reqCache := 30 * time.Second
 
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, errors.New("pool should not be called on cache hit")
 	}
 	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
@@ -281,7 +281,7 @@ func TestCallToolUsageErrorIncludesStderrByDefault(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, _, _ string, _ json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, mcp.ErrInvalidParams
 	}
 	cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
@@ -323,7 +323,7 @@ func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
 	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _ string, tool string) (*mcppool.ToolInfo, error) {
 		return &mcppool.ToolInfo{Name: tool}, nil
 	}
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, args json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
 		return &mcp.CallToolResult{
 			StructuredContent: map[string]any{"count": poolCalls},

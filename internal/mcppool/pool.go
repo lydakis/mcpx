@@ -23,6 +23,7 @@ type connection struct {
 	listTools func(ctx context.Context) ([]mcp.Tool, error)
 	callTool  func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error)
 	close     func() error
+	reqMu     sync.Mutex
 }
 
 // Pool manages MCP server connections, creating them on demand.
@@ -73,14 +74,16 @@ func (p *Pool) getOrCreate(ctx context.Context, server string) (*connection, err
 }
 
 func (p *Pool) invalidate(server string, conn *connection) {
+	shouldClose := false
 	p.mu.Lock()
 	if current, ok := p.conns[server]; ok && current == conn {
 		delete(p.conns, server)
+		shouldClose = true
 	}
 	p.mu.Unlock()
 
-	if conn != nil && conn.close != nil {
-		conn.close() //nolint: errcheck
+	if shouldClose {
+		closeConnection(conn)
 	}
 }
 
@@ -91,7 +94,7 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolInfo, error)
 		return nil, err
 	}
 
-	tools, err := conn.listTools(ctx)
+	tools, err := runListTools(conn, ctx)
 	if err != nil {
 		p.invalidate(server, conn)
 		return nil, err
@@ -139,31 +142,40 @@ func (p *Pool) ToolInfoByName(ctx context.Context, server, tool string) (*ToolIn
 	return nil, fmt.Errorf("tool %s not found on server %s", tool, server)
 }
 
-// CallTool invokes a tool on a server.
-func (p *Pool) CallTool(ctx context.Context, server, tool string, argsJSON json.RawMessage) (*mcp.CallToolResult, error) {
+// CallToolWithInfo invokes a resolved tool on a server.
+func (p *Pool) CallToolWithInfo(ctx context.Context, server string, info *ToolInfo, argsJSON json.RawMessage) (*mcp.CallToolResult, error) {
+	if info == nil || info.Name == "" {
+		return nil, fmt.Errorf("tool info is required")
+	}
+
 	conn, err := p.getOrCreate(ctx, server)
 	if err != nil {
 		return nil, err
 	}
 
-	tools, err := p.ListTools(ctx, server)
+	args, err := compileJSONArgs(argsJSON, info.InputSchema)
 	if err != nil {
 		return nil, err
 	}
-	canonical, ok := canonicalToolName(tools, tool)
-	if !ok {
-		return nil, fmt.Errorf("tool %s not found on server %s", tool, server)
-	}
 
-	var toolSchema json.RawMessage
-	for _, t := range tools {
-		if t.Name != canonical {
-			continue
-		}
-		toolSchema = t.InputSchema
-		break
+	result, err := runCallTool(conn, ctx, info.Name, args)
+	if err != nil {
+		p.invalidate(server, conn)
+		return nil, err
 	}
+	return result, nil
+}
 
+// CallTool invokes a tool on a server.
+func (p *Pool) CallTool(ctx context.Context, server, tool string, argsJSON json.RawMessage) (*mcp.CallToolResult, error) {
+	info, err := p.ToolInfoByName(ctx, server, tool)
+	if err != nil {
+		return nil, err
+	}
+	return p.CallToolWithInfo(ctx, server, info, argsJSON)
+}
+
+func compileJSONArgs(argsJSON json.RawMessage, toolSchema json.RawMessage) (map[string]any, error) {
 	var args map[string]any
 	if len(argsJSON) > 0 {
 		if err := json.Unmarshal(argsJSON, &args); err != nil {
@@ -173,17 +185,38 @@ func (p *Pool) CallTool(ctx context.Context, server, tool string, argsJSON json.
 		args = map[string]any{}
 	}
 
-	args, err = compileToolArgs(args, toolSchema)
-	if err != nil {
-		return nil, err
+	return compileToolArgs(args, toolSchema)
+}
+
+func runListTools(conn *connection, ctx context.Context) ([]mcp.Tool, error) {
+	conn.reqMu.Lock()
+	defer conn.reqMu.Unlock()
+	return conn.listTools(ctx)
+}
+
+func runCallTool(conn *connection, ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	conn.reqMu.Lock()
+	defer conn.reqMu.Unlock()
+	return conn.callTool(ctx, name, args)
+}
+
+func closeConnection(conn *connection) {
+	if conn == nil || conn.close == nil {
+		return
 	}
 
-	result, err := conn.callTool(ctx, canonical, args)
-	if err != nil {
-		p.invalidate(server, conn)
-		return nil, err
+	// Avoid blocking reset/close paths behind a long in-flight request.
+	if conn.reqMu.TryLock() {
+		defer conn.reqMu.Unlock()
+		conn.close() //nolint: errcheck
+		return
 	}
-	return result, nil
+
+	go func(c *connection) {
+		c.reqMu.Lock()
+		defer c.reqMu.Unlock()
+		c.close() //nolint: errcheck
+	}(conn)
 }
 
 func canonicalToolName(tools []ToolInfo, requested string) (string, bool) {
@@ -223,8 +256,8 @@ func (p *Pool) Close(server string) {
 	}
 	p.mu.Unlock()
 
-	if ok && conn.close != nil {
-		conn.close()
+	if ok {
+		closeConnection(conn)
 	}
 }
 
@@ -236,9 +269,7 @@ func (p *Pool) CloseAll() {
 	p.mu.Unlock()
 
 	for _, conn := range conns {
-		if conn.close != nil {
-			conn.close()
-		}
+		closeConnection(conn)
 	}
 }
 
@@ -255,8 +286,6 @@ func (p *Pool) Reset(cfg *config.Config) {
 	p.mu.Unlock()
 
 	for _, conn := range conns {
-		if conn != nil && conn.close != nil {
-			conn.close()
-		}
+		closeConnection(conn)
 	}
 }
