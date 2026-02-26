@@ -1,8 +1,8 @@
-# mcpx — A Better CLI for MCP Servers
+# mcpx — Convert MCP Servers into CLIs
 
 ## What Is This
 
-`mcpx` is a single binary that wraps any MCP server and exposes its tools as shell commands. It exists because agents work better with CLIs than tool calls — they can pipe, filter, truncate, and only pull what they need into context.
+`mcpx` is a single binary that converts MCP servers into shell commands. It exists because many agent workflows are shell-first: they can pipe, filter, truncate, and only pull what they need into context.
 
 There are existing tools in this space (`philschmid/mcp-cli`, `apify/mcpc`, `f/mcptools`). `mcpx` is not a feature-rich alternative. It's a sharper knife — it packages a specific set of Unix-native choices together that none of them combine.
 
@@ -14,7 +14,7 @@ There are existing tools in this space (`philschmid/mcp-cli`, `apify/mcpc`, `f/m
 | `mcpc` (apify) | Sessions, OAuth 2.1, proxy mode, tool detail display | Feature-rich by design — different goal than Unix-philosophy sharp knife |
 | `mcptools` (fka) | Interactive shell, proxy mode, call tools | Similar gaps to mcp-cli for agent-optimized usage |
 
-All of them solve "call MCP from CLI." mcpx packages a specific set of choices — native output passthrough, MCP response unwrapping, explicit error codes, and native Unix flag translation — into a tool that behaves like a real Unix command, not a wrapper.
+All of them solve "call MCP from CLI." mcpx packages a specific set of choices — native output passthrough, MCP response unwrapping, explicit error codes, and native Unix flag translation — into a conversion layer that behaves like a real Unix command surface.
 
 ## The Four Fundamentals
 

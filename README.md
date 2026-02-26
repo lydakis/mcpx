@@ -1,6 +1,8 @@
 # mcpx
 
-Unix-native CLI wrapper for MCP servers.
+Convert MCP servers into composable CLIs.
+
+`mcpx` converts MCP tools into shell commands so agents can use standard CLI composition (`|`, redirection, `jq`, `head`) and skill workflows.
 
 `mcpx` keeps the command contract simple:
 

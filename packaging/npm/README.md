@@ -1,6 +1,6 @@
 # mcpx-go (npm)
 
-`mcpx-go` is the npm distribution of [`mcpx`](https://github.com/lydakis/mcpx), a Unix-native CLI wrapper for MCP servers.
+`mcpx-go` is the npm distribution of [`mcpx`](https://github.com/lydakis/mcpx), a CLI conversion layer for MCP servers.
 
 This package is not a JavaScript SDK. It installs a `mcpx` executable that downloads and runs the official `mcpx` Go binary from GitHub Releases.
 

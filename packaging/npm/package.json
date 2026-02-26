@@ -1,7 +1,7 @@
 {
   "name": "mcpx-go",
   "version": "0.0.0",
-  "description": "Installable npm wrapper that downloads and runs the mcpx Go binary",
+  "description": "Installable npm package that provides the mcpx CLI by downloading the official Go binary",
   "license": "MIT",
   "repository": {
     "type": "git",

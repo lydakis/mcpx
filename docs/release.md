@@ -46,7 +46,7 @@ GoReleaser uses:
 - `HOMEBREW_TAP_GITHUB_TOKEN` (mapped from `GORELEASER_TOKEN`) for tap updates
 - native `notarize.macos` signing/notarization before archiving darwin binaries.
 
-Wrapper package publishing uses:
+Distribution package publishing uses:
 - `scripts/publish_npm_wrapper.sh <version>`
 - `scripts/publish_pypi_wrapper.sh <version>`
 

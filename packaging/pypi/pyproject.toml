@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mcpx-go"
 version = "0.0.0"
-description = "Installable Python wrapper that downloads and runs the mcpx Go binary"
+description = "Installable Python package that provides the mcpx CLI by downloading the official Go binary"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
