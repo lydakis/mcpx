@@ -136,7 +136,7 @@ args = ["-y", "@agentdeskai/browser-tools-mcp@1.1.0"]
 
 - Tag pushes `v*` run the release workflow.
 - GoReleaser publishes artifacts and updates `lydakis/homebrew-mcpx`.
-- Notarization secret names match IceVault/JUL conventions.
+- Notarization uses standard Apple Developer and App Store Connect secrets.
 
 Detailed docs:
 

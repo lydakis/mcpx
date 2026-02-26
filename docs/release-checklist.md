@@ -35,7 +35,7 @@
 
 - Ensure `.goreleaser.yml` tap settings match target repos (`mcpx`, `homebrew-mcpx`).
 - Verify `GORELEASER_TOKEN` secret is configured in GitHub Actions.
-- Verify notarization secrets are configured (same names as IceVault):
+- Verify notarization secrets are configured:
   - `APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64`
   - `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`
   - `APPLE_DEVELOPER_ID_APPLICATION`

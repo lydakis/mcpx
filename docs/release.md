@@ -39,7 +39,7 @@ The workflow:
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 
-The notarization secret names intentionally match IceVault so the same values can be reused.
+Notarization uses standard Apple Developer and App Store Connect secrets configured in GitHub Actions.
 
 GoReleaser uses:
 - `GITHUB_TOKEN` (auto-provided by Actions) for release assets on the source repo
