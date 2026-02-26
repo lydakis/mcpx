@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mcpx-go"
 version = "0.0.0"
-description = "Installable Python package that provides the mcpx CLI by downloading the official Go binary"
+description = "Python package for mcpx, a CLI that turns MCP servers into composable CLIs"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

@@ -1,6 +1,6 @@
 # mcpx Usage
 
-`mcpx` converts MCP servers into CLI commands so you can discover tools, inspect schemas, and call them with standard shell composition.
+`mcpx` turns MCP servers into composable CLI commands so you can discover tools, inspect schemas, and call them with standard shell composition.
 
 ## Build
 

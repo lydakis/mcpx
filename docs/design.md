@@ -1,8 +1,8 @@
-# mcpx — Convert MCP Servers into CLIs
+# mcpx — Turn MCP Servers into Composable CLIs
 
 ## What Is This
 
-`mcpx` is a single binary that converts MCP servers into shell commands. It exists because many agent workflows are shell-first: they can pipe, filter, truncate, and only pull what they need into context.
+`mcpx` is a single binary that turns MCP servers into composable shell commands. It exists because many agent workflows are shell-first: they can pipe, filter, truncate, and only pull what they need into context.
 
 There are existing tools in this space (`philschmid/mcp-cli`, `apify/mcpc`, `f/mcptools`). `mcpx` is not a feature-rich alternative. It's a sharper knife — it packages a specific set of Unix-native choices together that none of them combine.
 

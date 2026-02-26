@@ -1,6 +1,6 @@
 # mcpx-go (PyPI)
 
-`mcpx-go` is the PyPI distribution of [`mcpx`](https://github.com/lydakis/mcpx), a CLI conversion layer for MCP servers.
+`mcpx-go` is the PyPI distribution of [`mcpx`](https://github.com/lydakis/mcpx), a CLI that turns MCP servers into composable CLIs.
 
 This package is not a Python SDK. It installs a `mcpx` executable that downloads and runs the official `mcpx` Go binary from GitHub Releases.
 

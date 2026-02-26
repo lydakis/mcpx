@@ -1,7 +1,7 @@
 {
   "name": "mcpx-go",
   "version": "0.0.0",
-  "description": "Installable npm package that provides the mcpx CLI by downloading the official Go binary",
+  "description": "npm package for mcpx, a CLI that turns MCP servers into composable CLIs",
   "license": "MIT",
   "repository": {
     "type": "git",
