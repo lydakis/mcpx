@@ -80,30 +80,78 @@ func TestCallToolErrorInvalidatesConnection(t *testing.T) {
 	}
 }
 
-func TestCanonicalToolNameMatchesOnlyExactNames(t *testing.T) {
-	tools := []ToolInfo{
-		{Name: "search_repositories"},
-		{Name: "list-issues"},
+func TestToolInfoByNameMatchesOnlyExactNames(t *testing.T) {
+	listCalls := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			return []mcp.Tool{
+				{Name: "search_repositories"},
+				{Name: "list-issues"},
+			}, nil
+		},
 	}
 
-	if got, ok := canonicalToolName(tools, "search_repositories"); !ok || got != "search_repositories" {
-		t.Fatalf("canonicalToolName(exact snake) = (%q, %v), want (%q, true)", got, ok, "search_repositories")
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
 	}
 
-	if got, ok := canonicalToolName(tools, "list-issues"); !ok || got != "list-issues" {
-		t.Fatalf("canonicalToolName(exact kebab) = (%q, %v), want (%q, true)", got, ok, "list-issues")
+	if _, err := p.ToolInfoByName(context.Background(), "github", "search_repositories"); err != nil {
+		t.Fatalf("ToolInfoByName(exact snake) error = %v", err)
 	}
 
-	if _, ok := canonicalToolName(tools, "search-repositories"); ok {
-		t.Fatal("canonicalToolName(alias kebab) = found, want not found")
+	if _, err := p.ToolInfoByName(context.Background(), "github", "list-issues"); err != nil {
+		t.Fatalf("ToolInfoByName(exact kebab) error = %v", err)
 	}
 
-	if _, ok := canonicalToolName(tools, "list_issues"); ok {
-		t.Fatal("canonicalToolName(alias snake) = found, want not found")
+	if _, err := p.ToolInfoByName(context.Background(), "github", "search-repositories"); err == nil {
+		t.Fatal("ToolInfoByName(alias kebab) error = nil, want non-nil")
 	}
 
-	if _, ok := canonicalToolName(tools, "missing-tool"); ok {
-		t.Fatal("canonicalToolName(missing) = found, want not found")
+	if _, err := p.ToolInfoByName(context.Background(), "github", "list_issues"); err == nil {
+		t.Fatal("ToolInfoByName(alias snake) error = nil, want non-nil")
+	}
+
+	if _, err := p.ToolInfoByName(context.Background(), "github", "missing-tool"); err == nil {
+		t.Fatal("ToolInfoByName(missing) error = nil, want non-nil")
+	}
+
+	if listCalls < 1 {
+		t.Fatalf("listTools calls = %d, want >= 1", listCalls)
+	}
+}
+
+func TestToolInfoByNameRefreshesCachedIndexOnMiss(t *testing.T) {
+	listCalls := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			if listCalls == 1 {
+				return []mcp.Tool{{Name: "search_repositories"}}, nil
+			}
+			return []mcp.Tool{
+				{Name: "search_repositories"},
+				{Name: "list-issues"},
+			}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.ToolInfoByName(context.Background(), "github", "search_repositories"); err != nil {
+		t.Fatalf("ToolInfoByName(initial) error = %v", err)
+	}
+
+	if _, err := p.ToolInfoByName(context.Background(), "github", "list-issues"); err != nil {
+		t.Fatalf("ToolInfoByName(refreshed) error = %v", err)
+	}
+
+	if listCalls != 2 {
+		t.Fatalf("listTools calls = %d, want 2", listCalls)
 	}
 }
 
@@ -137,6 +185,76 @@ func TestCallToolInvokesExactToolName(t *testing.T) {
 	}
 	if listCalls != 1 {
 		t.Fatalf("listTools calls = %d, want 1", listCalls)
+	}
+}
+
+func TestToolInfoByNameReusesCachedToolIndex(t *testing.T) {
+	listCalls := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			return []mcp.Tool{{Name: "search"}}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.ToolInfoByName(context.Background(), "github", "search"); err != nil {
+		t.Fatalf("ToolInfoByName(first) error = %v", err)
+	}
+	if _, err := p.ToolInfoByName(context.Background(), "github", "search"); err != nil {
+		t.Fatalf("ToolInfoByName(second) error = %v", err)
+	}
+	if listCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listCalls)
+	}
+}
+
+func TestToolInfoByNameConcurrentColdCacheListsOnce(t *testing.T) {
+	var listCalls int32
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			atomic.AddInt32(&listCalls, 1)
+			time.Sleep(30 * time.Millisecond)
+			return []mcp.Tool{{Name: "search"}}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	const workers = 6
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := p.ToolInfoByName(context.Background(), "github", "search")
+			errs <- err
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ToolInfoByName() error = %v", err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&listCalls); got != 1 {
+		t.Fatalf("listTools calls = %d, want 1", got)
 	}
 }
 
@@ -175,6 +293,42 @@ func TestCallToolWithInfoSkipsToolListing(t *testing.T) {
 	}
 	if calledArgs["query"] != "mcp" {
 		t.Fatalf("CallToolWithInfo() args = %#v, want query=mcp", calledArgs)
+	}
+}
+
+func TestCallToolReusesCachedToolInfoAcrossCalls(t *testing.T) {
+	listCalls := 0
+	callCount := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			return []mcp.Tool{
+				{Name: "search_repositories"},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, _ map[string]any) (*mcp.CallToolResult, error) {
+			callCount++
+			return &mcp.CallToolResult{}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.CallTool(context.Background(), "github", "search_repositories", []byte(`{"q":"mcp"}`)); err != nil {
+		t.Fatalf("CallTool(first) error = %v", err)
+	}
+	if _, err := p.CallTool(context.Background(), "github", "search_repositories", []byte(`{"q":"mcp-go"}`)); err != nil {
+		t.Fatalf("CallTool(second) error = %v", err)
+	}
+
+	if listCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listCalls)
+	}
+	if callCount != 2 {
+		t.Fatalf("callTool calls = %d, want 2", callCount)
 	}
 }
 

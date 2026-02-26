@@ -24,6 +24,10 @@ type connection struct {
 	callTool  func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error)
 	close     func() error
 	reqMu     sync.Mutex
+	toolMu    sync.RWMutex
+	toolIndex map[string]ToolInfo
+	indexed   bool
+	indexMu   sync.Mutex
 }
 
 // Pool manages MCP server connections, creating them on demand.
@@ -100,17 +104,8 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolInfo, error)
 		return nil, err
 	}
 
-	infos := make([]ToolInfo, len(tools))
-	for i, t := range tools {
-		inputSchema, _ := marshalInputSchema(t)
-		outputSchema, _ := marshalOutputSchema(t)
-		infos[i] = ToolInfo{
-			Name:         t.Name,
-			Description:  t.Description,
-			InputSchema:  inputSchema,
-			OutputSchema: outputSchema,
-		}
-	}
+	infos := buildToolInfos(tools)
+	cacheToolInfos(conn, infos)
 	return infos, nil
 }
 
@@ -125,21 +120,88 @@ func (p *Pool) ToolSchema(ctx context.Context, server, tool string) (json.RawMes
 
 // ToolInfoByName returns metadata and schemas for a specific tool.
 func (p *Pool) ToolInfoByName(ctx context.Context, server, tool string) (*ToolInfo, error) {
-	tools, err := p.ListTools(ctx, server)
+	conn, err := p.getOrCreate(ctx, server)
 	if err != nil {
 		return nil, err
 	}
-	canonical, ok := canonicalToolName(tools, tool)
-	if !ok {
-		return nil, fmt.Errorf("tool %s not found on server %s", tool, server)
+
+	if info, found, _ := cachedToolInfo(conn, tool); found {
+		return info, nil
 	}
-	for _, t := range tools {
-		if t.Name == canonical {
-			toolCopy := t
-			return &toolCopy, nil
-		}
+
+	conn.indexMu.Lock()
+	defer conn.indexMu.Unlock()
+
+	if info, found, _ := cachedToolInfo(conn, tool); found {
+		return info, nil
+	}
+
+	tools, err := runListTools(conn, ctx)
+	if err != nil {
+		p.invalidate(server, conn)
+		return nil, err
+	}
+	cacheToolInfos(conn, buildToolInfos(tools))
+
+	if info, found, _ := cachedToolInfo(conn, tool); found {
+		return info, nil
 	}
 	return nil, fmt.Errorf("tool %s not found on server %s", tool, server)
+}
+
+func buildToolInfos(tools []mcp.Tool) []ToolInfo {
+	infos := make([]ToolInfo, len(tools))
+	for i, t := range tools {
+		inputSchema, _ := marshalInputSchema(t)
+		outputSchema, _ := marshalOutputSchema(t)
+		infos[i] = ToolInfo{
+			Name:         t.Name,
+			Description:  t.Description,
+			InputSchema:  inputSchema,
+			OutputSchema: outputSchema,
+		}
+	}
+	return infos
+}
+
+func cachedToolInfo(conn *connection, tool string) (*ToolInfo, bool, bool) {
+	if conn == nil {
+		return nil, false, false
+	}
+
+	conn.toolMu.RLock()
+	defer conn.toolMu.RUnlock()
+
+	if !conn.indexed {
+		return nil, false, false
+	}
+
+	info, ok := conn.toolIndex[tool]
+	if !ok {
+		return nil, false, true
+	}
+
+	toolCopy := info
+	return &toolCopy, true, true
+}
+
+func cacheToolInfos(conn *connection, infos []ToolInfo) {
+	if conn == nil {
+		return
+	}
+
+	index := make(map[string]ToolInfo, len(infos))
+	for _, info := range infos {
+		if info.Name == "" {
+			continue
+		}
+		index[info.Name] = info
+	}
+
+	conn.toolMu.Lock()
+	conn.toolIndex = index
+	conn.indexed = true
+	conn.toolMu.Unlock()
 }
 
 // CallToolWithInfo invokes a resolved tool on a server.
@@ -217,15 +279,6 @@ func closeConnection(conn *connection) {
 		defer c.reqMu.Unlock()
 		c.close() //nolint: errcheck
 	}(conn)
-}
-
-func canonicalToolName(tools []ToolInfo, requested string) (string, bool) {
-	for _, t := range tools {
-		if t.Name == requested {
-			return t.Name, true
-		}
-	}
-	return "", false
 }
 
 func marshalInputSchema(t mcp.Tool) (json.RawMessage, error) {
