@@ -141,7 +141,8 @@ man mcpx
     - Claude Desktop config
     - Cline MCP settings
     - Claude Code user/local config (`~/.claude.json`)
+    - Codex config (`~/.codex/config.toml`, `mcp_servers.*`)
     - Claude Code project config (`.mcp.json`, nearest parent)
     - Kiro user config (`~/.kiro/settings/mcp.json`)
     - Kiro project config (`.kiro/settings/mcp.json`, nearest parent)
-  - Check fallback files exist and expose `mcpServers` (top-level for most clients; Claude Code local scope uses `projects[<path>].mcpServers`).
+  - Check fallback files exist and expose either `mcpServers` (JSON sources) or `mcp_servers` (Codex TOML). Claude Code local scope uses `projects[<path>].mcpServers`.

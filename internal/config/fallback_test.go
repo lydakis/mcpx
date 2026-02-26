@@ -175,6 +175,7 @@ func TestDefaultFallbackSourcePathsIncludeClaudeCodeAndKiro(t *testing.T) {
 	case "darwin", "linux":
 		want = []string{
 			filepath.Join(home, ".claude.json"),
+			filepath.Join(home, ".codex", "config.toml"),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
 		}
 	default:
@@ -192,6 +193,130 @@ func TestDefaultFallbackSourcePathsIncludeClaudeCodeAndKiro(t *testing.T) {
 		if !found {
 			t.Fatalf("fallback paths = %#v, want %q", paths, expected)
 		}
+	}
+}
+
+func TestLoadCodexConfigFileReadsMCPServers(t *testing.T) {
+	t.Setenv("REMOTE_TOKEN", "tok-123")
+	t.Setenv("TRACE_ID", "trace-abc")
+	t.Setenv("PASSTHROUGH_ENV", "pass-through")
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	raw := []byte(`
+[mcp_servers.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest"]
+env = { STATIC_VALUE = "one" }
+env_vars = ["PASSTHROUGH_ENV"]
+
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+http_headers = { "X-Static" = "static" }
+env_http_headers = { "X-Trace-ID" = "TRACE_ID" }
+bearer_token_env_var = "REMOTE_TOKEN"
+
+[mcp_servers.disabled]
+command = "npx"
+args = ["disabled-server"]
+enabled = false
+`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(path)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	playwright, ok := servers["playwright"]
+	if !ok {
+		t.Fatalf("servers = %#v, want playwright", servers)
+	}
+	if playwright.Command != "npx" {
+		t.Fatalf("playwright command = %q, want npx", playwright.Command)
+	}
+	if got := playwright.Env["PASSTHROUGH_ENV"]; got != "pass-through" {
+		t.Fatalf("playwright env PASSTHROUGH_ENV = %q, want pass-through", got)
+	}
+	if got := playwright.Env["STATIC_VALUE"]; got != "one" {
+		t.Fatalf("playwright env STATIC_VALUE = %q, want one", got)
+	}
+
+	remote, ok := servers["remote"]
+	if !ok {
+		t.Fatalf("servers = %#v, want remote", servers)
+	}
+	if remote.URL != "https://example.com/mcp" {
+		t.Fatalf("remote url = %q, want https://example.com/mcp", remote.URL)
+	}
+	if got := remote.Headers["Authorization"]; got != "Bearer tok-123" {
+		t.Fatalf("remote Authorization = %q, want %q", got, "Bearer tok-123")
+	}
+	if got := remote.Headers["X-Trace-ID"]; got != "trace-abc" {
+		t.Fatalf("remote X-Trace-ID = %q, want trace-abc", got)
+	}
+	if got := remote.Headers["X-Static"]; got != "static" {
+		t.Fatalf("remote X-Static = %q, want static", got)
+	}
+
+	if _, ok := servers["disabled"]; ok {
+		t.Fatalf("servers = %#v, want disabled server omitted", servers)
+	}
+}
+
+func TestLoadCodexConfigFileHeaderPrecedence(t *testing.T) {
+	t.Setenv("REMOTE_TOKEN", "tok-123")
+	t.Setenv("ALT_AUTH", "Bearer alt")
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	raw := []byte(`
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+http_headers = { Authorization = "Bearer explicit" }
+env_http_headers = { Authorization = "ALT_AUTH" }
+bearer_token_env_var = "REMOTE_TOKEN"
+`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(path)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	if got := servers["remote"].Headers["Authorization"]; got != "Bearer explicit" {
+		t.Fatalf("Authorization = %q, want %q", got, "Bearer explicit")
+	}
+}
+
+func TestLoadCodexConfigFileHeaderPrecedenceCaseInsensitive(t *testing.T) {
+	t.Setenv("REMOTE_TOKEN", "tok-123")
+	t.Setenv("ALT_AUTH", "Bearer alt")
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	raw := []byte(`
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+http_headers = { authorization = "Bearer explicit-lower" }
+env_http_headers = { Authorization = "ALT_AUTH" }
+bearer_token_env_var = "REMOTE_TOKEN"
+`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	servers, err := loadCodexConfigFile(path)
+	if err != nil {
+		t.Fatalf("loadCodexConfigFile() error = %v", err)
+	}
+
+	if got := servers["remote"].Headers["authorization"]; got != "Bearer explicit-lower" {
+		t.Fatalf("authorization = %q, want %q", got, "Bearer explicit-lower")
+	}
+	if _, ok := servers["remote"].Headers["Authorization"]; ok {
+		t.Fatalf("headers = %#v, want no extra Authorization key", servers["remote"].Headers)
 	}
 }
 

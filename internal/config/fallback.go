@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 type mcpServersDocument struct {
@@ -25,6 +27,24 @@ type mcpServerEntry struct {
 	Env     map[string]string `json:"env"`
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
+}
+
+type codexConfigDocument struct {
+	MCPServers map[string]codexMCPServerEntry `toml:"mcp_servers"`
+}
+
+type codexMCPServerEntry struct {
+	Command string            `toml:"command"`
+	Args    []string          `toml:"args"`
+	Env     map[string]string `toml:"env"`
+	EnvVars []string          `toml:"env_vars"`
+
+	URL               string            `toml:"url"`
+	BearerTokenEnvVar string            `toml:"bearer_token_env_var"`
+	HTTPHeaders       map[string]string `toml:"http_headers"`
+	EnvHTTPHeaders    map[string]string `toml:"env_http_headers"`
+
+	Enabled *bool `toml:"enabled"`
 }
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources
@@ -64,7 +84,7 @@ func loadFallbackServersForCWD(paths []string, cwd string) (map[string]ServerCon
 	var errs []error
 
 	for _, path := range paths {
-		found, err := loadMCPServersFileForCWD(path, cwd)
+		found, err := loadFallbackSourceForCWD(path, cwd)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -85,6 +105,15 @@ func loadFallbackServersForCWD(paths []string, cwd string) (map[string]ServerCon
 		return servers, errors.Join(errs...)
 	}
 	return servers, nil
+}
+
+func loadFallbackSourceForCWD(path, cwd string) (map[string]ServerConfig, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".toml":
+		return loadCodexConfigFile(path)
+	default:
+		return loadMCPServersFileForCWD(path, cwd)
+	}
 }
 
 func loadMCPServersFile(path string) (map[string]ServerConfig, error) {
@@ -121,6 +150,96 @@ func mergeServerEntries(dst map[string]ServerConfig, src map[string]mcpServerEnt
 			Headers: srv.Headers,
 		})
 	}
+}
+
+func loadCodexConfigFile(path string) (map[string]ServerConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var doc codexConfigDocument
+	if err := toml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing codex config TOML: %w", err)
+	}
+
+	servers := make(map[string]ServerConfig, len(doc.MCPServers))
+	for name, entry := range doc.MCPServers {
+		if entry.Enabled != nil && !*entry.Enabled {
+			continue
+		}
+
+		env := copyStringMap(entry.Env)
+		for _, key := range entry.EnvVars {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			if _, exists := env[key]; exists {
+				continue
+			}
+			if val, ok := os.LookupEnv(key); ok {
+				if env == nil {
+					env = make(map[string]string)
+				}
+				env[key] = val
+			}
+		}
+
+		headers := copyStringMap(entry.HTTPHeaders)
+		for header, envVar := range entry.EnvHTTPHeaders {
+			header = strings.TrimSpace(header)
+			envVar = strings.TrimSpace(envVar)
+			if header == "" || envVar == "" {
+				continue
+			}
+			if hasHeaderKey(headers, header) {
+				continue
+			}
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers[header] = "${" + envVar + "}"
+		}
+		if tokenEnv := strings.TrimSpace(entry.BearerTokenEnvVar); tokenEnv != "" {
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			if !hasHeaderKey(headers, "Authorization") {
+				headers["Authorization"] = "Bearer ${" + tokenEnv + "}"
+			}
+		}
+
+		servers[name] = expandServerEnvVars(ServerConfig{
+			Command: entry.Command,
+			Args:    entry.Args,
+			Env:     env,
+			URL:     entry.URL,
+			Headers: headers,
+		})
+	}
+
+	return servers, nil
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func hasHeaderKey(headers map[string]string, name string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchProjectServers(projects map[string]projectEntry, cwd string) map[string]mcpServerEntry {
@@ -233,6 +352,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
 			filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
+			filepath.Join(home, ".codex", "config.toml"),
 			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
 			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
@@ -243,6 +363,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, ".config", "Claude", "claude_desktop_config.json"),
 			filepath.Join(home, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
+			filepath.Join(home, ".codex", "config.toml"),
 			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
 			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
