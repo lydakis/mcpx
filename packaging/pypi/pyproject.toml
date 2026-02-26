@@ -24,7 +24,7 @@ Repository = "https://github.com/lydakis/mcpx"
 Issues = "https://github.com/lydakis/mcpx/issues"
 
 [project.scripts]
-mcpx-go = "mcpx_go.cli:main"
+mcpx = "mcpx_go.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcpx_go"]

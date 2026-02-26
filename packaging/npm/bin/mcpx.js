@@ -13,9 +13,9 @@ const child = spawn(command, process.argv.slice(2), { stdio: 'inherit' });
 
 child.on('error', (error) => {
   if (error.code === 'ENOENT') {
-    console.error('mcpx-go: no binary found. Reinstall the package or install `mcpx` in PATH.');
+    console.error('mcpx: no binary found. Reinstall the package or install `mcpx` in PATH.');
   } else {
-    console.error(`mcpx-go: failed to start ${command}: ${error.message}`);
+    console.error(`mcpx: failed to start ${command}: ${error.message}`);
   }
   process.exit(1);
 });

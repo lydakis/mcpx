@@ -12,7 +12,7 @@
     "url": "https://github.com/lydakis/mcpx/issues"
   },
   "bin": {
-    "mcpx-go": "bin/mcpx-go.js"
+    "mcpx": "bin/mcpx.js"
   },
   "files": [
     "bin",

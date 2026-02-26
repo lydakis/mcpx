@@ -37,14 +37,14 @@ brew install --cask mcpx
 
 ```bash
 npm install -g mcpx-go
-mcpx-go --version
+mcpx --version
 ```
 
 ### PyPI
 
 ```bash
 pip install mcpx-go
-mcpx-go --version
+mcpx --version
 ```
 
 ### Build from source

@@ -22,7 +22,7 @@ def main() -> int:
         if fallback is not None:
             _exec(fallback, argv)
 
-        sys.stderr.write(f"mcpx-go: {error}\n")
+        sys.stderr.write(f"mcpx: {error}\n")
         return 1
 
     return 1

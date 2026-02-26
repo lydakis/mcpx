@@ -2,7 +2,7 @@
 
 `mcpx-go` is the PyPI distribution of [`mcpx`](https://github.com/lydakis/mcpx), a Unix-native CLI wrapper for MCP servers.
 
-This package is not a Python SDK. It installs a `mcpx-go` executable that downloads and runs the official `mcpx` Go binary from GitHub Releases.
+This package is not a Python SDK. It installs a `mcpx` executable that downloads and runs the official `mcpx` Go binary from GitHub Releases.
 
 ## Install
 
@@ -15,17 +15,17 @@ Windows users: use WSL2 and run `pip install` inside your Linux distro shell.
 ## Quick Start
 
 ```bash
-mcpx-go --version
-mcpx-go
-mcpx-go github
-mcpx-go github search-repositories --query=mcp
+mcpx --version
+mcpx
+mcpx github
+mcpx github search-repositories --query=mcp
 ```
 
 Command contract:
 
-- `mcpx-go` lists servers
-- `mcpx-go <server>` lists tools
-- `mcpx-go <server> <tool>` calls a tool
+- `mcpx` lists servers
+- `mcpx <server>` lists tools
+- `mcpx <server> <tool>` calls a tool
 
 ## Notes
 
