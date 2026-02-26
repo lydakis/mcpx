@@ -5,10 +5,30 @@ import (
 	"encoding/json"
 	"mime"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/mark3labs/mcp-go/mcp"
+)
+
+const (
+	tempArtifactPrefixImage    = "mcpx-image-"
+	tempArtifactPrefixResource = "mcpx-resource-"
+	tempArtifactRetention      = 24 * time.Hour
+	tempArtifactCleanupEvery   = 30 * time.Minute
+)
+
+var (
+	nowFn                  = time.Now
+	readDirFn              = os.ReadDir
+	removeFn               = os.Remove
+	cleanupTempArtifactsFn = cleanupTempArtifacts
+
+	tempArtifactCleanupMu   sync.Mutex
+	lastTempArtifactCleanup time.Time
 )
 
 // Unwrap extracts raw output from an MCP CallToolResult.
@@ -170,6 +190,8 @@ func writeTempBase64(prefix, mimeType, encoded string) (string, error) {
 }
 
 func writeTempFile(prefix, mimeType string, data []byte) (string, error) {
+	maybeCleanupTempArtifacts()
+
 	ext := extForMIMEType(mimeType)
 	f, err := os.CreateTemp("", prefix+"-*"+ext)
 	if err != nil {
@@ -216,4 +238,51 @@ func ensureTrailingNewline(out []byte) []byte {
 		return append(out, '\n')
 	}
 	return out
+}
+
+func maybeCleanupTempArtifacts() {
+	now := nowFn()
+
+	tempArtifactCleanupMu.Lock()
+	if !lastTempArtifactCleanup.IsZero() && now.Sub(lastTempArtifactCleanup) < tempArtifactCleanupEvery {
+		tempArtifactCleanupMu.Unlock()
+		return
+	}
+	lastTempArtifactCleanup = now
+	tempArtifactCleanupMu.Unlock()
+
+	cleanupTempArtifactsFn(now.Add(-tempArtifactRetention))
+}
+
+func cleanupTempArtifacts(cutoff time.Time) {
+	cleanupTempArtifactsInDir(os.TempDir(), cutoff)
+}
+
+func cleanupTempArtifactsInDir(dir string, cutoff time.Time) {
+	entries, err := readDirFn(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !isManagedTempArtifact(name) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = removeFn(filepath.Join(dir, name))
+	}
+}
+
+func isManagedTempArtifact(name string) bool {
+	return strings.HasPrefix(name, tempArtifactPrefixImage) || strings.HasPrefix(name, tempArtifactPrefixResource)
 }
