@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,6 +37,16 @@ var (
 	cacheGet         = cache.Get
 	cacheGetMetadata = cache.GetMetadata
 	cachePut         = cache.Put
+	poolResetFn      = func(pool *mcppool.Pool, cfg *config.Config) {
+		if pool != nil {
+			pool.Reset(cfg)
+		}
+	}
+	keepaliveStopFn = func(ka *Keepalive) {
+		if ka != nil {
+			ka.Stop()
+		}
+	}
 	loadConfigFn     = config.Load
 	mergeFallbackFn  = config.MergeFallbackServersForCWD
 	validateConfigFn = config.Validate
@@ -89,16 +101,19 @@ func Run() error {
 type runtimeRequestHandler struct {
 	mu        sync.RWMutex
 	activeCWD string
+	cfgHash   string
 	cfg       *config.Config
 	pool      *mcppool.Pool
 	ka        *Keepalive
 }
 
 func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *runtimeRequestHandler {
+	cfgHash, _ := configFingerprint(cfg)
 	return &runtimeRequestHandler{
-		cfg:  cfg,
-		pool: pool,
-		ka:   ka,
+		cfgHash: cfgHash,
+		cfg:     cfg,
+		pool:    pool,
+		ka:      ka,
 	}
 }
 
@@ -127,7 +142,7 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if err := syncRuntimeConfigForRequest(normalizedCWD, &h.activeCWD, &h.cfg, h.pool, h.ka); err != nil {
+	if err := syncRuntimeConfigForRequest(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka); err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
 	}
 
@@ -146,7 +161,7 @@ func requestNeedsRuntimeConfig(req *ipc.Request) bool {
 	}
 }
 
-func syncRuntimeConfigForRequest(reqCWD string, activeCWD *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive) error {
+func syncRuntimeConfigForRequest(reqCWD string, activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive) error {
 	normalized := strings.TrimSpace(reqCWD)
 	if normalized == strings.TrimSpace(*activeCWD) {
 		return nil
@@ -157,15 +172,28 @@ func syncRuntimeConfigForRequest(reqCWD string, activeCWD *string, cfg **config.
 		return err
 	}
 
-	if ka != nil {
-		ka.Stop()
+	nextHash, err := configFingerprint(nextCfg)
+	if err != nil {
+		return err
 	}
-	if pool != nil {
-		pool.Reset(nextCfg)
+
+	if nextHash != strings.TrimSpace(*cfgHash) {
+		keepaliveStopFn(ka)
+		poolResetFn(pool, nextCfg)
 	}
 	*cfg = nextCfg
+	*cfgHash = nextHash
 	*activeCWD = normalized
 	return nil
+}
+
+func configFingerprint(cfg *config.Config) (string, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("fingerprinting config: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {

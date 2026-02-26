@@ -19,15 +19,21 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 	oldLoadConfigFn := loadConfigFn
 	oldMergeFallbackFn := mergeFallbackFn
 	oldValidateConfigFn := validateConfigFn
+	oldPoolResetFn := poolResetFn
+	oldKeepaliveStopFn := keepaliveStopFn
 	defer func() {
 		loadConfigFn = oldLoadConfigFn
 		mergeFallbackFn = oldMergeFallbackFn
 		validateConfigFn = oldValidateConfigFn
+		poolResetFn = oldPoolResetFn
+		keepaliveStopFn = oldKeepaliveStopFn
 	}()
 
 	var loadCalls int
 	var mergeCalls int
 	var validateCalls int
+	var resetCalls int
+	var stopCalls int
 
 	loadConfigFn = func() (*config.Config, error) {
 		loadCalls++
@@ -49,14 +55,24 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 		validateCalls++
 		return nil
 	}
+	poolResetFn = func(_ *mcppool.Pool, _ *config.Config) {
+		resetCalls++
+	}
+	keepaliveStopFn = func(_ *Keepalive) {
+		stopCalls++
+	}
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{"old": {Command: "old"}}}
+	cfgHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(initial) error = %v", err)
+	}
 	pool := mcppool.New(cfg)
 	ka := NewKeepalive(pool)
 	defer ka.Stop()
 
 	activeCWD := ""
-	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
 	}
 	if activeCWD != "/tmp/project-a" {
@@ -66,14 +82,17 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 		t.Fatalf("cfg.Servers = %#v, want project-a fallback entry", cfg.Servers)
 	}
 
-	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a repeat) error = %v", err)
 	}
 	if loadCalls != 1 || mergeCalls != 1 || validateCalls != 1 {
 		t.Fatalf("reload hooks called load=%d merge=%d validate=%d, want 1/1/1 after same-cwd repeat", loadCalls, mergeCalls, validateCalls)
 	}
+	if resetCalls != 1 || stopCalls != 1 {
+		t.Fatalf("lifecycle hooks called reset=%d stop=%d, want 1/1 after same-cwd repeat", resetCalls, stopCalls)
+	}
 
-	if err := syncRuntimeConfigForRequest("/tmp/project-b", &activeCWD, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequest("/tmp/project-b", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
 	}
 	if activeCWD != "/tmp/project-b" {
@@ -85,16 +104,23 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 	if loadCalls != 2 || mergeCalls != 2 || validateCalls != 2 {
 		t.Fatalf("reload hooks called load=%d merge=%d validate=%d, want 2/2/2 after cwd change", loadCalls, mergeCalls, validateCalls)
 	}
+	if resetCalls != 2 || stopCalls != 2 {
+		t.Fatalf("lifecycle hooks called reset=%d stop=%d, want 2/2 after cwd change", resetCalls, stopCalls)
+	}
 }
 
 func TestSyncRuntimeConfigForRequestReturnsConfigLoadErrors(t *testing.T) {
 	oldLoadConfigFn := loadConfigFn
 	oldMergeFallbackFn := mergeFallbackFn
 	oldValidateConfigFn := validateConfigFn
+	oldPoolResetFn := poolResetFn
+	oldKeepaliveStopFn := keepaliveStopFn
 	defer func() {
 		loadConfigFn = oldLoadConfigFn
 		mergeFallbackFn = oldMergeFallbackFn
 		validateConfigFn = oldValidateConfigFn
+		poolResetFn = oldPoolResetFn
+		keepaliveStopFn = oldKeepaliveStopFn
 	}()
 
 	loadConfigFn = func() (*config.Config, error) {
@@ -110,9 +136,72 @@ func TestSyncRuntimeConfigForRequestReturnsConfigLoadErrors(t *testing.T) {
 	}
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	cfgHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(initial) error = %v", err)
+	}
 	activeCWD := ""
-	if err := syncRuntimeConfigForRequest("/tmp/project", &activeCWD, &cfg, nil, nil); err == nil {
+	if err := syncRuntimeConfigForRequest("/tmp/project", &activeCWD, &cfgHash, &cfg, nil, nil); err == nil {
 		t.Fatal("syncRuntimeConfigForRequest() error = nil, want non-nil")
+	}
+}
+
+func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *testing.T) {
+	oldLoadConfigFn := loadConfigFn
+	oldMergeFallbackFn := mergeFallbackFn
+	oldValidateConfigFn := validateConfigFn
+	oldPoolResetFn := poolResetFn
+	oldKeepaliveStopFn := keepaliveStopFn
+	defer func() {
+		loadConfigFn = oldLoadConfigFn
+		mergeFallbackFn = oldMergeFallbackFn
+		validateConfigFn = oldValidateConfigFn
+		poolResetFn = oldPoolResetFn
+		keepaliveStopFn = oldKeepaliveStopFn
+	}()
+
+	loadConfigFn = func() (*config.Config, error) {
+		return &config.Config{
+			Servers: map[string]config.ServerConfig{
+				"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}},
+			},
+		}, nil
+	}
+	mergeFallbackFn = func(*config.Config, string) error { return nil }
+	validateConfigFn = func(*config.Config) error { return nil }
+
+	var resetCalls int
+	var stopCalls int
+	poolResetFn = func(_ *mcppool.Pool, _ *config.Config) {
+		resetCalls++
+	}
+	keepaliveStopFn = func(_ *Keepalive) {
+		stopCalls++
+	}
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}},
+		},
+	}
+	cfgHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(initial) error = %v", err)
+	}
+
+	activeCWD := ""
+	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, nil, nil); err != nil {
+		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
+	}
+	if err := syncRuntimeConfigForRequest("/tmp/project-b", &activeCWD, &cfgHash, &cfg, nil, nil); err != nil {
+		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
+	}
+
+	if resetCalls != 0 || stopCalls != 0 {
+		t.Fatalf("lifecycle hooks called reset=%d stop=%d, want 0/0 for same effective config", resetCalls, stopCalls)
+	}
+	if activeCWD != "/tmp/project-b" {
+		t.Fatalf("active cwd = %q, want %q", activeCWD, "/tmp/project-b")
 	}
 }
 
