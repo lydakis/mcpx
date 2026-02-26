@@ -140,7 +140,9 @@ func TestCallToolRejectsMissingRequiredArgs(t *testing.T) {
 	}
 }
 
-func TestCallToolRejectsUnknownFlags(t *testing.T) {
+func TestCallToolAllowsUnknownFlagsWhenAdditionalPropertiesIsOmitted(t *testing.T) {
+	var calledArgs map[string]any
+
 	conn := &connection{
 		listTools: func(context.Context) ([]mcp.Tool, error) {
 			return []mcp.Tool{
@@ -151,6 +153,150 @@ func TestCallToolRejectsUnknownFlags(t *testing.T) {
 						Properties: map[string]any{
 							"query": map[string]any{"type": "string"},
 						},
+					},
+				},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, args map[string]any) (*mcp.CallToolResult, error) {
+			calledArgs = args
+			return &mcp.CallToolResult{}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	_, err := p.CallTool(context.Background(), "github", "search", json.RawMessage(`{"query":"mcp","unexpected":"value"}`))
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if calledArgs["unexpected"] != "value" {
+		t.Fatalf("unexpected arg = %#v, want value", calledArgs["unexpected"])
+	}
+}
+
+func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalse(t *testing.T) {
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{
+					Name: "search",
+					InputSchema: mcp.ToolInputSchema{
+						Type: "object",
+						Properties: map[string]any{
+							"query": map[string]any{"type": "string"},
+						},
+						AdditionalProperties: false,
+					},
+				},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, _ map[string]any) (*mcp.CallToolResult, error) {
+			t.Fatal("callTool should not run for unknown flags")
+			return nil, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	_, err := p.CallTool(context.Background(), "github", "search", json.RawMessage(`{"query":"mcp","unexpected":"value"}`))
+	if err == nil {
+		t.Fatal("CallTool() error = nil, want non-nil")
+	}
+	if !errors.Is(err, mcp.ErrInvalidParams) {
+		t.Fatalf("CallTool() error = %v, want invalid params", err)
+	}
+}
+
+func TestCallToolAllowsBooleanPropertySchemaWhenAdditionalPropertiesFalse(t *testing.T) {
+	var calledArgs map[string]any
+
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{
+					Name: "search",
+					InputSchema: mcp.ToolInputSchema{
+						Type: "object",
+						Properties: map[string]any{
+							"query": true,
+						},
+						AdditionalProperties: false,
+					},
+				},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, args map[string]any) (*mcp.CallToolResult, error) {
+			calledArgs = args
+			return &mcp.CallToolResult{}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.CallTool(context.Background(), "github", "search", json.RawMessage(`{"query":"mcp"}`)); err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if calledArgs["query"] != "mcp" {
+		t.Fatalf("query = %#v, want mcp", calledArgs["query"])
+	}
+}
+
+func TestCallToolCoercesUnknownFlagsWithAdditionalPropertiesSchema(t *testing.T) {
+	var calledArgs map[string]any
+
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{
+					Name: "search",
+					InputSchema: mcp.ToolInputSchema{
+						Type: "object",
+						Properties: map[string]any{
+							"query": map[string]any{"type": "string"},
+						},
+						AdditionalProperties: map[string]any{"type": "integer"},
+					},
+				},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, args map[string]any) (*mcp.CallToolResult, error) {
+			calledArgs = args
+			return &mcp.CallToolResult{}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.CallTool(context.Background(), "github", "search", json.RawMessage(`{"query":"mcp","page":"2"}`)); err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+
+	if calledArgs["page"] != int64(2) {
+		t.Fatalf("page = %#v, want int64(2)", calledArgs["page"])
+	}
+}
+
+func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalseAndNoProperties(t *testing.T) {
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{
+					Name: "search",
+					InputSchema: mcp.ToolInputSchema{
+						Type:                 "object",
+						AdditionalProperties: false,
 					},
 				},
 			}, nil
@@ -172,6 +318,41 @@ func TestCallToolRejectsUnknownFlags(t *testing.T) {
 	}
 	if !errors.Is(err, mcp.ErrInvalidParams) {
 		t.Fatalf("CallTool() error = %v, want invalid params", err)
+	}
+}
+
+func TestCallToolCoercesUnknownFlagsWithAdditionalPropertiesSchemaAndNoProperties(t *testing.T) {
+	var calledArgs map[string]any
+
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{
+					Name: "search",
+					InputSchema: mcp.ToolInputSchema{
+						Type:                 "object",
+						AdditionalProperties: map[string]any{"type": "integer"},
+					},
+				},
+			}, nil
+		},
+		callTool: func(_ context.Context, _ string, args map[string]any) (*mcp.CallToolResult, error) {
+			calledArgs = args
+			return &mcp.CallToolResult{}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	if _, err := p.CallTool(context.Background(), "github", "search", json.RawMessage(`{"page":"2"}`)); err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+
+	if calledArgs["page"] != int64(2) {
+		t.Fatalf("page = %#v, want int64(2)", calledArgs["page"])
 	}
 }
 

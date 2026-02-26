@@ -44,19 +44,12 @@ func coerceObject(raw map[string]any, schema map[string]any, path string) (map[s
 	}
 
 	props, _ := schema["properties"].(map[string]any)
+	allowAdditional, additionalSchema := additionalPropertiesPolicy(schema)
 	required := requiredSet(schema)
 	var err error
 	raw, err = rewriteNoPrefixedBooleanAliases(raw, props, path)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(props) > 0 {
-		for key := range raw {
-			if _, ok := props[key]; !ok {
-				return nil, invalidParamsError("unknown argument %q", dottedPath(path, key))
-			}
-		}
 	}
 
 	for key := range required {
@@ -67,7 +60,22 @@ func coerceObject(raw map[string]any, schema map[string]any, path string) (map[s
 
 	out := make(map[string]any, len(raw))
 	for key, value := range raw {
-		propSchema, _ := props[key].(map[string]any)
+		propRaw, hasProp := props[key]
+		propSchema, _ := propRaw.(map[string]any)
+		if !hasProp {
+			if !allowAdditional {
+				return nil, invalidParamsError("unknown argument %q", dottedPath(path, key))
+			}
+			if additionalSchema != nil {
+				coerced, err := coerceValue(value, additionalSchema, dottedPath(path, key))
+				if err != nil {
+					return nil, err
+				}
+				out[key] = coerced
+				continue
+			}
+		}
+
 		if propSchema == nil {
 			out[key] = value
 			continue
@@ -80,6 +88,22 @@ func coerceObject(raw map[string]any, schema map[string]any, path string) (map[s
 		out[key] = coerced
 	}
 	return out, nil
+}
+
+func additionalPropertiesPolicy(schema map[string]any) (bool, map[string]any) {
+	raw, ok := schema["additionalProperties"]
+	if !ok {
+		return true, nil
+	}
+
+	switch v := raw.(type) {
+	case bool:
+		return v, nil
+	case map[string]any:
+		return true, v
+	default:
+		return true, nil
+	}
 }
 
 func rewriteNoPrefixedBooleanAliases(raw map[string]any, props map[string]any, path string) (map[string]any, error) {
