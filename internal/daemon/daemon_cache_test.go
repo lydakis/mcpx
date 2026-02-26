@@ -386,12 +386,12 @@ func TestCallToolVirtualServerRoutesThroughCodexApps(t *testing.T) {
 		t.Fatal("poolToolInfoByName should not be called for virtual-server tool routing")
 		return nil, nil
 	}
-	poolCallTool = func(_ context.Context, _ *mcppool.Pool, server, tool string, _ json.RawMessage) (*mcp.CallToolResult, error) {
+	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		if server != codexAppsServerName {
-			t.Fatalf("poolCallTool server = %q, want %q", server, codexAppsServerName)
+			t.Fatalf("poolCallToolWithInfo server = %q, want %q", server, codexAppsServerName)
 		}
-		if tool != "linear_get_profile" {
-			t.Fatalf("poolCallTool tool = %q, want %q", tool, "linear_get_profile")
+		if info == nil || info.Name != "linear_get_profile" {
+			t.Fatalf("poolCallToolWithInfo info name = %v, want %q", info, "linear_get_profile")
 		}
 		return &mcp.CallToolResult{
 			StructuredContent: map[string]any{"ok": true},
