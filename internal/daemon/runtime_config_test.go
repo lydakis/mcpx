@@ -16,30 +16,18 @@ import (
 )
 
 func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
-	oldLoadConfigFn := loadConfigFn
-	oldMergeFallbackFn := mergeFallbackFn
-	oldValidateConfigFn := validateConfigFn
-	oldPoolResetFn := poolResetFn
-	oldKeepaliveStopFn := keepaliveStopFn
-	defer func() {
-		loadConfigFn = oldLoadConfigFn
-		mergeFallbackFn = oldMergeFallbackFn
-		validateConfigFn = oldValidateConfigFn
-		poolResetFn = oldPoolResetFn
-		keepaliveStopFn = oldKeepaliveStopFn
-	}()
-
 	var loadCalls int
 	var mergeCalls int
 	var validateCalls int
 	var resetCalls int
 	var stopCalls int
 
-	loadConfigFn = func() (*config.Config, error) {
+	deps := runtimeDefaultDeps()
+	deps.loadConfig = func() (*config.Config, error) {
 		loadCalls++
 		return &config.Config{Servers: map[string]config.ServerConfig{}}, nil
 	}
-	mergeFallbackFn = func(cfg *config.Config, cwd string) error {
+	deps.mergeFallbackForCWD = func(cfg *config.Config, cwd string) error {
 		mergeCalls++
 		if cfg.Servers == nil {
 			cfg.Servers = make(map[string]config.ServerConfig)
@@ -51,14 +39,14 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 		cfg.Servers[key] = config.ServerConfig{Command: "test-command"}
 		return nil
 	}
-	validateConfigFn = func(*config.Config) error {
+	deps.validateConfig = func(*config.Config) error {
 		validateCalls++
 		return nil
 	}
-	poolResetFn = func(_ *mcppool.Pool, _ *config.Config) {
+	deps.poolReset = func(_ *mcppool.Pool, _ *config.Config) {
 		resetCalls++
 	}
-	keepaliveStopFn = func(_ *Keepalive) {
+	deps.keepaliveStop = func(_ *Keepalive) {
 		stopCalls++
 	}
 
@@ -72,7 +60,7 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 	defer ka.Stop()
 
 	activeCWD := ""
-	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
 	}
 	if activeCWD != "/tmp/project-a" {
@@ -82,7 +70,7 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 		t.Fatalf("cfg.Servers = %#v, want project-a fallback entry", cfg.Servers)
 	}
 
-	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-a", &activeCWD, &cfgHash, &cfg, pool, ka, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a repeat) error = %v", err)
 	}
 	if loadCalls != 1 || mergeCalls != 1 || validateCalls != 1 {
@@ -92,7 +80,7 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 		t.Fatalf("lifecycle hooks called reset=%d stop=%d, want 1/1 after same-cwd repeat", resetCalls, stopCalls)
 	}
 
-	if err := syncRuntimeConfigForRequest("/tmp/project-b", &activeCWD, &cfgHash, &cfg, pool, ka); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-b", &activeCWD, &cfgHash, &cfg, pool, ka, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
 	}
 	if activeCWD != "/tmp/project-b" {
@@ -110,28 +98,16 @@ func TestSyncRuntimeConfigForRequestReloadsOnlyWhenCWDChanges(t *testing.T) {
 }
 
 func TestSyncRuntimeConfigForRequestReturnsConfigLoadErrors(t *testing.T) {
-	oldLoadConfigFn := loadConfigFn
-	oldMergeFallbackFn := mergeFallbackFn
-	oldValidateConfigFn := validateConfigFn
-	oldPoolResetFn := poolResetFn
-	oldKeepaliveStopFn := keepaliveStopFn
-	defer func() {
-		loadConfigFn = oldLoadConfigFn
-		mergeFallbackFn = oldMergeFallbackFn
-		validateConfigFn = oldValidateConfigFn
-		poolResetFn = oldPoolResetFn
-		keepaliveStopFn = oldKeepaliveStopFn
-	}()
-
-	loadConfigFn = func() (*config.Config, error) {
+	deps := runtimeDefaultDeps()
+	deps.loadConfig = func() (*config.Config, error) {
 		return nil, errors.New("boom")
 	}
-	mergeFallbackFn = func(*config.Config, string) error {
-		t.Fatal("mergeFallbackFn should not be called when load fails")
+	deps.mergeFallbackForCWD = func(*config.Config, string) error {
+		t.Fatal("mergeFallbackForCWD should not be called when load fails")
 		return nil
 	}
-	validateConfigFn = func(*config.Config) error {
-		t.Fatal("validateConfigFn should not be called when load fails")
+	deps.validateConfig = func(*config.Config) error {
+		t.Fatal("validateConfig should not be called when load fails")
 		return nil
 	}
 
@@ -141,41 +117,29 @@ func TestSyncRuntimeConfigForRequestReturnsConfigLoadErrors(t *testing.T) {
 		t.Fatalf("configFingerprint(initial) error = %v", err)
 	}
 	activeCWD := ""
-	if err := syncRuntimeConfigForRequest("/tmp/project", &activeCWD, &cfgHash, &cfg, nil, nil); err == nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err == nil {
 		t.Fatal("syncRuntimeConfigForRequest() error = nil, want non-nil")
 	}
 }
 
 func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *testing.T) {
-	oldLoadConfigFn := loadConfigFn
-	oldMergeFallbackFn := mergeFallbackFn
-	oldValidateConfigFn := validateConfigFn
-	oldPoolResetFn := poolResetFn
-	oldKeepaliveStopFn := keepaliveStopFn
-	defer func() {
-		loadConfigFn = oldLoadConfigFn
-		mergeFallbackFn = oldMergeFallbackFn
-		validateConfigFn = oldValidateConfigFn
-		poolResetFn = oldPoolResetFn
-		keepaliveStopFn = oldKeepaliveStopFn
-	}()
-
-	loadConfigFn = func() (*config.Config, error) {
+	deps := runtimeDefaultDeps()
+	deps.loadConfig = func() (*config.Config, error) {
 		return &config.Config{
 			Servers: map[string]config.ServerConfig{
 				"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}},
 			},
 		}, nil
 	}
-	mergeFallbackFn = func(*config.Config, string) error { return nil }
-	validateConfigFn = func(*config.Config) error { return nil }
+	deps.mergeFallbackForCWD = func(*config.Config, string) error { return nil }
+	deps.validateConfig = func(*config.Config) error { return nil }
 
 	var resetCalls int
 	var stopCalls int
-	poolResetFn = func(_ *mcppool.Pool, _ *config.Config) {
+	deps.poolReset = func(_ *mcppool.Pool, _ *config.Config) {
 		resetCalls++
 	}
-	keepaliveStopFn = func(_ *Keepalive) {
+	deps.keepaliveStop = func(_ *Keepalive) {
 		stopCalls++
 	}
 
@@ -190,10 +154,10 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 	}
 
 	activeCWD := ""
-	if err := syncRuntimeConfigForRequest("/tmp/project-a", &activeCWD, &cfgHash, &cfg, nil, nil); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-a", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
 	}
-	if err := syncRuntimeConfigForRequest("/tmp/project-b", &activeCWD, &cfgHash, &cfg, nil, nil); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-b", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
 	}
 
@@ -226,25 +190,15 @@ func TestRequestNeedsRuntimeConfig(t *testing.T) {
 }
 
 func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
-	}
-
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"github": {}}}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
-
-	handler := newRuntimeRequestHandler(cfg, &mcppool.Pool{}, ka)
-	handler.activeCWD = "/tmp/project"
 
 	var inFlight int32
 	var maxInFlight int32
 
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
 		n := atomic.AddInt32(&inFlight, 1)
 		for {
 			currentMax := atomic.LoadInt32(&maxInFlight)
@@ -259,11 +213,12 @@ func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
 		atomic.AddInt32(&inFlight, -1)
 		return &mcppool.ToolInfo{Name: "search"}, nil
 	}
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{
-			StructuredContent: map[string]any{"ok": true},
-		}, nil
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}, nil
 	}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, &mcppool.Pool{}, ka, deps)
+	handler.activeCWD = "/tmp/project"
 
 	const workers = 4
 	start := make(chan struct{})

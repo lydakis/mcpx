@@ -15,9 +15,6 @@ import (
 )
 
 func TestCallToolUsesCachedResponseWhenPresent(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {},
@@ -30,19 +27,20 @@ func TestCallToolUsesCachedResponseWhenPresent(t *testing.T) {
 	poolCalls := 0
 	cacheWrites := 0
 
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
 		return nil, errors.New("pool should not be called on cache hit")
 	}
-	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return []byte("cached\n"), ipc.ExitOK, true
 	}
-	cachePut = func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
+	deps.cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
 		cacheWrites++
 		return nil
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -58,9 +56,6 @@ func TestCallToolUsesCachedResponseWhenPresent(t *testing.T) {
 }
 
 func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {DefaultCacheTTL: "45s"},
@@ -75,16 +70,15 @@ func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
 	var wroteExit int
 	var wroteContent string
 
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
-		return &mcp.CallToolResult{
-			StructuredContent: map[string]any{"ok": true},
-		}, nil
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}, nil
 	}
-	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return nil, 0, false
 	}
-	cachePut = func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
+	deps.cachePut = func(_ string, _ string, _ json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
 		cacheWrites++
 		wroteTTL = ttl
 		wroteExit = exitCode
@@ -92,7 +86,7 @@ func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
 		return nil
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), nil, false)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), nil, false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -113,27 +107,8 @@ func TestCallToolCachesSuccessfulResponseWithDefaultTTL(t *testing.T) {
 	}
 }
 
-func saveCallToolHooks() func() {
-	oldPoolCallToolWithInfo := poolCallToolWithInfo
-	oldPoolToolInfoByName := poolToolInfoByName
-	oldCacheGet := cacheGet
-	oldCacheGetMetadata := cacheGetMetadata
-	oldCachePut := cachePut
-
-	return func() {
-		poolCallToolWithInfo = oldPoolCallToolWithInfo
-		poolToolInfoByName = oldPoolToolInfoByName
-		cacheGet = oldCacheGet
-		cacheGetMetadata = oldCacheGetMetadata
-		cachePut = oldCachePut
-	}
-}
-
 func TestEffectiveCacheTTLExplicitRequestOverridesNoCachePatterns(t *testing.T) {
-	scfg := config.ServerConfig{
-		DefaultCacheTTL: "30s",
-		NoCacheTools:    []string{"search-*"},
-	}
+	scfg := config.ServerConfig{DefaultCacheTTL: "30s", NoCacheTools: []string{"search-*"}}
 	req := 5 * time.Second
 
 	ttl, ok, err := effectiveCacheTTL(scfg, "search-repositories", &req)
@@ -188,11 +163,7 @@ func TestEffectiveCacheTTLNoCacheRequestDisablesCaching(t *testing.T) {
 
 func TestEffectiveCacheTTLToolCacheTrueRequiresDefaultTTL(t *testing.T) {
 	enabled := true
-	scfg := config.ServerConfig{
-		Tools: map[string]config.ToolConfig{
-			"search": {Cache: &enabled},
-		},
-	}
+	scfg := config.ServerConfig{Tools: map[string]config.ToolConfig{"search": {Cache: &enabled}}}
 
 	ttl, ok, err := effectiveCacheTTL(scfg, "search", nil)
 	if err != nil {
@@ -207,88 +178,74 @@ func TestEffectiveCacheTTLToolCacheTrueRequiresDefaultTTL(t *testing.T) {
 }
 
 func TestCallToolVerboseIncludesCacheHitLog(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
 	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
+		Servers: map[string]config.ServerConfig{"github": {}},
 	}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
 	reqCache := 30 * time.Second
 
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, errors.New("pool should not be called on cache hit")
 	}
-	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return []byte("cached\n"), ipc.ExitOK, true
 	}
-	cachePut = func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
+	deps.cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
 		return nil
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, true)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, true, deps)
 	if resp.Stderr != "mcpx: cache hit" {
 		t.Fatalf("callTool() stderr = %q, want %q", resp.Stderr, "mcpx: cache hit")
 	}
 }
 
 func TestCallToolVerboseIncludesCacheAgeAndTTLWhenAvailable(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
 	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
+		Servers: map[string]config.ServerConfig{"github": {}},
 	}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
 	reqCache := 30 * time.Second
 
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, errors.New("pool should not be called on cache hit")
 	}
-	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return []byte("cached\n"), ipc.ExitOK, true
 	}
-	cacheGetMetadata = func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool) {
+	deps.cacheGetMetadata = func(_ string, _ string, _ json.RawMessage) (time.Duration, time.Duration, bool) {
 		return 23 * time.Second, 60 * time.Second, true
 	}
-	cachePut = func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
+	deps.cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
 		return nil
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, true)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "github", "search-repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, true, deps)
 	if resp.Stderr != "mcpx: cache hit (age=23s ttl=1m0s)" {
 		t.Fatalf("callTool() stderr = %q, want %q", resp.Stderr, "mcpx: cache hit (age=23s ttl=1m0s)")
 	}
 }
 
 func TestCallToolUsageErrorIncludesStderrByDefault(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
-	}
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"github": {}}}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		return nil, mcp.ErrInvalidParams
 	}
-	cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return nil, 0, false
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "github", "search", json.RawMessage(`{}`), nil, false)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "github", "search", json.RawMessage(`{}`), nil, false, deps)
 	if resp.ExitCode != ipc.ExitUsageErr {
 		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
 	}
@@ -304,14 +261,7 @@ func TestCallToolUsageErrorIncludesStderrByDefault(t *testing.T) {
 }
 
 func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
-	restore := saveCallToolHooks()
-	defer restore()
-
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github": {},
-		},
-	}
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"github": {}}}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
@@ -320,30 +270,29 @@ func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
 	poolCalls := 0
 	cacheStore := map[string][]byte{}
 
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _ string, tool string) (*mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _ string, tool string) (*mcppool.ToolInfo, error) {
 		return &mcppool.ToolInfo{Name: tool}, nil
 	}
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, _ string, _ *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		poolCalls++
-		return &mcp.CallToolResult{
-			StructuredContent: map[string]any{"count": poolCalls},
-		}, nil
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"count": poolCalls}}, nil
 	}
-	cacheGet = func(server, tool string, args json.RawMessage) ([]byte, int, bool) {
+	deps.cacheGet = func(_ string, tool string, _ json.RawMessage) ([]byte, int, bool) {
 		content, ok := cacheStore[tool]
 		if !ok {
 			return nil, 0, false
 		}
 		return content, ipc.ExitOK, true
 	}
-	cachePut = func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error {
+	deps.cachePut = func(_ string, tool string, _ json.RawMessage, content []byte, _ int, _ time.Duration) error {
 		cacheStore[tool] = content
 		return nil
 	}
 
 	dummyPool := &mcppool.Pool{}
-	first := callTool(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
-	second := callTool(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false)
+	first := callToolWithDeps(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false, deps)
+	second := callToolWithDeps(context.Background(), cfg, dummyPool, ka, "github", "search_repositories", json.RawMessage(`{"query":"mcp"}`), &reqCache, false, deps)
 
 	if poolCalls != 1 {
 		t.Fatalf("pool calls = %d, want 1", poolCalls)
@@ -357,13 +306,6 @@ func TestCallToolCacheKeyUsesRequestedToolName(t *testing.T) {
 }
 
 func TestCallToolVirtualServerRoutesThroughCodexApps(t *testing.T) {
-	restore := saveCallToolHooks()
-	oldPoolListTools := poolListTools
-	defer restore()
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			codexAppsServerName: {},
@@ -372,33 +314,32 @@ func TestCallToolVirtualServerRoutesThroughCodexApps(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
+	deps := runtimeDefaultDeps()
+	deps.cacheGet = func(_ string, _ string, _ json.RawMessage) ([]byte, int, bool) {
 		return nil, 0, false
 	}
-	cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
+	deps.cachePut = func(_ string, _ string, _ json.RawMessage, _ []byte, _ int, _ time.Duration) error {
 		return nil
 	}
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		t.Fatal("poolListTools should not be called for direct virtual-server tool routing")
 		return nil, nil
 	}
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
+	deps.poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
 		t.Fatal("poolToolInfoByName should not be called for virtual-server tool routing")
 		return nil, nil
 	}
-	poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
+	deps.poolCallToolWithInfo = func(_ context.Context, _ *mcppool.Pool, server string, info *mcppool.ToolInfo, _ json.RawMessage) (*mcp.CallToolResult, error) {
 		if server != codexAppsServerName {
 			t.Fatalf("poolCallToolWithInfo server = %q, want %q", server, codexAppsServerName)
 		}
 		if info == nil || info.Name != "linear_get_profile" {
 			t.Fatalf("poolCallToolWithInfo info name = %v, want %q", info, "linear_get_profile")
 		}
-		return &mcp.CallToolResult{
-			StructuredContent: map[string]any{"ok": true},
-		}, nil
+		return &mcp.CallToolResult{StructuredContent: map[string]any{"ok": true}}, nil
 	}
 
-	resp := callTool(context.Background(), cfg, nil, ka, "linear", "linear_get_profile", json.RawMessage(`{}`), nil, false)
+	resp := callToolWithDeps(context.Background(), cfg, nil, ka, "linear", "linear_get_profile", json.RawMessage(`{}`), nil, false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("callTool() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}

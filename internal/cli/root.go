@@ -14,7 +14,16 @@ import (
 	"github.com/lydakis/mcpx/internal/ipc"
 )
 
-const codexAppsServerName = "codex_apps"
+type daemonRequester interface {
+	Send(req *ipc.Request) (*ipc.Response, error)
+}
+
+var (
+	spawnOrConnectFn = daemon.SpawnOrConnect
+	newDaemonClient  = func(socketPath, nonce string) daemonRequester {
+		return ipc.NewClient(socketPath, nonce)
+	}
+)
 
 // Run is the main CLI entry point. Returns an exit code.
 func Run(args []string) int {
@@ -51,16 +60,13 @@ func Run(args []string) int {
 		if len(args) == 1 && args[0] == "--json" {
 			output = outputModeJSON
 		}
-		if _, hasCodexApps := cfg.Servers[codexAppsServerName]; !hasCodexApps {
-			return listConfiguredServers(cfg, output)
-		}
 
-		nonce, err := daemon.SpawnOrConnect()
+		nonce, err := spawnOrConnectFn()
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
-		client := ipc.NewClient(ipc.SocketPath(), nonce)
+		client := newDaemonClient(ipc.SocketPath(), nonce)
 		return listServersFromDaemon(client, callerWorkingDirectory(), output)
 	}
 
@@ -72,22 +78,12 @@ func Run(args []string) int {
 		return ipc.ExitUsageErr
 	}
 	if cmd.list && cmd.listOpts.help {
-		if isConfiguredAddressableServer(cfg, server) {
-			printToolListHelp(rootStdout, server)
-			return ipc.ExitOK
-		}
-
-		if _, hasCodexApps := cfg.Servers[codexAppsServerName]; !hasCodexApps {
-			printUnknownServer(server, configuredAddressableServerNames(cfg))
-			return ipc.ExitUsageErr
-		}
-
-		nonce, err := daemon.SpawnOrConnect()
+		nonce, err := spawnOrConnectFn()
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
-		client := ipc.NewClient(ipc.SocketPath(), nonce)
+		client := newDaemonClient(ipc.SocketPath(), nonce)
 		resp, err := client.Send(&ipc.Request{
 			Type: "list_servers",
 			CWD:  callerWorkingDirectory(),
@@ -113,12 +109,12 @@ func Run(args []string) int {
 	}
 
 	// Connect to daemon
-	nonce, err := daemon.SpawnOrConnect()
+	nonce, err := spawnOrConnectFn()
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
 	}
-	client := ipc.NewClient(ipc.SocketPath(), nonce)
+	client := newDaemonClient(ipc.SocketPath(), nonce)
 	cwd := callerWorkingDirectory()
 
 	if cmd.list {
@@ -153,33 +149,7 @@ func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, std
 	}
 }
 
-func listConfiguredServers(cfg *config.Config, output outputMode) int {
-	names := make([]string, 0, len(cfg.Servers))
-	for name := range cfg.Servers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	if output.isJSON() {
-		if err := writeJSONLine(rootStdout, names); err != nil {
-			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
-			return ipc.ExitInternal
-		}
-		return ipc.ExitOK
-	}
-
-	if len(names) == 0 {
-		fmt.Fprintln(rootStdout, "No MCP servers configured.")
-		fmt.Fprintf(rootStdout, "Create a config file at %s\n", config.ExampleConfigPath())
-		return ipc.ExitOK
-	}
-	for _, name := range names {
-		fmt.Fprintln(rootStdout, name)
-	}
-	return ipc.ExitOK
-}
-
-func listServersFromDaemon(client *ipc.Client, cwd string, output outputMode) int {
+func listServersFromDaemon(client daemonRequester, cwd string, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type: "list_servers",
 		CWD:  cwd,
@@ -304,7 +274,7 @@ func printToolListHelp(out io.Writer, server string) {
 	fmt.Fprintln(out, "  --help, -h       Show this help output")
 }
 
-func listTools(client *ipc.Client, server, cwd string, verbose bool, output outputMode) int {
+func listTools(client daemonRequester, server, cwd string, verbose bool, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:    "list_tools",
 		Server:  server,
@@ -387,30 +357,6 @@ func decodeServerListPayload(payload []byte) []string {
 	return out
 }
 
-func configuredAddressableServerNames(cfg *config.Config) []string {
-	if cfg == nil || len(cfg.Servers) == 0 {
-		return nil
-	}
-
-	names := make([]string, 0, len(cfg.Servers))
-	for name := range cfg.Servers {
-		if strings.TrimSpace(name) == "" || name == codexAppsServerName {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func isConfiguredAddressableServer(cfg *config.Config, server string) bool {
-	if strings.TrimSpace(server) == "" || server == codexAppsServerName || cfg == nil {
-		return false
-	}
-	_, ok := cfg.Servers[server]
-	return ok
-}
-
 func containsServerName(names []string, server string) bool {
 	for _, name := range names {
 		if name == server {
@@ -438,7 +384,7 @@ func resolvedToolHelpName(requested, payloadName string) string {
 	return requested
 }
 
-func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) int {
+func showHelp(client daemonRequester, server, tool, cwd string, output outputMode) int {
 	resp, err := client.Send(&ipc.Request{
 		Type:   "tool_schema",
 		Server: server,
@@ -476,7 +422,7 @@ func showHelp(client *ipc.Client, server, tool, cwd string, output outputMode) i
 	return resp.ExitCode
 }
 
-func callTool(client *ipc.Client, server, tool string, rawArgs []string, cwd string) int {
+func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd string) int {
 	parsed, err := parseToolCallArgs(rawArgs, os.Stdin, stdinIsTTY(os.Stdin))
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)

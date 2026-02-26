@@ -25,47 +25,107 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-var (
-	poolListTools = func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
-		return pool.ListTools(ctx, server)
-	}
-	poolToolInfoByName = func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error) {
-		return pool.ToolInfoByName(ctx, server, tool)
-	}
-	poolCallToolWithInfo = func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
-		return pool.CallToolWithInfo(ctx, server, info, args)
-	}
-	cacheGet         = cache.Get
-	cacheGetMetadata = cache.GetMetadata
-	cachePut         = cache.Put
-	poolResetFn      = func(pool *mcppool.Pool, cfg *config.Config) {
-		if pool != nil {
-			pool.Reset(cfg)
-		}
-	}
-	keepaliveStopFn = func(ka *Keepalive) {
-		if ka != nil {
-			ka.Stop()
-		}
-	}
-	loadConfigFn     = config.Load
-	mergeFallbackFn  = config.MergeFallbackServersForCWD
-	validateConfigFn = config.Validate
-	signalShutdownFn = func() {
-		p, _ := os.FindProcess(os.Getpid())
-		_ = p.Signal(syscall.SIGTERM)
-	}
-)
-
 const codexAppsServerName = servercatalog.CodexAppsServerName
+
+type runtimeDeps struct {
+	poolListTools         func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
+	poolToolInfoByName    func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
+	poolCallToolWithInfo  func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error)
+	cacheGet              func(server, tool string, args json.RawMessage) ([]byte, int, bool)
+	cacheGetMetadata      func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
+	cachePut              func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
+	poolReset             func(pool *mcppool.Pool, cfg *config.Config)
+	keepaliveStop         func(ka *Keepalive)
+	loadConfig            func() (*config.Config, error)
+	mergeFallbackForCWD   func(cfg *config.Config, cwd string) error
+	validateConfig        func(cfg *config.Config) error
+	signalShutdownProcess func()
+}
+
+func runtimeDefaultDeps() runtimeDeps {
+	return runtimeDeps{
+		poolListTools: func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+			return pool.ListTools(ctx, server)
+		},
+		poolToolInfoByName: func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error) {
+			return pool.ToolInfoByName(ctx, server, tool)
+		},
+		poolCallToolWithInfo: func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
+			return pool.CallToolWithInfo(ctx, server, info, args)
+		},
+		cacheGet:         cache.Get,
+		cacheGetMetadata: cache.GetMetadata,
+		cachePut:         cache.Put,
+		poolReset: func(pool *mcppool.Pool, cfg *config.Config) {
+			if pool != nil {
+				pool.Reset(cfg)
+			}
+		},
+		keepaliveStop: func(ka *Keepalive) {
+			if ka != nil {
+				ka.Stop()
+			}
+		},
+		loadConfig:          config.Load,
+		mergeFallbackForCWD: config.MergeFallbackServersForCWD,
+		validateConfig:      config.Validate,
+		signalShutdownProcess: func() {
+			p, _ := os.FindProcess(os.Getpid())
+			_ = p.Signal(syscall.SIGTERM)
+		},
+	}
+}
+
+func (d runtimeDeps) withDefaults() runtimeDeps {
+	def := runtimeDefaultDeps()
+	if d.poolListTools == nil {
+		d.poolListTools = def.poolListTools
+	}
+	if d.poolToolInfoByName == nil {
+		d.poolToolInfoByName = def.poolToolInfoByName
+	}
+	if d.poolCallToolWithInfo == nil {
+		d.poolCallToolWithInfo = def.poolCallToolWithInfo
+	}
+	if d.cacheGet == nil {
+		d.cacheGet = def.cacheGet
+	}
+	if d.cacheGetMetadata == nil {
+		d.cacheGetMetadata = def.cacheGetMetadata
+	}
+	if d.cachePut == nil {
+		d.cachePut = def.cachePut
+	}
+	if d.poolReset == nil {
+		d.poolReset = def.poolReset
+	}
+	if d.keepaliveStop == nil {
+		d.keepaliveStop = def.keepaliveStop
+	}
+	if d.loadConfig == nil {
+		d.loadConfig = def.loadConfig
+	}
+	if d.mergeFallbackForCWD == nil {
+		d.mergeFallbackForCWD = def.mergeFallbackForCWD
+	}
+	if d.validateConfig == nil {
+		d.validateConfig = def.validateConfig
+	}
+	if d.signalShutdownProcess == nil {
+		d.signalShutdownProcess = def.signalShutdownProcess
+	}
+	return d
+}
 
 // Run starts the daemon process. Called when argv[1] == "__daemon".
 func Run() error {
+	deps := runtimeDefaultDeps()
+
 	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
 		return fmt.Errorf("creating runtime dir: %w", err)
 	}
 
-	cfg, err := loadValidatedConfigForCWD("")
+	cfg, err := loadValidatedConfigForCWDWithDeps("", deps)
 	if err != nil {
 		return err
 	}
@@ -79,10 +139,10 @@ func Run() error {
 	defer pool.CloseAll()
 
 	ka := NewKeepalive(pool)
-	ka.SetOnAllIdle(signalShutdownFn)
+	ka.SetOnAllIdle(deps.signalShutdownProcess)
 	defer ka.Stop()
 
-	handler := newRuntimeRequestHandler(cfg, pool, ka)
+	handler := newRuntimeRequestHandlerWithDeps(cfg, pool, ka, deps)
 
 	srv := ipc.NewServer(paths.SocketPath(), nonce, handler.handle)
 	if err := srv.Start(); err != nil {
@@ -108,15 +168,22 @@ type runtimeRequestHandler struct {
 	cfg       *config.Config
 	pool      *mcppool.Pool
 	ka        *Keepalive
+	deps      runtimeDeps
 }
 
 func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *runtimeRequestHandler {
+	return newRuntimeRequestHandlerWithDeps(cfg, pool, ka, runtimeDefaultDeps())
+}
+
+func newRuntimeRequestHandlerWithDeps(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *runtimeRequestHandler {
+	deps = deps.withDefaults()
 	cfgHash, _ := configFingerprint(cfg)
 	return &runtimeRequestHandler{
 		cfgHash: cfgHash,
 		cfg:     cfg,
 		pool:    pool,
 		ka:      ka,
+		deps:    deps,
 	}
 }
 
@@ -128,7 +195,7 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 	if !requestNeedsRuntimeConfig(req) {
 		h.mu.RLock()
 		defer h.mu.RUnlock()
-		return dispatch(ctx, h.cfg, h.pool, h.ka, req)
+		return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
 	}
 
 	normalizedCWD := strings.TrimSpace(req.CWD)
@@ -138,18 +205,18 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 		// Safe to dispatch concurrently for same-CWD requests.
 		// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
 		defer h.mu.RUnlock()
-		return dispatch(ctx, h.cfg, h.pool, h.ka, req)
+		return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
 	}
 	h.mu.RUnlock()
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if err := syncRuntimeConfigForRequest(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka); err != nil {
+	if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
 	}
 
-	return dispatch(ctx, h.cfg, h.pool, h.ka, req)
+	return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
 }
 
 func requestNeedsRuntimeConfig(req *ipc.Request) bool {
@@ -165,12 +232,17 @@ func requestNeedsRuntimeConfig(req *ipc.Request) bool {
 }
 
 func syncRuntimeConfigForRequest(reqCWD string, activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive) error {
+	return syncRuntimeConfigForRequestWithDeps(reqCWD, activeCWD, cfgHash, cfg, pool, ka, runtimeDefaultDeps())
+}
+
+func syncRuntimeConfigForRequestWithDeps(reqCWD string, activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) error {
+	deps = deps.withDefaults()
 	normalized := strings.TrimSpace(reqCWD)
 	if normalized == strings.TrimSpace(*activeCWD) {
 		return nil
 	}
 
-	nextCfg, err := loadValidatedConfigForCWD(normalized)
+	nextCfg, err := loadValidatedConfigForCWDWithDeps(normalized, deps)
 	if err != nil {
 		return err
 	}
@@ -181,8 +253,8 @@ func syncRuntimeConfigForRequest(reqCWD string, activeCWD, cfgHash *string, cfg 
 	}
 
 	if nextHash != strings.TrimSpace(*cfgHash) {
-		keepaliveStopFn(ka)
-		poolResetFn(pool, nextCfg)
+		deps.keepaliveStop(ka)
+		deps.poolReset(pool, nextCfg)
 	}
 	*cfg = nextCfg
 	*cfgHash = nextHash
@@ -200,31 +272,41 @@ func configFingerprint(cfg *config.Config) (string, error) {
 }
 
 func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {
-	cfg, err := loadConfigFn()
+	return loadValidatedConfigForCWDWithDeps(cwd, runtimeDefaultDeps())
+}
+
+func loadValidatedConfigForCWDWithDeps(cwd string, deps runtimeDeps) (*config.Config, error) {
+	deps = deps.withDefaults()
+	cfg, err := deps.loadConfig()
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
-	if ferr := mergeFallbackFn(cfg, cwd); ferr != nil {
+	if ferr := deps.mergeFallbackForCWD(cfg, cwd); ferr != nil {
 		fmt.Fprintf(os.Stderr, "mcpx daemon: warning: failed to load fallback MCP server config: %v\n", ferr)
 	}
-	if verr := validateConfigFn(cfg); verr != nil {
+	if verr := deps.validateConfig(cfg); verr != nil {
 		return nil, fmt.Errorf("invalid config: %w", verr)
 	}
 	return cfg, nil
 }
 
 func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request) *ipc.Response {
+	return dispatchWithDeps(ctx, cfg, pool, ka, req, runtimeDefaultDeps())
+}
+
+func dispatchWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request, deps runtimeDeps) *ipc.Response {
+	deps = deps.withDefaults()
 	switch req.Type {
 	case "list_servers":
-		return listServers(ctx, cfg, pool, ka)
+		return listServersWithDeps(ctx, cfg, pool, ka, deps)
 	case "list_tools":
-		return listTools(ctx, cfg, pool, ka, req.Server, req.Verbose)
+		return listToolsWithDeps(ctx, cfg, pool, ka, req.Server, req.Verbose, deps)
 	case "tool_schema":
-		return toolSchema(ctx, cfg, pool, ka, req.Server, req.Tool)
+		return toolSchemaWithDeps(ctx, cfg, pool, ka, req.Server, req.Tool, deps)
 	case "call_tool":
-		return callTool(ctx, cfg, pool, ka, req.Server, req.Tool, req.Args, req.Cache, req.Verbose)
+		return callToolWithDeps(ctx, cfg, pool, ka, req.Server, req.Tool, req.Args, req.Cache, req.Verbose, deps)
 	case "shutdown":
-		go signalShutdownFn()
+		go deps.signalShutdownProcess()
 		return &ipc.Response{Content: []byte("shutting down\n")}
 	default:
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown request type: %s", req.Type)}
@@ -232,7 +314,11 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 }
 
 func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *ipc.Response {
-	catalog := newServerCatalog(cfg, pool, ka)
+	return listServersWithDeps(ctx, cfg, pool, ka, runtimeDefaultDeps())
+}
+
+func listServersWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *ipc.Response {
+	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	names, err := catalog.ServerNames(ctx)
 	var warn string
 	if err != nil {
@@ -264,17 +350,26 @@ func configuredServerNames(cfg *config.Config) []string {
 }
 
 func newServerCatalog(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *servercatalog.Catalog {
+	return newServerCatalogWithDeps(cfg, pool, ka, runtimeDefaultDeps())
+}
+
+func newServerCatalogWithDeps(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *servercatalog.Catalog {
 	return servercatalog.New(cfg, func(ctx context.Context, server string) ([]mcppool.ToolInfo, error) {
-		return listServerTools(ctx, pool, ka, server)
+		return listServerToolsWithDeps(ctx, pool, ka, server, deps)
 	})
 }
 
 func listServerTools(ctx context.Context, pool *mcppool.Pool, ka *Keepalive, server string) ([]mcppool.ToolInfo, error) {
+	return listServerToolsWithDeps(ctx, pool, ka, server, runtimeDefaultDeps())
+}
+
+func listServerToolsWithDeps(ctx context.Context, pool *mcppool.Pool, ka *Keepalive, server string, deps runtimeDeps) ([]mcppool.ToolInfo, error) {
+	deps = deps.withDefaults()
 	if ka != nil {
 		ka.Begin(server)
 		defer ka.End(server)
 	}
-	return poolListTools(ctx, pool, server)
+	return deps.poolListTools(ctx, pool, server)
 }
 
 type toolListEntry struct {
@@ -283,7 +378,11 @@ type toolListEntry struct {
 }
 
 func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool) *ipc.Response {
-	catalog := newServerCatalog(cfg, pool, ka)
+	return listToolsWithDeps(ctx, cfg, pool, ka, server, verbose, runtimeDefaultDeps())
+}
+
+func listToolsWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool, deps runtimeDeps) *ipc.Response {
+	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	route, routeTools, found, err := catalog.Resolve(ctx, server)
 	if err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
@@ -294,7 +393,7 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 
 	tools := routeTools
 	if !route.IsVirtual() {
-		tools, err = listServerTools(ctx, pool, ka, route.Backend)
+		tools, err = listServerToolsWithDeps(ctx, pool, ka, route.Backend, deps)
 		if err != nil {
 			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("listing tools: %v", err)}
 		}
@@ -365,7 +464,12 @@ func summarizeToolDescription(desc string) string {
 }
 
 func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string) *ipc.Response {
-	catalog := newServerCatalog(cfg, pool, ka)
+	return toolSchemaWithDeps(ctx, cfg, pool, ka, server, tool, runtimeDefaultDeps())
+}
+
+func toolSchemaWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, deps runtimeDeps) *ipc.Response {
+	deps = deps.withDefaults()
+	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	route, routeTools, found, err := catalog.Resolve(ctx, server)
 	if err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
@@ -388,7 +492,7 @@ func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka 
 		ka.Begin(route.Backend)
 		defer ka.End(route.Backend)
 
-		info, err = poolToolInfoByName(ctx, pool, route.Backend, tool)
+		info, err = deps.poolToolInfoByName(ctx, pool, route.Backend, tool)
 		if err != nil {
 			return &ipc.Response{
 				ExitCode: classifyToolLookupError(err),
@@ -421,7 +525,12 @@ func toolSchema(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka 
 }
 
 func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, reqCache *time.Duration, verbose bool) *ipc.Response {
-	catalog := newServerCatalog(cfg, pool, ka)
+	return callToolWithDeps(ctx, cfg, pool, ka, server, tool, args, reqCache, verbose, runtimeDefaultDeps())
+}
+
+func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, reqCache *time.Duration, verbose bool, deps runtimeDeps) *ipc.Response {
+	deps = deps.withDefaults()
+	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	route, found, err := catalog.ResolveForTool(ctx, server, tool)
 	if err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
@@ -446,9 +555,9 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 	}
 	var logs []string
 	if shouldCache {
-		if out, exitCode, ok := cacheGet(server, tool, args); ok {
+		if out, exitCode, ok := deps.cacheGet(server, tool, args); ok {
 			if verbose {
-				if age, ttl, ok := cacheGetMetadata(server, tool, args); ok {
+				if age, ttl, ok := deps.cacheGetMetadata(server, tool, args); ok {
 					logs = append(logs, fmt.Sprintf("mcpx: cache hit (age=%s ttl=%s)", age, ttl))
 				} else {
 					logs = append(logs, "mcpx: cache hit")
@@ -469,7 +578,7 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 		}
 	}
 	if pool != nil {
-		resolvedInfo, err := poolToolInfoByName(ctx, pool, route.Backend, tool)
+		resolvedInfo, err := deps.poolToolInfoByName(ctx, pool, route.Backend, tool)
 		if err != nil {
 			return &ipc.Response{
 				ExitCode: classifyToolLookupError(err),
@@ -491,7 +600,7 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 		cacheTool = info.Name
 	}
 
-	result, err := poolCallToolWithInfo(ctx, pool, route.Backend, info, args)
+	result, err := deps.poolCallToolWithInfo(ctx, pool, route.Backend, info, args)
 	if err != nil {
 		return &ipc.Response{
 			ExitCode: classifyCallToolError(err),
@@ -501,7 +610,7 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 
 	out, exitCode := response.Unwrap(result)
 	if shouldCache && exitCode == ipc.ExitOK {
-		_ = cachePut(server, cacheTool, args, out, exitCode, cacheTTL)
+		_ = deps.cachePut(server, cacheTool, args, out, exitCode, cacheTTL)
 		if verbose {
 			logs = append(logs, fmt.Sprintf("mcpx: cache store (ttl=%s)", cacheTTL))
 		}

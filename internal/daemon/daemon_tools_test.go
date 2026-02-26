@@ -14,11 +14,6 @@ import (
 )
 
 func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {},
@@ -27,7 +22,8 @@ func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) 
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return []mcppool.ToolInfo{
 			{
 				Name: "search_repositories",
@@ -39,7 +35,7 @@ func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) 
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", false)
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, "github", false, deps)
 
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
@@ -58,11 +54,6 @@ func TestListToolsOutputsNativeNamesAndShortDescriptionsByDefault(t *testing.T) 
 }
 
 func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {},
@@ -72,13 +63,14 @@ func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
 	defer ka.Stop()
 
 	fullDesc := "Search repositories quickly with advanced filters\nSecond line with extra details"
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return []mcppool.ToolInfo{
 			{Name: "search_repositories", Description: fullDesc},
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", true)
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, "github", true, deps)
 
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
@@ -96,11 +88,6 @@ func TestListToolsVerboseOutputsFullDescriptions(t *testing.T) {
 }
 
 func TestListToolsJSONVerbosePreservesMultilineDescription(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {},
@@ -109,7 +96,8 @@ func TestListToolsJSONVerbosePreservesMultilineDescription(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return []mcppool.ToolInfo{
 			{
 				Name:        "search_repositories",
@@ -119,7 +107,7 @@ func TestListToolsJSONVerbosePreservesMultilineDescription(t *testing.T) {
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "github", true)
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, "github", true, deps)
 	if resp.ExitCode != 0 {
 		t.Fatalf("listTools() exit = %d, want 0", resp.ExitCode)
 	}
@@ -151,11 +139,6 @@ func TestSummarizeToolDescriptionTruncatesLongFirstLine(t *testing.T) {
 }
 
 func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
-	oldPoolToolInfoByName := poolToolInfoByName
-	defer func() {
-		poolToolInfoByName = oldPoolToolInfoByName
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github": {},
@@ -164,7 +147,8 @@ func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
 		return &mcppool.ToolInfo{
 			Name:         "search_repositories",
 			Description:  "Search repos",
@@ -173,7 +157,7 @@ func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 		}, nil
 	}
 
-	resp := toolSchema(context.Background(), cfg, nil, ka, "github", "search_repositories")
+	resp := toolSchemaWithDeps(context.Background(), cfg, nil, ka, "github", "search_repositories", deps)
 	if resp.ExitCode != 0 {
 		t.Fatalf("toolSchema() exit = %d, want 0", resp.ExitCode)
 	}
@@ -188,11 +172,6 @@ func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 }
 
 func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github":            {},
@@ -203,7 +182,8 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
 		if server != codexAppsServerName {
 			t.Fatalf("poolListTools server = %q, want %q", server, codexAppsServerName)
 		}
@@ -214,7 +194,7 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 		}, nil
 	}
 
-	resp := listServers(context.Background(), cfg, nil, ka)
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -232,11 +212,6 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 }
 
 func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github":            {},
@@ -247,11 +222,12 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return nil, errors.New("token expired")
 	}
 
-	resp := listServers(context.Background(), cfg, nil, ka)
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -267,11 +243,6 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 }
 
 func TestListToolsVirtualServerFiltersCodexAppsTools(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			codexAppsServerName: {},
@@ -280,7 +251,8 @@ func TestListToolsVirtualServerFiltersCodexAppsTools(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
 		if server != codexAppsServerName {
 			t.Fatalf("poolListTools server = %q, want %q", server, codexAppsServerName)
 		}
@@ -291,7 +263,7 @@ func TestListToolsVirtualServerFiltersCodexAppsTools(t *testing.T) {
 		}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, "linear", false)
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, "linear", false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listTools() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -310,11 +282,6 @@ func TestListToolsVirtualServerFiltersCodexAppsTools(t *testing.T) {
 }
 
 func TestListToolsCodexAppsServerNameIsNotAddressable(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			codexAppsServerName: {},
@@ -323,24 +290,18 @@ func TestListToolsCodexAppsServerNameIsNotAddressable(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
-		return []mcppool.ToolInfo{
-			{Name: "linear_get_profile"},
-		}, nil
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		return []mcppool.ToolInfo{{Name: "linear_get_profile"}}, nil
 	}
 
-	resp := listTools(context.Background(), cfg, nil, ka, codexAppsServerName, false)
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, codexAppsServerName, false, deps)
 	if resp.ExitCode != ipc.ExitUsageErr {
 		t.Fatalf("listTools() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
 	}
 }
 
 func TestToolSchemaVirtualServerRejectsToolsOutsideConnector(t *testing.T) {
-	oldPoolListTools := poolListTools
-	defer func() {
-		poolListTools = oldPoolListTools
-	}()
-
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			codexAppsServerName: {},
@@ -349,7 +310,8 @@ func TestToolSchemaVirtualServerRejectsToolsOutsideConnector(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
 		return []mcppool.ToolInfo{
 			{
 				Name:        "linear_get_profile",
@@ -364,7 +326,7 @@ func TestToolSchemaVirtualServerRejectsToolsOutsideConnector(t *testing.T) {
 		}, nil
 	}
 
-	resp := toolSchema(context.Background(), cfg, nil, ka, "linear", "zillow_get_zestimate")
+	resp := toolSchemaWithDeps(context.Background(), cfg, nil, ka, "linear", "zillow_get_zestimate", deps)
 	if resp.ExitCode != ipc.ExitUsageErr {
 		t.Fatalf("toolSchema() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
 	}

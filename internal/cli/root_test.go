@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,17 @@ import (
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/ipc"
 )
+
+type stubDaemonClient struct {
+	sendFn func(req *ipc.Request) (*ipc.Response, error)
+}
+
+func (c stubDaemonClient) Send(req *ipc.Request) (*ipc.Response, error) {
+	if c.sendFn != nil {
+		return c.sendFn(req)
+	}
+	return &ipc.Response{}, nil
+}
 
 func TestHandleRootFlagsVersion(t *testing.T) {
 	oldVersion := buildVersion
@@ -302,7 +314,7 @@ func TestParseServerCommandSeparatorRequiresToolName(t *testing.T) {
 	}
 }
 
-func TestRunServerHelpDoesNotRequireDaemon(t *testing.T) {
+func TestRunServerHelpRequiresDaemon(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")
 	configDir := filepath.Join(xdgConfigHome, "mcpx")
@@ -318,14 +330,15 @@ args = ["ok"]
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_RUNTIME_DIR", "/dev/null")
 
-	if code := Run([]string{"github", "--help"}); code != 0 {
-		t.Fatalf("Run([github --help]) = %d, want 0", code)
+	if code := Run([]string{"github", "--help"}); code != ipc.ExitInternal {
+		t.Fatalf("Run([github --help]) = %d, want %d", code, ipc.ExitInternal)
 	}
 }
 
-func TestRunUnknownServerHelpReturnsUsageErrorWithoutDaemon(t *testing.T) {
+func TestRunUnknownServerHelpReturnsUsageErrorFromDaemonServerList(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")
 	configDir := filepath.Join(xdgConfigHome, "mcpx")
@@ -341,7 +354,27 @@ args = ["ok"]
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
-	t.Setenv("XDG_RUNTIME_DIR", "/dev/null")
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	oldSpawn := spawnOrConnectFn
+	oldClient := newDaemonClient
+	defer func() {
+		spawnOrConnectFn = oldSpawn
+		newDaemonClient = oldClient
+	}()
+
+	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
+	newDaemonClient = func(_, _ string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				if req.Type != "list_servers" {
+					return nil, errors.New("unexpected request type")
+				}
+				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
+			},
+		}
+	}
 
 	oldOut := rootStdout
 	oldErr := rootStderr
@@ -391,6 +424,27 @@ args = ["ok"]
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	oldSpawn := spawnOrConnectFn
+	oldClient := newDaemonClient
+	defer func() {
+		spawnOrConnectFn = oldSpawn
+		newDaemonClient = oldClient
+	}()
+
+	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
+	newDaemonClient = func(_, _ string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				if req.Type != "list_servers" {
+					return nil, errors.New("unexpected request type")
+				}
+				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("beta\nalpha\n")}, nil
+			},
+		}
+	}
 
 	oldOut := rootStdout
 	defer func() { rootStdout = oldOut }()

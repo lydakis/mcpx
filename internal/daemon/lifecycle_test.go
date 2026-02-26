@@ -10,17 +10,13 @@ import (
 )
 
 func TestDispatchShutdownReturnsAckAndSignalsProcess(t *testing.T) {
-	oldSignalShutdownFn := signalShutdownFn
-	defer func() {
-		signalShutdownFn = oldSignalShutdownFn
-	}()
-
 	signaled := make(chan struct{}, 1)
-	signalShutdownFn = func() {
+	deps := runtimeDefaultDeps()
+	deps.signalShutdownProcess = func() {
 		signaled <- struct{}{}
 	}
 
-	resp := dispatch(context.Background(), &config.Config{}, nil, nil, &ipc.Request{Type: "shutdown"})
+	resp := dispatchWithDeps(context.Background(), &config.Config{}, nil, nil, &ipc.Request{Type: "shutdown"}, deps)
 	if string(resp.Content) != "shutting down\n" {
 		t.Fatalf("dispatch(shutdown) content = %q, want %q", resp.Content, "shutting down\n")
 	}
