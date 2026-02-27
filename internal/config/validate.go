@@ -31,6 +31,73 @@ func Validate(cfg *Config) error {
 	return errors.Join(errs...)
 }
 
+// ValidateForCurrentEnv checks config invariants after expanding ${ENV_VAR}
+// placeholders against the current process environment.
+func ValidateForCurrentEnv(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	expanded := cloneConfig(cfg)
+	expandConfigEnvVars(expanded)
+	return Validate(expanded)
+}
+
+func cloneConfig(cfg *Config) *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	cloned := &Config{
+		FallbackSources: append([]string(nil), cfg.FallbackSources...),
+		Servers:         make(map[string]ServerConfig, len(cfg.Servers)),
+	}
+
+	for name, srv := range cfg.Servers {
+		cloned.Servers[name] = cloneServerConfig(srv)
+	}
+
+	return cloned
+}
+
+func cloneServerConfig(srv ServerConfig) ServerConfig {
+	cloned := srv
+	cloned.Args = append([]string(nil), srv.Args...)
+	cloned.NoCacheTools = append([]string(nil), srv.NoCacheTools...)
+	cloned.Env = cloneStringMap(srv.Env)
+	cloned.Headers = cloneStringMap(srv.Headers)
+	cloned.Tools = cloneToolMap(srv.Tools)
+	return cloned
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneToolMap(in map[string]ToolConfig) map[string]ToolConfig {
+	if in == nil {
+		return nil
+	}
+
+	out := make(map[string]ToolConfig, len(in))
+	for name, cfg := range in {
+		cloned := cfg
+		if cfg.Cache != nil {
+			val := *cfg.Cache
+			cloned.Cache = &val
+		}
+		out[name] = cloned
+	}
+	return out
+}
+
 func validateServer(name string, srv ServerConfig) []error {
 	var errs []error
 

@@ -4,6 +4,7 @@ mcpx \- MCP tools as Unix commands
 .SH SYNOPSIS
 \fBmcpx\fR
 \fBmcpx --json\fR
+\fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--overwrite\fR]
 \fBmcpx\fR \fIserver\fR [\fIFLAGS\fR]
 \fBmcpx\fR \fIserver\fR \fItool\fR [\fIFLAGS\fR]
 .SH DESCRIPTION
@@ -24,6 +25,7 @@ Normal tool-call output is not transformed.
 .nf
 mcpx
 mcpx --json
+mcpx add https://example.com/mcp-manifest.json
 mcpx <server>
 mcpx <server> --json
 mcpx <server> <tool> --help

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "bad": {
+      "install": {
+        "transport": "websocket",
+        "url": "wss://example.com/mcp"
+      }
+    }
+  }
+}

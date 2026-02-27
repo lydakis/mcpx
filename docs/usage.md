@@ -51,6 +51,7 @@ mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> --help --json  # raw schema payload JSON
 mcpx <server> <tool> ...     # call tool
+mcpx add <source>            # add server config from install link/manifest
 mcpx skill install           # install built-in mcpx skill for agents
 ```
 
@@ -81,6 +82,29 @@ mcpx github search-repositories --query=mcp --cache=60s
 mcpx github search-repositories --query=mcp --no-cache
 mcpx github search-repositories --query=mcp --cache=60s -v
 ```
+
+## Add Servers (`mcpx add`)
+
+Bootstrap server config entries into `~/.config/mcpx/config.toml` from:
+
+- install-link URLs (for example Cursor-style `.../mcp/install?name=...&config=...`)
+- manifest URLs (`https://...`)
+- local manifest files (`.json` or `.toml`)
+
+Examples:
+
+```bash
+mcpx add "cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=..."
+mcpx add https://example.com/mcp-manifest.json
+mcpx add ./mcp-manifest.toml
+mcpx add ./mcp-manifest.json --name github-enterprise
+mcpx add ./mcp-manifest.json --overwrite
+```
+
+Notes:
+
+- `mcpx add` writes only to mcpx config; it does not install runtimes/packages.
+- Existing entries require explicit `--overwrite`.
 
 ## Shell Completions
 

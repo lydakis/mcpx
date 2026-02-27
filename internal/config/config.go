@@ -17,8 +17,30 @@ func Load() (*Config, error) {
 	return LoadFrom(paths.ConfigFile())
 }
 
+// LoadForEdit reads the config file for in-place edits.
+// Unlike Load, it preserves raw ${ENV_VAR} placeholders.
+func LoadForEdit() (*Config, error) {
+	return LoadForEditFrom(paths.ConfigFile())
+}
+
 // LoadFrom reads and parses a config file at the given path.
 func LoadFrom(path string) (*Config, error) {
+	return loadFrom(path, true)
+}
+
+// LoadForEditFrom reads and parses a config file at the given path for edits.
+// It intentionally skips env expansion so writes do not bake secrets.
+func LoadForEditFrom(path string) (*Config, error) {
+	return loadFrom(path, false)
+}
+
+// ExpandServerForCurrentEnv returns a copy of server with ${ENV_VAR}
+// placeholders expanded from the current process environment.
+func ExpandServerForCurrentEnv(server ServerConfig) ServerConfig {
+	return expandServerEnvVars(cloneServerConfig(server))
+}
+
+func loadFrom(path string, expand bool) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -34,7 +56,9 @@ func LoadFrom(path string) (*Config, error) {
 	if cfg.Servers == nil {
 		cfg.Servers = make(map[string]ServerConfig)
 	}
-	expandConfigEnvVars(&cfg)
+	if expand {
+		expandConfigEnvVars(&cfg)
+	}
 	return &cfg, nil
 }
 

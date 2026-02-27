@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bad": {
+      "transport": [],
+      "url": "https://example.com/mcp"
+    }
+  }
+}

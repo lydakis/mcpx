@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ws-server": {
+      "transport": "websocket",
+      "url": "wss://example.com/mcp"
+    }
+  }
+}

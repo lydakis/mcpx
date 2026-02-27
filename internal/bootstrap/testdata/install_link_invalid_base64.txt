@@ -1,0 +1,1 @@
+cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=not-base64!!!

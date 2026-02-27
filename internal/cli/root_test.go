@@ -96,6 +96,9 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("mcpx completion <bash|zsh|fish>")) {
 		t.Fatalf("help output missing completion command: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("mcpx add <source>")) {
+		t.Fatalf("help output missing add command: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("mcpx skill install [FLAGS]")) {
 		t.Fatalf("help output missing skill command: %q", out.String())
 	}

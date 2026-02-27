@@ -59,6 +59,7 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "  mcpx --json")
 	fmt.Fprintln(out, "  mcpx <server> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx <server> <tool> [FLAGS]")
+	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--overwrite]")
 	fmt.Fprintln(out, "  mcpx completion <bash|zsh|fish>")
 	fmt.Fprintln(out, "  mcpx skill install [FLAGS]")
 	fmt.Fprintln(out, "")
