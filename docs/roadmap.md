@@ -14,7 +14,7 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
 - ✅ Release notes template is added for first tagged release.
 - ✅ GoReleaser + GitHub Actions release automation is configured for Homebrew cask publishing.
 - ✅ Host QA matrix pass completed via `make qa`.
-- 🔲 Remaining major work: run final release pass with artifacts and cut first tagged release.
+- ✅ Final release pass completed with artifacts and tagged releases shipped.
 - 🔲 Next major work after first release: adoption-focused discovery and onboarding improvements that keep the core command contract unchanged.
 
 ## Phase 0: Stabilize Contracts (first)
@@ -69,11 +69,11 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
 - ✅ Add smoke tests for daemon lifecycle and idle shutdown.
 - ✅ Build release checklist (binary size, docs, examples, install notes).
 
-## Immediate Next Sprint
-1. Create `lydakis/homebrew-mcpx` tap repo (if not already created).
-2. Set `GORELEASER_TOKEN` in GitHub Actions with access to source + tap repos.
-3. Run final release QA pass (`make qa` + `goreleaser release --snapshot --clean`).
-4. Push first release tag and verify cask update lands in tap repo.
+## Immediate Next Sprint (Post-Release)
+1. Define and ship `mcpx add` v1 as source-based remote bootstrap (install links + manifest URLs).
+2. Add parsing/validation and clear prerequisite errors for missing runtimes (`docker`, `npx`, `uvx`, etc.).
+3. Add overwrite confirmation semantics and regression tests for config writes.
+4. Update `README.md` and `docs/usage.md` with end-to-end `mcpx add` examples.
 
 ## Post-Release Direction (Adoption-First, Contract-Stable)
 
@@ -96,22 +96,26 @@ After first release, optimize for adoption without breaking the command surface:
   - first server config
   - first successful tool call.
 
-## Phase 8: Registry Discovery (Read-Only)
-- Add registry command surface for discovery only:
-  - `mcpx registry search <query>`
-  - `mcpx registry info <slug>`.
-- Define a minimal registry entry schema:
-  - slug, display name, transport type, maintainer, homepage, auth/env requirements, example command, last-updated timestamp.
-- Start with curated registry sources (owned JSON/TOML manifests), no arbitrary script execution.
-- Cache registry metadata with short TTL and explicit `--no-cache` override.
-
-## Phase 9: Config Bootstrap from Registry (No Runtime Install)
-- Add `mcpx add <slug>` that writes server config from registry metadata into `config.toml`.
+## Phase 8: Remote Bootstrap (`mcpx add`) from Install Sources
+- Define `mcpx add` as source-based bootstrap for servers not yet configured locally.
+- Support explicit remote sources (no registry required in v1):
+  - install links (Cursor-style deeplink/web install URLs)
+  - direct manifest URLs (JSON/TOML payloads with MCP transport config).
+- Parse/validate remote payload and write normalized server entry to `config.toml`.
 - Keep execution model unchanged:
   - `mcpx` still runs configured commands/URLs
   - no package installation or runtime management by default.
+- Provide clear prerequisite checks/errors when referenced runtimes are missing (`docker`, `node/npx`, `uvx`, etc.).
 - Require explicit confirmation before overwriting existing server entries.
-- Ship regression tests for merge semantics and overwrite safeguards.
+- Ship regression tests for parsing, validation, and overwrite safeguards.
+
+## Phase 9: Optional Registry Discovery Layer (Read-Only)
+- Add registry command surface only after Phase 8 is stable:
+  - `mcpx registry search <query>`
+  - `mcpx registry info <id>`.
+- Reuse the same manifest schema from Phase 8, adding stable identifiers (`id`/slug) for discovery.
+- Start with curated registry sources (owned JSON/TOML manifests), no arbitrary script execution.
+- Cache registry metadata with short TTL and explicit `--no-cache` override.
 
 ## Phase 10: Optional Command Shims (Experimental, Opt-In)
 - Evaluate optional shim command surface only after Phases 7-9 signal demand:
@@ -125,3 +129,4 @@ After first release, optimize for adoption without breaking the command surface:
 - Full package-manager behavior (`mcpx install <server>` downloading arbitrary code).
 - Automatic OAuth/account linking flows inside `mcpx`.
 - Untrusted remote installer scripts.
+- A separate `add --adopt` mode for importing already auto-discovered local servers.
