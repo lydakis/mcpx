@@ -96,6 +96,24 @@ After first release, optimize for adoption without breaking the command surface:
   - first server config
   - first successful tool call.
 
+## Phase 7.5: Source Ownership Model (Before `mcpx add`)
+- Formalize source behavior as `read-many, write-one`:
+  - read from fallback sources for zero-config onboarding
+  - write only to `mcpx` config by default.
+- Define server ownership states:
+  - `discovered`: imported from fallback sources (read-only from `mcpx` perspective)
+  - `managed`: defined in `mcpx` config (including `mcpx add`).
+- Define precedence and collisions:
+  - `managed` entries always override `discovered` entries with the same name
+  - collisions must be explicit in CLI output with source provenance.
+- Add pollution controls while keeping auto-import enabled by default:
+  - fallback source allowlist/denylist
+  - optional server-level allowlist/denylist
+  - workspace-local fallbacks preferred over global fallbacks.
+- Keep cross-client writes out of Phase 8 scope:
+  - no automatic writeback into Cursor/VS Code/Claude configs
+  - any future sync/export remains explicit and opt-in.
+
 ## Phase 8: Remote Bootstrap (`mcpx add`) from Install Sources
 - Define `mcpx add` as source-based bootstrap for servers not yet configured locally.
 - Support explicit remote sources (no registry required in v1):
