@@ -75,6 +75,36 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
 3. Add overwrite confirmation semantics and regression tests for config writes.
 4. Update `README.md` and `docs/usage.md` with end-to-end `mcpx add` examples.
 
+### Phase 8 Execution Log (Now)
+- Contract lock (`mcpx add` v1):
+  - accepted inputs: install-link URL, manifest URL, local manifest file
+  - out of scope: slug-only lookup, registry dependency, package/runtime installation.
+- Parser + normalization:
+  - parse install-link payloads and manifest payloads into one normalized internal shape
+  - preserve server-native tool naming and transport semantics
+  - reject malformed/ambiguous payloads with actionable errors.
+- Validation and safety:
+  - require either stdio (`command` + `args`) or URL transport config
+  - prerequisite runtime checks (`docker`, `node/npx`, `uvx`, etc.) with clear stderr guidance
+  - explicit overwrite confirmation for existing managed entries
+  - atomic config writes only.
+- Fixtures to add:
+  - valid install-link fixture
+  - valid manifest fixture (stdio)
+  - valid manifest fixture (HTTP/URL)
+  - invalid base64/install-link fixture
+  - missing required transport fields fixture
+  - unsupported transport fixture.
+- Tests to add first:
+  - parser table tests (success + failure corpus)
+  - validator tests (required fields + runtime prerequisite errors)
+  - config write tests (new entry, overwrite denied, overwrite confirmed, atomic write behavior)
+  - CLI integration tests for exit mapping and user-facing error text.
+- Docs updates:
+  - quickstart examples for each input source
+  - overwrite behavior and safety notes
+  - explicit non-goals for v1 (`add` is bootstrap, not installer).
+
 ## Post-Release Direction (Adoption-First, Contract-Stable)
 
 After first release, optimize for adoption without breaking the command surface:
