@@ -85,6 +85,56 @@ func TestMergeFallbackServersUsesFallbackWhenConfigEmpty(t *testing.T) {
 	}
 }
 
+func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	paths := fallbackSourcePaths(nil)
+	if len(paths) == 0 {
+		t.Skip("no fallback source paths for this platform")
+	}
+
+	fallbackPath := paths[0]
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0700); err != nil {
+		t.Fatalf("mkdir fallback dir: %v", err)
+	}
+
+	raw := []byte(`{"mcpServers":{
+		"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"]},
+		"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}
+	}}`)
+	if err := os.WriteFile(fallbackPath, raw, 0600); err != nil {
+		t.Fatalf("write fallback file: %v", err)
+	}
+
+	cfg := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {Command: "echo", Args: []string{"managed"}},
+		},
+		ServerOrigins: map[string]ServerOrigin{
+			"github": NewServerOrigin(ServerOriginKindMCPXConfig, "/tmp/config.toml"),
+		},
+	}
+	if err := MergeFallbackServers(cfg); err != nil {
+		t.Fatalf("MergeFallbackServers() error = %v", err)
+	}
+
+	managed := cfg.Servers["github"]
+	if managed.Command != "echo" || len(managed.Args) != 1 || managed.Args[0] != "managed" {
+		t.Fatalf("managed server overwritten: %#v", managed)
+	}
+	if origin := cfg.ServerOrigins["github"]; origin.Kind != ServerOriginKindMCPXConfig {
+		t.Fatalf("managed origin kind = %q, want %q", origin.Kind, ServerOriginKindMCPXConfig)
+	}
+
+	if _, ok := cfg.Servers["filesystem"]; !ok {
+		t.Fatalf("cfg.Servers = %#v, want discovered filesystem server", cfg.Servers)
+	}
+	if origin := cfg.ServerOrigins["filesystem"]; origin.Kind == ServerOriginKindMCPXConfig {
+		t.Fatalf("filesystem origin kind = %q, want discovered source kind", origin.Kind)
+	}
+}
+
 func TestMergeFallbackServersUsesConfiguredSources(t *testing.T) {
 	customPath := filepath.Join(t.TempDir(), "custom-mcp.json")
 	raw := []byte(`{"mcpServers":{"custom":{"command":"uvx","args":["mcp-custom"]}}}`)
@@ -112,6 +162,45 @@ func TestMergeFallbackServersUsesConfiguredSources(t *testing.T) {
 	}
 	if origin.Path != customPath {
 		t.Fatalf("ServerOrigins[custom].Path = %q, want %q", origin.Path, customPath)
+	}
+}
+
+func TestMergeFallbackServersUsesConfiguredSourceOrderForCollisions(t *testing.T) {
+	tmp := t.TempDir()
+	first := filepath.Join(tmp, "first.json")
+	second := filepath.Join(tmp, "second.json")
+
+	firstRaw := []byte(`{"mcpServers":{
+		"shared":{"command":"first-command"},
+		"first-only":{"command":"first-only-command"}
+	}}`)
+	secondRaw := []byte(`{"mcpServers":{
+		"shared":{"command":"second-command"},
+		"second-only":{"command":"second-only-command"}
+	}}`)
+	if err := os.WriteFile(first, firstRaw, 0600); err != nil {
+		t.Fatalf("write first fallback file: %v", err)
+	}
+	if err := os.WriteFile(second, secondRaw, 0600); err != nil {
+		t.Fatalf("write second fallback file: %v", err)
+	}
+
+	cfg := &Config{
+		Servers:         map[string]ServerConfig{},
+		FallbackSources: []string{first, second},
+	}
+	if err := MergeFallbackServers(cfg); err != nil {
+		t.Fatalf("MergeFallbackServers() error = %v", err)
+	}
+
+	if got := cfg.Servers["shared"].Command; got != "first-command" {
+		t.Fatalf("shared command = %q, want %q", got, "first-command")
+	}
+	if got := cfg.Servers["first-only"].Command; got != "first-only-command" {
+		t.Fatalf("first-only command = %q, want %q", got, "first-only-command")
+	}
+	if got := cfg.Servers["second-only"].Command; got != "second-only-command" {
+		t.Fatalf("second-only command = %q, want %q", got, "second-only-command")
 	}
 }
 

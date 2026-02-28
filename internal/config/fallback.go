@@ -82,8 +82,8 @@ type fallbackResolvedServer struct {
 	origin ServerOrigin
 }
 
-// MergeFallbackServers fills cfg.Servers from external MCP fallback sources
-// when the primary config has no servers.
+// MergeFallbackServers fills cfg.Servers from external MCP fallback sources.
+// Managed entries already present in cfg.Servers always win over discovered ones.
 func MergeFallbackServers(cfg *Config) error {
 	return MergeFallbackServersForCWD(cfg, "")
 }
@@ -92,7 +92,7 @@ func MergeFallbackServers(cfg *Config) error {
 // project-scoped fallback files against the provided working directory.
 // When cwd is empty, it falls back to the process working directory.
 func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
-	if cfg == nil || len(cfg.Servers) > 0 {
+	if cfg == nil {
 		return nil
 	}
 
@@ -105,6 +105,9 @@ func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 			cfg.ServerOrigins = make(map[string]ServerOrigin)
 		}
 		for name, resolved := range fallback {
+			if _, exists := cfg.Servers[name]; exists {
+				continue
+			}
 			cfg.Servers[name] = resolved.server
 			cfg.ServerOrigins[name] = NormalizeServerOrigin(resolved.origin)
 		}
