@@ -178,6 +178,10 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 			codexAppsServerName: {},
 			"supermemory":       {},
 		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"github":      config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+			"supermemory": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+		},
 	}
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
@@ -203,6 +207,19 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	want := []string{"github", "google_calendar", "linear", "supermemory", "zillow"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("server list = %#v, want %#v", got, want)
+	}
+	entries := decodeServerEntries(resp.Content)
+	for _, entry := range entries {
+		switch entry.Name {
+		case "github", "supermemory":
+			if entry.Origin.Kind != config.ServerOriginKindMCPXConfig {
+				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
+			}
+		case "google_calendar", "linear", "zillow":
+			if entry.Origin.Kind != config.ServerOriginKindCodexApps {
+				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindCodexApps)
+			}
+		}
 	}
 	for _, name := range got {
 		if name == codexAppsServerName {
@@ -236,6 +253,12 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 	want := []string{"github", "supermemory"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("server list = %#v, want %#v", got, want)
+	}
+	entries := decodeServerEntries(resp.Content)
+	for _, entry := range entries {
+		if entry.Origin.Kind != config.ServerOriginKindMCPXConfig {
+			t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
+		}
 	}
 	if !strings.Contains(resp.Stderr, "failed to enumerate codex apps") {
 		t.Fatalf("listServers() stderr = %q, want codex-apps warning", resp.Stderr)
@@ -335,10 +358,23 @@ func TestToolSchemaVirtualServerRejectsToolsOutsideConnector(t *testing.T) {
 	}
 }
 
-func decodeServerLines(payload []byte) []string {
-	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
-	if len(lines) == 1 && lines[0] == "" {
+func decodeServerEntries(payload []byte) []serverListEntry {
+	var entries []serverListEntry
+	if err := json.Unmarshal(payload, &entries); err != nil {
 		return nil
 	}
-	return lines
+	return entries
+}
+
+func decodeServerLines(payload []byte) []string {
+	entries := decodeServerEntries(payload)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.Name)
+	}
+	return out
 }

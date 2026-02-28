@@ -60,6 +60,12 @@ Flag conventions can vary by tool and server, so run `mcpx <server> <tool> --hel
 
 `--json` is only for mcpx-owned outputs (`mcpx`, `mcpx <server>`, and `mcpx <server> <tool> --help`). Tool call output is not transformed.
 
+`mcpx` server listing shows names by default. Add `-v` to include per-server origin metadata.
+
+- `mcpx -v`: `name<TAB>kind`
+- `mcpx --json`: `["name", ...]`
+- `mcpx --json -v`: `[{ "name": "...", "origin": { "kind": "...", "path": "..." } }, ...]`
+
 Examples:
 
 ```bash

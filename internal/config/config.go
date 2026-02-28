@@ -44,7 +44,10 @@ func loadFrom(path string, expand bool) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Config{Servers: make(map[string]ServerConfig)}, nil
+			return &Config{
+				Servers:       make(map[string]ServerConfig),
+				ServerOrigins: make(map[string]ServerOrigin),
+			}, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -55,6 +58,10 @@ func loadFrom(path string, expand bool) (*Config, error) {
 	}
 	if cfg.Servers == nil {
 		cfg.Servers = make(map[string]ServerConfig)
+	}
+	cfg.ServerOrigins = make(map[string]ServerOrigin, len(cfg.Servers))
+	for name := range cfg.Servers {
+		cfg.ServerOrigins[name] = NewServerOrigin(ServerOriginKindMCPXConfig, path)
 	}
 	if expand {
 		expandConfigEnvVars(&cfg)

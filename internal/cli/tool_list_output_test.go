@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -42,8 +43,14 @@ func TestWriteToolListTextRendersNameAndDescription(t *testing.T) {
 		t.Fatalf("writeToolListText() error = %v", err)
 	}
 
-	want := "list_issues\tList issues\nsearch_repositories\n"
-	if out.String() != want {
-		t.Fatalf("writeToolListText() = %q, want %q", out.String(), want)
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(got) != 2 {
+		t.Fatalf("writeToolListText() lines = %d, want 2 (output=%q)", len(got), out.String())
+	}
+	if fields := strings.Fields(got[0]); len(fields) < 2 || fields[0] != "list_issues" || strings.Join(fields[1:], " ") != "List issues" {
+		t.Fatalf("first line = %q, want name and description columns", got[0])
+	}
+	if strings.TrimSpace(got[1]) != "search_repositories" {
+		t.Fatalf("second line = %q, want %q", got[1], "search_repositories")
 	}
 }

@@ -326,11 +326,44 @@ func listServersWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.
 		names = configuredServerNames(cfg)
 	}
 
-	var out []byte
+	entries := make([]serverListEntry, 0, len(names))
 	for _, name := range names {
-		out = append(out, []byte(name+"\n")...)
+		entries = append(entries, serverListEntry{
+			Name:   name,
+			Origin: resolveServerOrigin(cfg, name),
+		})
 	}
-	return &ipc.Response{Content: out, Stderr: warn}
+
+	raw, marshalErr := json.Marshal(entries)
+	if marshalErr != nil {
+		return &ipc.Response{
+			ExitCode: ipc.ExitInternal,
+			Stderr:   fmt.Sprintf("encoding server list: %v", marshalErr),
+		}
+	}
+	return &ipc.Response{Content: raw, Stderr: warn}
+}
+
+type serverListEntry struct {
+	Name   string              `json:"name"`
+	Origin config.ServerOrigin `json:"origin"`
+}
+
+func resolveServerOrigin(cfg *config.Config, name string) config.ServerOrigin {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
+		return config.NormalizeServerOrigin(config.ServerOrigin{})
+	}
+	if cfg == nil {
+		return config.NewServerOrigin(config.ServerOriginKindCodexApps, "")
+	}
+	if origin, ok := cfg.ServerOrigins[trimmedName]; ok {
+		return config.NormalizeServerOrigin(origin)
+	}
+	if _, ok := cfg.Servers[trimmedName]; ok {
+		return config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "")
+	}
+	return config.NewServerOrigin(config.ServerOriginKindCodexApps, "")
 }
 
 func configuredServerNames(cfg *config.Config) []string {

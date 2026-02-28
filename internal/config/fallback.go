@@ -64,18 +64,23 @@ type codexAuthTokens struct {
 }
 
 const (
-	codexAppsServerName                  = "codex_apps"
-	codexConnectorsTokenEnvVar           = "CODEX_CONNECTORS_TOKEN"
-	defaultCodexChatGPTBaseURL           = "https://chatgpt.com/backend-api"
-	openAIConnectorsMCPBaseURL           = "https://api.openai.com"
-	openAIConnectorsMCPPath              = "/v1/connectors/gateways/flat/mcp"
-	codexConfigName                      = "config.toml"
-	codexConfigDirName                   = ".codex"
-	codexAuthFileName                    = "auth.json"
-	chatGPTAccountIDHeader               = "ChatGPT-Account-ID"
-	authorizationHeader                  = "Authorization"
-	bearerAuthPrefix                     = "Bearer "
+	codexAppsServerName        = "codex_apps"
+	codexConnectorsTokenEnvVar = "CODEX_CONNECTORS_TOKEN"
+	defaultCodexChatGPTBaseURL = "https://chatgpt.com/backend-api"
+	openAIConnectorsMCPBaseURL = "https://api.openai.com"
+	openAIConnectorsMCPPath    = "/v1/connectors/gateways/flat/mcp"
+	codexConfigName            = "config.toml"
+	codexConfigDirName         = ".codex"
+	codexAuthFileName          = "auth.json"
+	chatGPTAccountIDHeader     = "ChatGPT-Account-ID"
+	authorizationHeader        = "Authorization"
+	bearerAuthPrefix           = "Bearer "
 )
+
+type fallbackResolvedServer struct {
+	server ServerConfig
+	origin ServerOrigin
+}
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources
 // when the primary config has no servers.
@@ -91,13 +96,17 @@ func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 		return nil
 	}
 
-	fallback, err := loadFallbackServersForCWD(fallbackSourcePathsForCWD(cfg, cwd), cwd)
+	fallback, err := loadFallbackServersWithSourcesForCWD(fallbackSourcePathsForCWD(cfg, cwd), cwd)
 	if len(fallback) > 0 {
 		if cfg.Servers == nil {
 			cfg.Servers = make(map[string]ServerConfig)
 		}
-		for name, srv := range fallback {
-			cfg.Servers[name] = srv
+		if cfg.ServerOrigins == nil {
+			cfg.ServerOrigins = make(map[string]ServerOrigin)
+		}
+		for name, resolved := range fallback {
+			cfg.Servers[name] = resolved.server
+			cfg.ServerOrigins[name] = NormalizeServerOrigin(resolved.origin)
 		}
 	}
 	return err
@@ -110,7 +119,16 @@ func LoadFallbackServers() (map[string]ServerConfig, error) {
 }
 
 func loadFallbackServersForCWD(paths []string, cwd string) (map[string]ServerConfig, error) {
-	servers := make(map[string]ServerConfig)
+	resolved, err := loadFallbackServersWithSourcesForCWD(paths, cwd)
+	servers := make(map[string]ServerConfig, len(resolved))
+	for name, record := range resolved {
+		servers[name] = record.server
+	}
+	return servers, err
+}
+
+func loadFallbackServersWithSourcesForCWD(paths []string, cwd string) (map[string]fallbackResolvedServer, error) {
+	servers := make(map[string]fallbackResolvedServer)
 	var errs []error
 
 	for _, path := range paths {
@@ -127,7 +145,10 @@ func loadFallbackServersForCWD(paths []string, cwd string) (map[string]ServerCon
 			if _, exists := servers[name]; exists {
 				continue
 			}
-			servers[name] = srv
+			servers[name] = fallbackResolvedServer{
+				server: srv,
+				origin: classifyFallbackOrigin(path),
+			}
 		}
 	}
 
@@ -135,6 +156,40 @@ func loadFallbackServersForCWD(paths []string, cwd string) (map[string]ServerCon
 		return servers, errors.Join(errs...)
 	}
 	return servers, nil
+}
+
+func classifyFallbackOrigin(path string) ServerOrigin {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return NewServerOrigin(ServerOriginKindFallbackCustom, "")
+	}
+	cleanPath := filepath.Clean(path)
+	lower := strings.ToLower(cleanPath)
+	sepPath := string(os.PathSeparator)
+
+	looksLike := func(suffix string) bool {
+		return strings.HasSuffix(lower, strings.ToLower(suffix))
+	}
+	containsDir := func(dir string) bool {
+		needle := strings.ToLower(sepPath + dir + sepPath)
+		return strings.Contains(lower, needle)
+	}
+
+	switch {
+	case looksLike(filepath.Join(".cursor", "mcp.json")):
+		return NewServerOrigin(ServerOriginKindCursor, cleanPath)
+	case looksLike(filepath.Join(".codex", "config.toml")):
+		return NewServerOrigin(ServerOriginKindCodex, cleanPath)
+	case looksLike(".mcp.json") ||
+		looksLike(".claude.json") ||
+		looksLike(filepath.Join("claude", "claude_desktop_config.json")) ||
+		containsDir("saoudrizwan.claude-dev"):
+		return NewServerOrigin(ServerOriginKindClaude, cleanPath)
+	case looksLike(filepath.Join(".kiro", "settings", "mcp.json")):
+		return NewServerOrigin(ServerOriginKindKiro, cleanPath)
+	default:
+		return NewServerOrigin(ServerOriginKindFallbackCustom, cleanPath)
+	}
 }
 
 func loadFallbackSourceForCWD(path, cwd string) (map[string]ServerConfig, error) {

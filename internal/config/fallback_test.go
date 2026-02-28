@@ -103,6 +103,45 @@ func TestMergeFallbackServersUsesConfiguredSources(t *testing.T) {
 	if _, ok := cfg.Servers["custom"]; !ok {
 		t.Fatalf("cfg.Servers = %#v, want custom fallback", cfg.Servers)
 	}
+	origin, ok := cfg.ServerOrigins["custom"]
+	if !ok {
+		t.Fatalf("ServerOrigins[custom] missing")
+	}
+	if origin.Kind != ServerOriginKindFallbackCustom {
+		t.Fatalf("ServerOrigins[custom].Kind = %q, want %q", origin.Kind, ServerOriginKindFallbackCustom)
+	}
+	if origin.Path != customPath {
+		t.Fatalf("ServerOrigins[custom].Path = %q, want %q", origin.Path, customPath)
+	}
+}
+
+func TestClassifyFallbackOriginKnownPaths(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), ".cursor", "mcp.json")
+	cursorOrigin := classifyFallbackOrigin(cursorPath)
+	if cursorOrigin.Kind != ServerOriginKindCursor {
+		t.Fatalf("cursor origin kind = %q, want %q", cursorOrigin.Kind, ServerOriginKindCursor)
+	}
+	if cursorOrigin.Path != cursorPath {
+		t.Fatalf("cursor origin path = %q, want %q", cursorOrigin.Path, cursorPath)
+	}
+
+	codexPath := filepath.Join(t.TempDir(), ".codex", "config.toml")
+	codexOrigin := classifyFallbackOrigin(codexPath)
+	if codexOrigin.Kind != ServerOriginKindCodex {
+		t.Fatalf("codex origin kind = %q, want %q", codexOrigin.Kind, ServerOriginKindCodex)
+	}
+	if codexOrigin.Path != codexPath {
+		t.Fatalf("codex origin path = %q, want %q", codexOrigin.Path, codexPath)
+	}
+
+	claudeProjectPath := filepath.Join(t.TempDir(), ".mcp.json")
+	claudeProjectOrigin := classifyFallbackOrigin(claudeProjectPath)
+	if claudeProjectOrigin.Kind != ServerOriginKindClaude {
+		t.Fatalf("project .mcp.json origin kind = %q, want %q", claudeProjectOrigin.Kind, ServerOriginKindClaude)
+	}
+	if claudeProjectOrigin.Path != claudeProjectPath {
+		t.Fatalf("project .mcp.json origin path = %q, want %q", claudeProjectOrigin.Path, claudeProjectPath)
+	}
 }
 
 func TestMergeFallbackServersExplicitEmptySourcesDisablesDefaults(t *testing.T) {

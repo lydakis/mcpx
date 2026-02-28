@@ -30,6 +30,16 @@ headers = { Authorization = "Bearer ${API_TOKEN}" }
 	if got != want {
 		t.Fatalf("Authorization header = %q, want %q", got, want)
 	}
+	origin, ok := cfg.ServerOrigins["github"]
+	if !ok {
+		t.Fatalf("ServerOrigins[github] missing")
+	}
+	if origin.Kind != ServerOriginKindMCPXConfig {
+		t.Fatalf("ServerOrigins[github].Kind = %q, want %q", origin.Kind, ServerOriginKindMCPXConfig)
+	}
+	if origin.Path != path {
+		t.Fatalf("ServerOrigins[github].Path = %q, want %q", origin.Path, path)
+	}
 }
 
 func TestSaveToWritesConfigAndCreatesParentDir(t *testing.T) {

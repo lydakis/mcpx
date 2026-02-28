@@ -107,6 +107,8 @@ Auth is still managed by Codex. `mcpx` does not run OAuth flows or store third-p
 
 Normal tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
 
+Use `mcpx -v` (or `mcpx --json -v`) to include per-server `origin` metadata (config/fallback-derived `kind`; JSON also includes optional `path`).
+
 ## MCP Smoke Test Commands
 
 Use these to validate a local MCP quickly:

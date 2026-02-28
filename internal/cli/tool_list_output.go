@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"text/tabwriter"
 )
 
 type toolListEntry struct {
@@ -34,18 +35,24 @@ func decodeToolListPayload(raw []byte) ([]toolListEntry, error) {
 }
 
 func writeToolListText(w io.Writer, entries []toolListEntry) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, entry := range entries {
 		name := strings.TrimSpace(entry.Name)
 		if name == "" {
 			continue
 		}
-		line := name
 		if desc := strings.TrimSpace(entry.Description); desc != "" {
-			line += "\t" + desc
+			if _, err := fmt.Fprintf(tw, "%s\t%s\n", name, desc); err != nil {
+				return fmt.Errorf("writing tool list output: %w", err)
+			}
+			continue
 		}
-		if _, err := io.WriteString(w, line+"\n"); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s\n", name); err != nil {
 			return fmt.Errorf("writing tool list output: %w", err)
 		}
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("writing tool list output: %w", err)
 	}
 	return nil
 }

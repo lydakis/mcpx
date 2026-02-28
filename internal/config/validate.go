@@ -51,10 +51,14 @@ func cloneConfig(cfg *Config) *Config {
 	cloned := &Config{
 		FallbackSources: append([]string(nil), cfg.FallbackSources...),
 		Servers:         make(map[string]ServerConfig, len(cfg.Servers)),
+		ServerOrigins:   make(map[string]ServerOrigin, len(cfg.ServerOrigins)),
 	}
 
 	for name, srv := range cfg.Servers {
 		cloned.Servers[name] = cloneServerConfig(srv)
+	}
+	for name, origin := range cfg.ServerOrigins {
+		cloned.ServerOrigins[name] = origin
 	}
 
 	return cloned
