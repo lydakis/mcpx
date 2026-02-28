@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/daemon"
@@ -58,29 +59,25 @@ func Run(args []string) int {
 		return ipc.ExitUsageErr
 	}
 
-	// No args: list servers
-	if len(args) == 0 || (len(args) == 1 && args[0] == "--json") {
-		output := outputModeText
-		if len(args) == 1 && args[0] == "--json" {
-			output = outputModeJSON
-		}
+	inv, err := parseInvocation(args, cfg)
+	if err != nil {
+		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+		return ipc.ExitUsageErr
+	}
 
+	if inv.kind == invocationKindRootList {
 		nonce, err := spawnOrConnectFn()
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
 		client := newDaemonClient(ipc.SocketPath(), nonce)
-		return listServersFromDaemon(client, callerWorkingDirectory(), output)
+		return listServersFromDaemon(client, callerWorkingDirectory(), inv.rootList.output, inv.rootList.verbose)
 	}
 
-	server := args[0]
+	server := inv.server
+	cmd := inv.serverCmd
 
-	cmd, err := parseServerCommand(args[1:])
-	if err != nil {
-		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
-		return ipc.ExitUsageErr
-	}
 	if cmd.list && cmd.listOpts.help {
 		nonce, err := spawnOrConnectFn()
 		if err != nil {
@@ -153,7 +150,110 @@ func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, std
 	}
 }
 
-func listServersFromDaemon(client daemonRequester, cwd string, output outputMode) int {
+type rootServerListArgs struct {
+	output  outputMode
+	verbose bool
+}
+
+type invocationKind int
+
+const (
+	invocationKindRootList invocationKind = iota
+	invocationKindServer
+)
+
+type invocation struct {
+	kind     invocationKind
+	rootList rootServerListArgs
+	server   string
+	serverCmd serverCommand
+}
+
+func parseInvocation(args []string, cfg *config.Config) (invocation, error) {
+	if serverCmd, ok := parseConfiguredServerInvocation(args, cfg); ok {
+		return invocation{
+			kind:      invocationKindServer,
+			server:    args[0],
+			serverCmd: serverCmd,
+		}, nil
+	}
+
+	rootList, isRootList, err := parseRootServerListArgs(args)
+	if err != nil {
+		return invocation{}, err
+	}
+	if isRootList {
+		return invocation{
+			kind:     invocationKindRootList,
+			rootList: rootList,
+		}, nil
+	}
+
+	if len(args) == 0 {
+		return invocation{
+			kind:     invocationKindRootList,
+			rootList: rootServerListArgs{output: outputModeText},
+		}, nil
+	}
+
+	serverCmd, err := parseServerCommand(args[1:])
+	if err != nil {
+		return invocation{}, err
+	}
+	return invocation{
+		kind:      invocationKindServer,
+		server:    args[0],
+		serverCmd: serverCmd,
+	}, nil
+}
+
+func parseConfiguredServerInvocation(args []string, cfg *config.Config) (serverCommand, bool) {
+	if len(args) == 0 || cfg == nil || len(cfg.Servers) == 0 {
+		return serverCommand{}, false
+	}
+	if _, exists := cfg.Servers[args[0]]; !exists {
+		return serverCommand{}, false
+	}
+	serverCmd, err := parseServerCommand(args[1:])
+	if err != nil {
+		return serverCommand{}, false
+	}
+	return serverCmd, true
+}
+
+func parseRootServerListArgs(args []string) (rootServerListArgs, bool, error) {
+	parsed := rootServerListArgs{output: outputModeText}
+	if len(args) == 0 {
+		return parsed, true, nil
+	}
+
+	for _, arg := range args {
+		if !isRootServerListFlag(arg) {
+			// Preserve command contract: if any token is not a root-list flag,
+			// treat argv[0] as a server name instead of claiming root-list mode.
+			return rootServerListArgs{}, false, nil
+		}
+		switch arg {
+		case "--json":
+			parsed.output = outputModeJSON
+		case "-v", "--verbose":
+			parsed.verbose = true
+		}
+	}
+
+	return parsed, true, nil
+}
+
+func isRootServerListFlag(arg string) bool {
+	switch arg {
+	case "-v", "--verbose", "--json":
+		return true
+	default:
+		return false
+	}
+}
+
+func listServersFromDaemon(client daemonRequester, cwd string, output outputMode, verbose bool) int {
 	resp, err := client.Send(&ipc.Request{
 		Type: "list_servers",
 		CWD:  cwd,
@@ -169,23 +269,58 @@ func listServersFromDaemon(client daemonRequester, cwd string, output outputMode
 		return resp.ExitCode
 	}
 
-	names := decodeServerListPayload(resp.Content)
+	entries := decodeServerListEntries(resp.Content)
 
 	if output.isJSON() {
-		if err := writeJSONLine(rootStdout, names); err != nil {
+		if !verbose {
+			names := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				names = append(names, entry.Name)
+			}
+			if err := writeJSONLine(rootStdout, names); err != nil {
+				fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+				return ipc.ExitInternal
+			}
+			return ipc.ExitOK
+		}
+
+		if err := writeJSONLine(rootStdout, entries); err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 			return ipc.ExitInternal
 		}
 		return ipc.ExitOK
 	}
 
-	if len(names) == 0 {
+	if len(entries) == 0 {
 		fmt.Fprintln(rootStdout, "No MCP servers configured.")
 		fmt.Fprintf(rootStdout, "Create a config file at %s\n", config.ExampleConfigPath())
 		return ipc.ExitOK
 	}
-	for _, name := range names {
-		fmt.Fprintln(rootStdout, name)
+	for _, entry := range entries {
+		if !verbose {
+			fmt.Fprintln(rootStdout, entry.Name)
+			continue
+		}
+	}
+	if !verbose {
+		return resp.ExitCode
+	}
+
+	tw := tabwriter.NewWriter(rootStdout, 0, 0, 2, ' ', 0)
+	for _, entry := range entries {
+		origin := config.NormalizeServerOrigin(entry.Origin)
+		source := strings.TrimSpace(string(origin.Kind))
+		if source == "" {
+			source = "-"
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\n", entry.Name, source); err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: writing server list output: %v\n", err)
+			return ipc.ExitInternal
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		fmt.Fprintf(rootStderr, "mcpx: writing server list output: %v\n", err)
+		return ipc.ExitInternal
 	}
 	return resp.ExitCode
 }
@@ -339,13 +474,55 @@ func writePayload(w io.Writer, label string, payload []byte) error {
 }
 
 func decodeServerListPayload(payload []byte) []string {
+	entries := decodeServerListEntries(payload)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.Name)
+	}
+	return out
+}
+
+type serverListEntry struct {
+	Name   string              `json:"name"`
+	Origin config.ServerOrigin `json:"origin"`
+}
+
+func decodeServerListEntries(payload []byte) []serverListEntry {
 	if len(payload) == 0 {
 		return nil
 	}
 
+	var entries []serverListEntry
+	if err := json.Unmarshal(payload, &entries); err == nil {
+		seen := make(map[string]struct{}, len(entries))
+		out := make([]serverListEntry, 0, len(entries))
+		for _, entry := range entries {
+			name := strings.TrimSpace(entry.Name)
+			if name == "" {
+				continue
+			}
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, serverListEntry{
+				Name:   name,
+				Origin: config.NormalizeServerOrigin(entry.Origin),
+			})
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].Name < out[j].Name
+		})
+		return out
+	}
+
 	lines := strings.Split(string(payload), "\n")
 	seen := make(map[string]struct{}, len(lines))
-	out := make([]string, 0, len(lines))
+	out := make([]serverListEntry, 0, len(lines))
 	for _, line := range lines {
 		name := strings.TrimSpace(line)
 		if name == "" {
@@ -355,9 +532,14 @@ func decodeServerListPayload(payload []byte) []string {
 			continue
 		}
 		seen[name] = struct{}{}
-		out = append(out, name)
+		out = append(out, serverListEntry{
+			Name:   name,
+			Origin: config.NormalizeServerOrigin(config.ServerOrigin{}),
+		})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 
