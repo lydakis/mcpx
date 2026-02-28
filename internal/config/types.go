@@ -4,6 +4,49 @@ package config
 type Config struct {
 	Servers         map[string]ServerConfig `toml:"servers"`
 	FallbackSources []string                `toml:"fallback_sources"`
+	// ServerOrigins records where each server entry came from at runtime.
+	// It is runtime metadata only and is not persisted to config.toml.
+	ServerOrigins map[string]ServerOrigin `toml:"-" json:"-"`
+}
+
+type ServerOriginKind string
+
+const (
+	ServerOriginKindCodexApps      ServerOriginKind = "codex_apps"
+	ServerOriginKindMCPXConfig     ServerOriginKind = "mcpx_config"
+	ServerOriginKindCursor         ServerOriginKind = "cursor"
+	ServerOriginKindCodex          ServerOriginKind = "codex"
+	ServerOriginKindClaude         ServerOriginKind = "claude"
+	ServerOriginKindKiro           ServerOriginKind = "kiro"
+	ServerOriginKindFallbackCustom ServerOriginKind = "fallback_custom"
+)
+
+// ServerOrigin describes the source of a resolved server entry.
+type ServerOrigin struct {
+	Kind ServerOriginKind `json:"kind"`
+	Path string           `json:"path,omitempty"`
+}
+
+func NewServerOrigin(kind ServerOriginKind, path string) ServerOrigin {
+	normalizedKind := kind
+	if normalizedKind == "" {
+		normalizedKind = ServerOriginKindFallbackCustom
+	}
+	return ServerOrigin{
+		Kind: normalizedKind,
+		Path: path,
+	}
+}
+
+func NormalizeServerOrigin(origin ServerOrigin) ServerOrigin {
+	kind := origin.Kind
+	if kind == "" {
+		kind = ServerOriginKindFallbackCustom
+	}
+	return ServerOrigin{
+		Kind: kind,
+		Path: origin.Path,
+	}
 }
 
 // ServerConfig describes how to connect to a single MCP server.
