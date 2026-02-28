@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -302,6 +303,83 @@ args = ["old"]
 	}
 }
 
+func TestRunAddAppliesHeaderOverrides(t *testing.T) {
+	tmp := t.TempDir()
+	configHome := filepath.Join(tmp, "xdg-config")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", tmp)
+
+	raw := `{"url":"https://mcp.devin.ai/mcp"}`
+	source := "cursor://anysphere.cursor-deeplink/mcp/install?name=deepwiki&config=" + base64.StdEncoding.EncodeToString([]byte(raw))
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	code := Run([]string{"add", source, "--header", "Authorization=Bearer ${DEEPWIKI_API_KEY}"})
+	if code != ipc.ExitOK {
+		t.Fatalf("Run([add install-link --header]) = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+
+	cfgPath := filepath.Join(configHome, "mcpx", "config.toml")
+	edited, err := config.LoadForEditFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadForEditFrom(saved config) error = %v", err)
+	}
+	if edited.Servers["deepwiki"].Headers["Authorization"] != "Bearer ${DEEPWIKI_API_KEY}" {
+		t.Fatalf("saved headers = %#v, want Authorization header", edited.Servers["deepwiki"].Headers)
+	}
+}
+
+func TestRunAddAppliesHeaderOverridesCaseInsensitively(t *testing.T) {
+	tmp := t.TempDir()
+	configHome := filepath.Join(tmp, "xdg-config")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", tmp)
+
+	raw := `{"url":"https://mcp.devin.ai/mcp","headers":{"authorization":"Bearer old-token"}}`
+	source := "cursor://anysphere.cursor-deeplink/mcp/install?name=deepwiki&config=" + base64.StdEncoding.EncodeToString([]byte(raw))
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	code := Run([]string{"add", source, "--header", "Authorization=Bearer ${DEEPWIKI_API_KEY}"})
+	if code != ipc.ExitOK {
+		t.Fatalf("Run([add install-link --header]) = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+
+	cfgPath := filepath.Join(configHome, "mcpx", "config.toml")
+	edited, err := config.LoadForEditFrom(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadForEditFrom(saved config) error = %v", err)
+	}
+	headers := edited.Servers["deepwiki"].Headers
+	if len(headers) != 1 {
+		t.Fatalf("saved headers len = %d, want 1 (headers=%#v)", len(headers), headers)
+	}
+	if headers["Authorization"] != "Bearer ${DEEPWIKI_API_KEY}" {
+		t.Fatalf("saved headers = %#v, want Authorization override", headers)
+	}
+	if _, ok := headers["authorization"]; ok {
+		t.Fatalf("saved headers = %#v, want lowercase authorization removed", headers)
+	}
+}
+
 func TestClassifyResolveErrorExitCodeReturnsInternalForSourceAccessErrors(t *testing.T) {
 	_, err := bootstrap.Resolve(context.Background(), "manifest.json", bootstrap.ResolveOptions{
 		ReadFile: func(string) ([]byte, error) {
@@ -348,6 +426,49 @@ func TestParseAddArgsRejectsMissingNameValue(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "missing value for --name") {
 			t.Fatalf("parseAddArgs(%v) error = %q, want missing --name value message", args, err.Error())
+		}
+	}
+}
+
+func TestParseAddArgsParsesHeaderFlags(t *testing.T) {
+	parsed, err := parseAddArgs([]string{
+		"https://mcp.deepwiki.com/mcp",
+		"--header", "Authorization=Bearer token",
+		"--header=X-Trace-ID=abc123",
+	})
+	if err != nil {
+		t.Fatalf("parseAddArgs() error = %v", err)
+	}
+	if parsed.source != "https://mcp.deepwiki.com/mcp" {
+		t.Fatalf("parsed.source = %q, want source URL", parsed.source)
+	}
+	if len(parsed.headers) != 2 {
+		t.Fatalf("len(parsed.headers) = %d, want 2", len(parsed.headers))
+	}
+	if parsed.headers[0].name != "Authorization" || parsed.headers[0].value != "Bearer token" {
+		t.Fatalf("parsed.headers[0] = %#v, want Authorization header", parsed.headers[0])
+	}
+	if parsed.headers[1].name != "X-Trace-ID" || parsed.headers[1].value != "abc123" {
+		t.Fatalf("parsed.headers[1] = %#v, want X-Trace-ID header", parsed.headers[1])
+	}
+}
+
+func TestParseAddArgsRejectsInvalidHeaderFlag(t *testing.T) {
+	tests := [][]string{
+		{"https://mcp.deepwiki.com/mcp", "--header"},
+		{"https://mcp.deepwiki.com/mcp", "--header", ""},
+		{"https://mcp.deepwiki.com/mcp", "--header", "Authorization"},
+		{"https://mcp.deepwiki.com/mcp", "--header", "=Bearer token"},
+		{"https://mcp.deepwiki.com/mcp", "--header="},
+	}
+
+	for _, args := range tests {
+		_, err := parseAddArgs(args)
+		if err == nil {
+			t.Fatalf("parseAddArgs(%v) error = nil, want non-nil", args)
+		}
+		if !strings.Contains(err.Error(), "invalid --header") {
+			t.Fatalf("parseAddArgs(%v) error = %q, want invalid --header message", args, err.Error())
 		}
 	}
 }

@@ -53,7 +53,7 @@ _mcpx_completion() {
   fi
 
   if [[ "$first" == "add" ]] && ! _mcpx_has_add_server; then
-    COMPREPLY=( $(compgen -W "--name --overwrite --help -h" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--name --header --overwrite --help -h" -- "$cur") )
     return 0
   fi
 
@@ -124,7 +124,7 @@ _mcpx_completion() {
   fi
 
   if [[ "${words[2]}" == "add" ]] && ! _mcpx_has_add_server; then
-    flags=(--name --overwrite --help -h)
+    flags=(--name --header --overwrite --help -h)
     _describe 'add flag' flags
     return
   fi
@@ -191,7 +191,7 @@ complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_add_server' -a "add"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill_server' -a "skill"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --overwrite --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --header --overwrite --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"

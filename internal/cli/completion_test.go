@@ -30,7 +30,7 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("bash completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("--name --overwrite --help -h")) {
+	if !bytes.Contains(out.Bytes(), []byte("--name --header --overwrite --help -h")) {
 		t.Fatalf("bash completion missing add flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_skill_server()")) {
@@ -111,7 +111,7 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("zsh completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("flags=(--name --overwrite --help -h)")) {
+	if !bytes.Contains(out.Bytes(), []byte("flags=(--name --header --overwrite --help -h)")) {
 		t.Fatalf("zsh completion missing add flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
@@ -145,7 +145,7 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = add; and not __mcpx_has_add_server")) {
 		t.Fatalf("fish completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("--name --overwrite --help -h")) {
+	if !bytes.Contains(out.Bytes(), []byte("--name --header --overwrite --help -h")) {
 		t.Fatalf("fish completion missing add flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" != add; or __mcpx_has_add_server")) {

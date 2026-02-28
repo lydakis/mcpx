@@ -77,7 +77,7 @@ This plan is derived from the current scaffold audit versus `docs/design.md`.
 
 ### Phase 8 Execution Log (Now)
 - Contract lock (`mcpx add` v1):
-  - accepted inputs: install-link URL, manifest URL, local manifest file
+  - accepted inputs: install-link URL, manifest URL, direct MCP endpoint URL, local manifest file
   - out of scope: slug-only lookup, registry dependency, package/runtime installation.
 - Parser + normalization:
   - parse install-link payloads and manifest payloads into one normalized internal shape
@@ -148,7 +148,8 @@ After first release, optimize for adoption without breaking the command surface:
 - Define `mcpx add` as source-based bootstrap for servers not yet configured locally.
 - Support explicit remote sources (no registry required in v1):
   - install links (Cursor-style deeplink/web install URLs)
-  - direct manifest URLs (JSON/TOML payloads with MCP transport config).
+  - direct manifest URLs (JSON/TOML payloads with MCP transport config)
+  - direct MCP endpoint URLs (`https://.../mcp`) when no manifest is provided.
 - Parse/validate remote payload and write normalized server entry to `config.toml`.
 - Keep execution model unchanged:
   - `mcpx` still runs configured commands/URLs

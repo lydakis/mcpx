@@ -8,13 +8,20 @@ import (
 
 	"github.com/lydakis/mcpx/internal/bootstrap"
 	"github.com/lydakis/mcpx/internal/config"
+	"github.com/lydakis/mcpx/internal/httpheaders"
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/paths"
 )
 
+type headerArg struct {
+	name  string
+	value string
+}
+
 type addArgs struct {
 	source    string
 	name      string
+	headers   []headerArg
 	overwrite bool
 	help      bool
 }
@@ -51,6 +58,15 @@ func runAddCommand(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "mcpx: add: %v\n", err)
 		return classifyResolveErrorExitCode(err)
+	}
+	if len(parsed.headers) > 0 {
+		if strings.TrimSpace(resolved.Server.URL) == "" {
+			fmt.Fprintln(stderr, "mcpx: add: --header can only be used with URL-based servers")
+			return ipc.ExitUsageErr
+		}
+		for _, header := range parsed.headers {
+			resolved.Server.Headers = httpheaders.Set(resolved.Server.Headers, header.name, header.value)
+		}
 	}
 
 	cfgPath := paths.ConfigFile()
@@ -109,6 +125,18 @@ func parseAddArgs(args []string) (*addArgs, error) {
 			parsed.help = true
 		case arg == "--overwrite":
 			parsed.overwrite = true
+		case strings.HasPrefix(arg, "--header="):
+			if err := parsed.addHeader(strings.TrimSpace(strings.TrimPrefix(arg, "--header="))); err != nil {
+				return nil, err
+			}
+		case arg == "--header":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("invalid --header: missing KEY=VALUE")
+			}
+			i++
+			if err := parsed.addHeader(strings.TrimSpace(args[i])); err != nil {
+				return nil, err
+			}
 		case strings.HasPrefix(arg, "--name="):
 			value := strings.TrimSpace(strings.TrimPrefix(arg, "--name="))
 			if value == "" {
@@ -145,17 +173,48 @@ func parseAddArgs(args []string) (*addArgs, error) {
 	return parsed, nil
 }
 
+func (a *addArgs) addHeader(raw string) error {
+	name, value, err := parseHeader(raw)
+	if err != nil {
+		return err
+	}
+	a.headers = append(a.headers, headerArg{name: name, value: value})
+	return nil
+}
+
+func parseHeader(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", fmt.Errorf("invalid --header: missing KEY=VALUE")
+	}
+
+	idx := strings.Index(raw, "=")
+	if idx <= 0 || idx == len(raw)-1 {
+		return "", "", fmt.Errorf("invalid --header: expected KEY=VALUE")
+	}
+
+	name := strings.TrimSpace(raw[:idx])
+	value := strings.TrimSpace(raw[idx+1:])
+	if name == "" || value == "" {
+		return "", "", fmt.Errorf("invalid --header: expected KEY=VALUE")
+	}
+	return name, value, nil
+}
+
 func printAddHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--overwrite]")
+	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--overwrite]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Sources:")
 	fmt.Fprintln(out, "  - install-link URL (for example cursor://.../mcp/install?... )")
 	fmt.Fprintln(out, "  - manifest URL (http/https)")
+	fmt.Fprintln(out, "  - direct MCP endpoint URL (for example https://example.com/mcp)")
 	fmt.Fprintln(out, "  - local manifest file path (JSON or TOML)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Flags:")
 	fmt.Fprintln(out, "  --name <server>   Select or rename the server entry to add.")
+	fmt.Fprintln(out, "  --header KEY=VALUE")
+	fmt.Fprintln(out, "                    Set or override HTTP headers on URL-based servers.")
 	fmt.Fprintln(out, "  --overwrite       Replace existing server entry in mcpx config.")
 	fmt.Fprintln(out, "  --help, -h        Show this help output.")
 }

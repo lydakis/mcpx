@@ -51,7 +51,7 @@ mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> --help --json  # raw schema payload JSON
 mcpx <server> <tool> ...     # call tool
-mcpx add <source>            # add server config from install link/manifest
+mcpx add <source>            # add server config from install link/manifest/endpoint URL
 mcpx skill install           # install built-in mcpx skill for agents
 ```
 
@@ -95,13 +95,23 @@ Bootstrap server config entries into `~/.config/mcpx/config.toml` from:
 
 - install-link URLs (for example Cursor-style `.../mcp/install?name=...&config=...`)
 - manifest URLs (`https://...`)
+- direct MCP endpoint URLs (`https://.../mcp`)
 - local manifest files (`.json` or `.toml`)
+
+`mcpx add` accepts common MCP config dialects in manifests:
+
+- `transport` as string, object, or array
+- `type` as a transport alias
+- HTTP headers via `headers` or `requestInit.headers`
+- stdio commands as either `command` string + `args` array or `command` array
 
 Examples:
 
 ```bash
 mcpx add "cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=..."
 mcpx add https://example.com/mcp-manifest.json
+mcpx add https://mcp.deepwiki.com/mcp
+mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx add ./mcp-manifest.toml
 mcpx add ./mcp-manifest.json --name github-enterprise
 mcpx add ./mcp-manifest.json --overwrite
@@ -111,6 +121,7 @@ Notes:
 
 - `mcpx add` writes only to mcpx config; it does not install runtimes/packages.
 - Existing entries require explicit `--overwrite`.
+- `--header KEY=VALUE` can be repeated and is applied only to URL-based servers.
 
 ## Shell Completions
 

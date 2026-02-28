@@ -31,6 +31,11 @@ mcpx <server> <tool> '{"param": "value"}'
 mcpx <server> <tool> --param=value | jq '.items[:5]'
 mcpx <server> <tool> --param=value | grep "pattern"
 mcpx <server> <tool> --param=value | head -20
+
+# Optional setup: bootstrap a server config entry
+mcpx add https://example.com/mcp-manifest.json
+mcpx add https://mcp.deepwiki.com/mcp
+mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 ```
 
 ## Tool Names

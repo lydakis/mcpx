@@ -14,7 +14,7 @@ Tool names are used exactly as exposed by each server (no client-side renaming/a
 
 Utility commands:
 
-- `mcpx add <source> [--name <server>] [--overwrite]` bootstraps a server config from an install link, manifest URL, or local manifest file
+- `mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--overwrite]` bootstraps a server config from an install link, manifest URL, direct MCP endpoint URL, or local manifest file
 - `mcpx completion <bash|zsh|fish>` prints shell completion scripts
 - `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code (optional flags also link for Codex/Kiro)
 
@@ -84,6 +84,8 @@ mcpx github search-repositories --help
 mcpx github search-repositories --help --json
 mcpx github search-repositories --query=mcp
 mcpx add "cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=..."
+mcpx add https://mcp.deepwiki.com/mcp
+mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer \${DEEPWIKI_API_KEY}"
 mcpx skill install
 ```
 

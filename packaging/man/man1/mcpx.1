@@ -6,7 +6,7 @@ mcpx \- MCP tools as Unix commands
 \fBmcpx -v\fR
 \fBmcpx --json\fR
 \fBmcpx --json -v\fR
-\fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--overwrite\fR]
+\fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--overwrite\fR]
 \fBmcpx\fR \fIserver\fR [\fIFLAGS\fR]
 \fBmcpx\fR \fIserver\fR \fItool\fR [\fIFLAGS\fR]
 .SH DESCRIPTION
@@ -18,6 +18,17 @@ By default, mcpx writes content to stdout and diagnostics to stderr.
 Emits mcpx-owned outputs as JSON for:
 mcpx, mcpx <server>, and mcpx <server> <tool> --help.
 Normal tool-call output is not transformed.
+.SH ADD
+\fBmcpx add\fR accepts install-link URLs, manifest URLs/files, and direct MCP endpoint URLs.
+.TP
+\fB--name\fR \fIserver\fR
+Select or rename the server entry to add.
+.TP
+\fB--header\fR \fIKEY=VALUE\fR
+Set or override HTTP headers for URL-based servers (repeatable).
+.TP
+\fB--overwrite\fR
+Replace an existing server entry in mcpx config.
 .SH EXIT STATUS
 0 success
 1 tool error (tool returned isError)
@@ -30,6 +41,8 @@ mcpx -v
 mcpx --json
 mcpx --json -v
 mcpx add https://example.com/mcp-manifest.json
+mcpx add https://mcp.deepwiki.com/mcp
+mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx <server>
 mcpx <server> --json
 mcpx <server> <tool> --help
