@@ -105,6 +105,35 @@ mcpx linear <tool> ...
 
 Auth is still managed by Codex. `mcpx` does not run OAuth flows or store third-party app credentials.
 
+## Shim Install: Make MCP Servers Feel Native (Optional)
+
+If you want to call a configured MCP server like a normal CLI command, install a shim:
+
+```bash
+mcpx shim install github
+```
+
+Then call tools without the `mcpx <server>` prefix:
+
+```bash
+github search-repositories --query=mcp
+github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
+```
+
+Manage shims:
+
+```bash
+mcpx shim list
+mcpx shim remove github
+```
+
+Notes:
+
+- Shims are pass-through wrappers only (`<server> ...` -> `mcpx <server> ...`).
+- They do not install MCP servers or runtimes.
+- Default install directory is `$XDG_BIN_HOME` (if set) or `~/.local/bin`; ensure that directory is in your `PATH`.
+- Installs are collision-safe: `mcpx shim install <server>` fails if that command name already resolves elsewhere in `PATH`.
+
 `--json` applies only to mcpx-owned output surfaces:
 
 - `mcpx`
