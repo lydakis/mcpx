@@ -64,7 +64,17 @@ Windows users: use WSL2 and run install commands inside your Linux distro shell.
 
 ## Quick Start
 
-Create `~/.config/mcpx/config.toml`:
+If you already use MCP in Cursor/Claude Code/Cline/Codex/Kiro, `mcpx` will auto-discover those server configs. Start with:
+
+```bash
+mcpx
+mcpx <server>
+mcpx <server> <tool> --help
+```
+
+When Codex Apps are enabled in local Codex config and authenticated, `mcpx` also exposes connected apps as MCP servers.
+
+If `mcpx` shows no servers, create `~/.config/mcpx/config.toml`:
 
 ```toml
 [servers.github]
