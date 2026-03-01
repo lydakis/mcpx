@@ -50,6 +50,12 @@ func TestMaybeHandleShimCommandInstallRejectsUnknownServer(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("PATH", tmp)
 
+	oldKnownServersFn := shimKnownServersFn
+	defer func() { shimKnownServersFn = oldKnownServersFn }()
+	shimKnownServersFn = func() ([]string, error) {
+		return []string{"known-server"}, nil
+	}
+
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -70,6 +76,35 @@ func TestMaybeHandleShimCommandInstallRejectsUnknownServer(t *testing.T) {
 	shimPath := filepath.Join(tmp, "does-not-exist")
 	if _, err := os.Stat(shimPath); !os.IsNotExist(err) {
 		t.Fatalf("shim file %q should not exist, stat err=%v", shimPath, err)
+	}
+}
+
+func TestMaybeHandleShimCommandInstallAllowsDiscoveredVirtualServer(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp)
+
+	oldKnownServersFn := shimKnownServersFn
+	defer func() { shimKnownServersFn = oldKnownServersFn }()
+	shimKnownServersFn = func() ([]string, error) {
+		return []string{"gmail", "linear"}, nil
+	}
+
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"codex_apps": {}}}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	handled, code := maybeHandleShimCommand([]string{"shim", "install", "gmail", "--dir", tmp}, cfg, &out, &errOut)
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if code != ipc.ExitOK {
+		t.Fatalf("code = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+	if !strings.Contains(out.String(), `Installed shim "gmail"`) {
+		t.Fatalf("stdout = %q, want install confirmation", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
 	}
 }
 

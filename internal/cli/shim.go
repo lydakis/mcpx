@@ -29,6 +29,8 @@ type shimListArgs struct {
 	help bool
 }
 
+var shimKnownServersFn = listShimKnownServers
+
 func maybeHandleShimCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
 	if len(args) == 0 || args[0] != "shim" {
 		return false, 0
@@ -78,7 +80,8 @@ func runShimInstallCommand(args []string, cfg *config.Config, stdout, stderr io.
 		return ipc.ExitOK
 	}
 	if cfg != nil {
-		if _, ok := cfg.Servers[parsed.server]; !ok {
+		ok, err := shimServerKnown(parsed.server, cfg)
+		if err == nil && !ok {
 			fmt.Fprintf(stderr, "mcpx: shim: unknown server: %q\n", parsed.server)
 			return ipc.ExitUsageErr
 		}
@@ -304,4 +307,43 @@ func printShimListHelp(out io.Writer) {
 	fmt.Fprintln(out, "List flags:")
 	fmt.Fprintf(out, "  --dir <path>  Install directory (default: %s)\n", shim.DefaultDir())
 	fmt.Fprintln(out, "  --help, -h    Show list help.")
+}
+
+func shimServerKnown(server string, cfg *config.Config) (bool, error) {
+	if cfg == nil {
+		return true, nil
+	}
+	if _, ok := cfg.Servers[server]; ok {
+		return true, nil
+	}
+
+	known, err := shimKnownServersFn()
+	if err != nil {
+		// Degrade gracefully if server discovery is unavailable; install still works
+		// as a pure pass-through wrapper.
+		return true, nil
+	}
+	return containsServerName(known, server), nil
+}
+
+func listShimKnownServers() ([]string, error) {
+	nonce, err := spawnOrConnectFn()
+	if err != nil {
+		return nil, err
+	}
+	client := newDaemonClient(ipc.SocketPath(), nonce)
+	resp, err := client.Send(&ipc.Request{
+		Type: "list_servers",
+		CWD:  callerWorkingDirectory(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		if resp.Stderr != "" {
+			return nil, errors.New(resp.Stderr)
+		}
+		return nil, fmt.Errorf("listing servers failed (exit %d)", resp.ExitCode)
+	}
+	return decodeServerListPayload(resp.Content), nil
 }
