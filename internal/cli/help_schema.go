@@ -264,11 +264,12 @@ func toolExamples(server, tool string, inputSchema map[string]any) []string {
 		rawJSON = []byte("{}")
 	}
 	jsonLiteral := string(rawJSON)
+	quotedJSON := shellSingleQuote(jsonLiteral)
 
 	return []string{
 		flagExample,
-		fmt.Sprintf("%s '%s'", command, jsonLiteral),
-		fmt.Sprintf("echo '%s' | %s", jsonLiteral, command),
+		fmt.Sprintf("%s %s", command, quotedJSON),
+		fmt.Sprintf("printf '%%s\\n' %s | %s", quotedJSON, command),
 	}
 }
 
@@ -346,7 +347,7 @@ func sampleFlagTokens(schema map[string]any, args map[string]any) []string {
 			if err != nil {
 				continue
 			}
-			tokens = append(tokens, fmt.Sprintf("%s='%s'", baseFlag, string(raw)))
+			tokens = append(tokens, fmt.Sprintf("%s=%s", baseFlag, shellSingleQuote(string(raw))))
 		default:
 			tokens = append(tokens, fmt.Sprintf("%s=%s", baseFlag, sampleLiteral(value)))
 		}
@@ -413,4 +414,8 @@ func sampleLiteral(value any) string {
 	default:
 		return fmt.Sprint(v)
 	}
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }

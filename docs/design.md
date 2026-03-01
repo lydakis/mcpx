@@ -4,17 +4,18 @@
 
 `mcpx` is a single binary that turns MCP servers into composable shell commands. It exists because many agent workflows are shell-first: they can pipe, filter, truncate, and only pull what they need into context.
 
-There are existing tools in this space (`philschmid/mcp-cli`, `apify/mcpc`, `f/mcptools`). `mcpx` is not a feature-rich alternative. It's a sharper knife — it packages a specific set of Unix-native choices together that none of them combine.
+There are existing tools in this space (`philschmid/mcp-cli`, `apify/mcpc`, `f/mcptools`, `steipete/mcporter`). `mcpx` is not a feature-rich alternative. It's a sharper knife — it packages a specific set of Unix-native choices together that none of them combine.
 
 ## Prior Art
 
 | Tool | What it does well | Where mcpx differs |
 |------|------------------|-------------------|
 | `mcp-cli` (philschmid) | Discover → inspect → call, connection pooling daemon, skill integration | No output schema in --help, no error code normalization, no native flag translation, no MCP response unwrapping |
+| `mcporter` (steipete) | TypeScript runtime + CLI + code generation (`generate-cli`, `emit-ts`), OAuth/auth ergonomics, ad-hoc endpoint flows | Broader SDK/toolkit scope; mcpx stays intentionally narrow for direct agent CLI use: strict Unix command contract, shell-native behavior, and low per-call overhead in tight loops |
 | `mcpc` (apify) | Sessions, OAuth 2.1, proxy mode, tool detail display | Feature-rich by design — different goal than Unix-philosophy sharp knife |
 | `mcptools` (fka) | Interactive shell, proxy mode, call tools | Similar gaps to mcp-cli for agent-optimized usage |
 
-All of them solve "call MCP from CLI." mcpx packages a specific set of choices — native output passthrough, MCP response unwrapping, explicit error codes, and native Unix flag translation — into a conversion layer that behaves like a real Unix command surface.
+All of them solve "call MCP from CLI" (some also ship SDK/codegen layers). mcpx packages a specific set of choices — native output passthrough, MCP response unwrapping, explicit error codes, and native Unix flag translation — into a conversion layer that behaves like a real Unix command surface.
 
 ## The Four Fundamentals
 

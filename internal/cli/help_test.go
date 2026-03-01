@@ -275,3 +275,32 @@ func TestToolExamplesUseToolPrefixForReservedFlags(t *testing.T) {
 		t.Fatalf("expected reserved flag to use --tool- prefix, got %q", examples[0])
 	}
 }
+
+func TestToolExamplesEscapeSingleQuotesInJSONLiterals(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{
+				"type":    "string",
+				"default": "O'Hara",
+			},
+		},
+		"required": []any{"query"},
+	}
+
+	examples := toolExamples("github", "search-repositories", input)
+	if len(examples) < 3 {
+		t.Fatalf("expected at least 3 examples, got %d", len(examples))
+	}
+
+	expectedQuoted := `'{"query":"O'"'"'Hara"}'`
+	if !bytes.Contains([]byte(examples[1]), []byte(expectedQuoted)) {
+		t.Fatalf("expected positional json example to escape single quotes, got %q", examples[1])
+	}
+	if !bytes.Contains([]byte(examples[2]), []byte("printf '%s\\n'")) {
+		t.Fatalf("expected pipe example to use printf, got %q", examples[2])
+	}
+	if !bytes.Contains([]byte(examples[2]), []byte(expectedQuoted)) {
+		t.Fatalf("expected pipe json example to escape single quotes, got %q", examples[2])
+	}
+}
