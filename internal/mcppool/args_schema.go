@@ -26,6 +26,17 @@ func compileToolArgs(raw map[string]any, schemaRaw json.RawMessage) (map[string]
 		return raw, nil
 	}
 
+	return compileToolArgsAgainstSchema(raw, schema)
+}
+
+func compileToolArgsAgainstSchema(raw map[string]any, schema map[string]any) (map[string]any, error) {
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	if len(schema) == 0 {
+		return raw, nil
+	}
+
 	typ := schemaType(schema)
 	if typ != "" && typ != "object" {
 		return nil, invalidParamsError("tool input schema must be object, got %q", typ)

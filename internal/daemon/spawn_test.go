@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/paths"
 )
 
@@ -241,5 +243,48 @@ func TestSpawnOrConnectSpawnsDaemonWhenMissing(t *testing.T) {
 	}
 	if !spawned.Load() {
 		t.Fatal("spawnDaemon was not called for missing daemon state")
+	}
+}
+
+func TestValidateDaemonNonceUsesPingRequest(t *testing.T) {
+	runtimeDir, err := os.MkdirTemp("/tmp", "mcpxrt-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime): %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+
+	const nonce = "test-nonce"
+	reqTypeCh := make(chan string, 1)
+
+	srv := ipc.NewServer(paths.SocketPath(), nonce, func(_ context.Context, req *ipc.Request) *ipc.Response {
+		if req != nil {
+			reqTypeCh <- req.Type
+		}
+		return &ipc.Response{ExitCode: ipc.ExitOK}
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("server start: %v", err)
+	}
+	defer srv.Stop()
+
+	valid, err := validateDaemonNonce(nonce)
+	if err != nil {
+		t.Fatalf("validateDaemonNonce() error = %v", err)
+	}
+	if !valid {
+		t.Fatal("validateDaemonNonce() = false, want true")
+	}
+
+	select {
+	case reqType := <-reqTypeCh:
+		if reqType != "ping" {
+			t.Fatalf("validateDaemonNonce() request type = %q, want %q", reqType, "ping")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("server did not receive nonce validation request")
 	}
 }

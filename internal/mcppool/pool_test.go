@@ -213,6 +213,146 @@ func TestToolInfoByNameReusesCachedToolIndex(t *testing.T) {
 	}
 }
 
+func TestListToolsReusesCachedToolIndex(t *testing.T) {
+	listCalls := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			return []mcp.Tool{
+				{
+					Name:           "search",
+					RawInputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+					RawOutputSchema: json.RawMessage(
+						`{"type":"object","properties":{"items":{"type":"array"}}}`,
+					),
+				},
+				{Name: "list"},
+			}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	first, err := p.ListTools(context.Background(), "github")
+	if err != nil {
+		t.Fatalf("ListTools(first) error = %v", err)
+	}
+	if len(first) != 2 {
+		t.Fatalf("len(first) = %d, want 2", len(first))
+	}
+
+	// Ensure callers cannot mutate cached state via returned slices.
+	first[0].Name = "mutated"
+	first[0].InputSchema[0] = 'X'
+	first[0].OutputSchema[0] = 'Y'
+
+	second, err := p.ListTools(context.Background(), "github")
+	if err != nil {
+		t.Fatalf("ListTools(second) error = %v", err)
+	}
+	if len(second) != 2 {
+		t.Fatalf("len(second) = %d, want 2", len(second))
+	}
+	if second[0].Name == "mutated" {
+		t.Fatal("ListTools(second) returned mutated cached tool data")
+	}
+	if len(second[0].InputSchema) == 0 || second[0].InputSchema[0] == 'X' {
+		t.Fatal("ListTools(second) returned mutated cached input schema")
+	}
+	if len(second[0].OutputSchema) == 0 || second[0].OutputSchema[0] == 'Y' {
+		t.Fatal("ListTools(second) returned mutated cached output schema")
+	}
+	if listCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listCalls)
+	}
+}
+
+func TestListToolsFiltersUnnamedToolsConsistently(t *testing.T) {
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{
+				{Name: ""},
+				{Name: "search"},
+			}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	first, err := p.ListTools(context.Background(), "github")
+	if err != nil {
+		t.Fatalf("ListTools(first) error = %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("len(first) = %d, want 1", len(first))
+	}
+	if first[0].Name != "search" {
+		t.Fatalf("first tool = %q, want %q", first[0].Name, "search")
+	}
+
+	second, err := p.ListTools(context.Background(), "github")
+	if err != nil {
+		t.Fatalf("ListTools(second) error = %v", err)
+	}
+	if len(second) != 1 {
+		t.Fatalf("len(second) = %d, want 1", len(second))
+	}
+	if second[0].Name != "search" {
+		t.Fatalf("second tool = %q, want %q", second[0].Name, "search")
+	}
+}
+
+func TestListToolsConcurrentColdCacheListsOnce(t *testing.T) {
+	var listCalls int32
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			atomic.AddInt32(&listCalls, 1)
+			time.Sleep(30 * time.Millisecond)
+			return []mcp.Tool{{Name: "search"}}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	const workers = 6
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := p.ListTools(context.Background(), "github")
+			errs <- err
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ListTools() error = %v", err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&listCalls); got != 1 {
+		t.Fatalf("listTools calls = %d, want 1", got)
+	}
+}
+
 func TestToolInfoByNameConcurrentColdCacheListsOnce(t *testing.T) {
 	var listCalls int32
 	conn := &connection{

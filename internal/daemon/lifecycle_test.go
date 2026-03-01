@@ -30,3 +30,25 @@ func TestDispatchShutdownReturnsAckAndSignalsProcess(t *testing.T) {
 		t.Fatal("dispatch(shutdown) did not signal process")
 	}
 }
+
+func TestDispatchPingReturnsOKWithoutSignal(t *testing.T) {
+	signaled := make(chan struct{}, 1)
+	deps := runtimeDefaultDeps()
+	deps.signalShutdownProcess = func() {
+		signaled <- struct{}{}
+	}
+
+	resp := dispatchWithDeps(context.Background(), &config.Config{}, nil, nil, &ipc.Request{Type: "ping"}, deps)
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("dispatch(ping) exit code = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+	if len(resp.Content) != 0 {
+		t.Fatalf("dispatch(ping) content = %q, want empty", resp.Content)
+	}
+
+	select {
+	case <-signaled:
+		t.Fatal("dispatch(ping) unexpectedly signaled shutdown")
+	default:
+	}
+}

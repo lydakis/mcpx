@@ -297,6 +297,8 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 func dispatchWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request, deps runtimeDeps) *ipc.Response {
 	deps = deps.withDefaults()
 	switch req.Type {
+	case "ping":
+		return &ipc.Response{ExitCode: ipc.ExitOK}
 	case "list_servers":
 		return listServersWithDeps(ctx, cfg, pool, ka, deps)
 	case "list_tools":

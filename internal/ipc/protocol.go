@@ -8,7 +8,7 @@ import (
 // Request is sent from the CLI to the daemon over the Unix socket.
 type Request struct {
 	Nonce   string          `json:"nonce"`            // daemon nonce for auth
-	Type    string          `json:"type"`             // "list_servers", "list_tools", "call_tool", "tool_schema", "shutdown"
+	Type    string          `json:"type"`             // "ping", "list_servers", "list_tools", "call_tool", "tool_schema", "shutdown"
 	CWD     string          `json:"cwd,omitempty"`    // caller working directory
 	Server  string          `json:"server,omitempty"` // target server name
 	Tool    string          `json:"tool,omitempty"`   // target tool name

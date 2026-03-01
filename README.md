@@ -164,6 +164,26 @@ command = "npx"
 args = ["-y", "@agentdeskai/browser-tools-mcp@1.1.0"]
 ```
 
+## Performance Benchmarks
+
+Benchmarks are manual by design (not part of CI):
+
+```bash
+make perf
+```
+
+To compare current work against a baseline ref:
+
+```bash
+./scripts/perf_bench.sh <git-ref>
+```
+
+For summarized comparisons, install `benchstat`:
+
+```bash
+go install golang.org/x/perf/cmd/benchstat@latest
+```
+
 ## Versioning Behavior
 
 - Local/dev builds show `mcpx dev`.

@@ -1,4 +1,4 @@
-.PHONY: build test vet check qa dist release-snapshot clean
+.PHONY: build test vet check qa perf dist release-snapshot clean
 
 BINARY ?= mcpx
 CMD ?= ./cmd/mcpx
@@ -18,6 +18,9 @@ check: test vet build
 
 qa:
 	./scripts/qa_matrix.sh
+
+perf:
+	./scripts/perf_bench.sh
 
 dist:
 	rm -rf "$(DIST_DIR)"

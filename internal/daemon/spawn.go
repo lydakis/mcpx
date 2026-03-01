@@ -67,7 +67,7 @@ func SpawnOrConnect() (string, error) {
 
 func validateDaemonNonce(nonce string) (bool, error) {
 	client := ipc.NewClient(paths.SocketPath(), nonce)
-	resp, err := client.Send(&ipc.Request{Type: "list_servers"})
+	resp, err := client.Send(&ipc.Request{Type: "ping"})
 	if err != nil {
 		return false, err
 	}

@@ -16,6 +16,7 @@ type ToolInfo struct {
 	Description  string
 	InputSchema  json.RawMessage
 	OutputSchema json.RawMessage
+	parsedInput  map[string]any
 }
 
 // connection wraps an MCP client with its transport.
@@ -26,6 +27,7 @@ type connection struct {
 	reqMu     sync.Mutex
 	toolMu    sync.RWMutex
 	toolIndex map[string]ToolInfo
+	toolList  []ToolInfo
 	indexed   bool
 	indexMu   sync.Mutex
 }
@@ -98,6 +100,17 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolInfo, error)
 		return nil, err
 	}
 
+	if infos, found := cachedToolInfos(conn); found {
+		return infos, nil
+	}
+
+	conn.indexMu.Lock()
+	defer conn.indexMu.Unlock()
+
+	if infos, found := cachedToolInfos(conn); found {
+		return infos, nil
+	}
+
 	tools, err := runListTools(conn, ctx)
 	if err != nil {
 		p.invalidate(server, conn)
@@ -106,6 +119,9 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolInfo, error)
 
 	infos := buildToolInfos(tools)
 	cacheToolInfos(conn, infos)
+	if cached, found := cachedToolInfos(conn); found {
+		return cached, nil
+	}
 	return infos, nil
 }
 
@@ -159,9 +175,37 @@ func buildToolInfos(tools []mcp.Tool) []ToolInfo {
 			Description:  t.Description,
 			InputSchema:  inputSchema,
 			OutputSchema: outputSchema,
+			parsedInput:  parseInputSchema(inputSchema),
 		}
 	}
 	return infos
+}
+
+func parseInputSchema(schema json.RawMessage) map[string]any {
+	if len(schema) == 0 {
+		return nil
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(schema, &parsed); err != nil {
+		return nil
+	}
+	return parsed
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(json.RawMessage, len(raw))
+	copy(out, raw)
+	return out
+}
+
+func cloneToolInfo(info ToolInfo) ToolInfo {
+	cloned := info
+	cloned.InputSchema = cloneRawMessage(info.InputSchema)
+	cloned.OutputSchema = cloneRawMessage(info.OutputSchema)
+	return cloned
 }
 
 func cachedToolInfo(conn *connection, tool string) (*ToolInfo, bool, bool) {
@@ -181,8 +225,27 @@ func cachedToolInfo(conn *connection, tool string) (*ToolInfo, bool, bool) {
 		return nil, false, true
 	}
 
-	toolCopy := info
+	toolCopy := cloneToolInfo(info)
 	return &toolCopy, true, true
+}
+
+func cachedToolInfos(conn *connection) ([]ToolInfo, bool) {
+	if conn == nil {
+		return nil, false
+	}
+
+	conn.toolMu.RLock()
+	defer conn.toolMu.RUnlock()
+
+	if !conn.indexed {
+		return nil, false
+	}
+
+	out := make([]ToolInfo, len(conn.toolList))
+	for i := range conn.toolList {
+		out[i] = cloneToolInfo(conn.toolList[i])
+	}
+	return out, true
 }
 
 func cacheToolInfos(conn *connection, infos []ToolInfo) {
@@ -191,15 +254,19 @@ func cacheToolInfos(conn *connection, infos []ToolInfo) {
 	}
 
 	index := make(map[string]ToolInfo, len(infos))
+	list := make([]ToolInfo, 0, len(infos))
 	for _, info := range infos {
 		if info.Name == "" {
 			continue
 		}
-		index[info.Name] = info
+		cloned := cloneToolInfo(info)
+		index[cloned.Name] = cloned
+		list = append(list, cloned)
 	}
 
 	conn.toolMu.Lock()
 	conn.toolIndex = index
+	conn.toolList = list
 	conn.indexed = true
 	conn.toolMu.Unlock()
 }
@@ -215,7 +282,7 @@ func (p *Pool) CallToolWithInfo(ctx context.Context, server string, info *ToolIn
 		return nil, err
 	}
 
-	args, err := compileJSONArgs(argsJSON, info.InputSchema)
+	args, err := compileJSONArgs(argsJSON, info.InputSchema, info.parsedInput)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +304,7 @@ func (p *Pool) CallTool(ctx context.Context, server, tool string, argsJSON json.
 	return p.CallToolWithInfo(ctx, server, info, argsJSON)
 }
 
-func compileJSONArgs(argsJSON json.RawMessage, toolSchema json.RawMessage) (map[string]any, error) {
+func compileJSONArgs(argsJSON json.RawMessage, toolSchema json.RawMessage, parsedSchema map[string]any) (map[string]any, error) {
 	var args map[string]any
 	if len(argsJSON) > 0 {
 		if err := json.Unmarshal(argsJSON, &args); err != nil {
@@ -247,6 +314,9 @@ func compileJSONArgs(argsJSON json.RawMessage, toolSchema json.RawMessage) (map[
 		args = map[string]any{}
 	}
 
+	if len(parsedSchema) > 0 {
+		return compileToolArgsAgainstSchema(args, parsedSchema)
+	}
 	return compileToolArgs(args, toolSchema)
 }
 
