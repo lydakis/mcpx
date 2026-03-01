@@ -178,6 +178,13 @@ To compare current work against a baseline ref:
 ./scripts/perf_bench.sh <git-ref>
 ```
 
+To measure warm CLI throughput (`mcpx --json`) for 500 calls:
+
+```bash
+make perf-loop
+./scripts/perf_cli_loop.sh <git-ref>
+```
+
 For summarized comparisons, install `benchstat`:
 
 ```bash

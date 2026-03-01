@@ -1,4 +1,4 @@
-.PHONY: build test vet check qa perf dist release-snapshot clean
+.PHONY: build test vet check qa perf perf-loop dist release-snapshot clean
 
 BINARY ?= mcpx
 CMD ?= ./cmd/mcpx
@@ -21,6 +21,9 @@ qa:
 
 perf:
 	./scripts/perf_bench.sh
+
+perf-loop:
+	./scripts/perf_cli_loop.sh
 
 dist:
 	rm -rf "$(DIST_DIR)"

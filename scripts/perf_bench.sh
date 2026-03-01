@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 COUNT="${BENCH_COUNT:-8}"
-BENCH_RE="${BENCH_RE:-Benchmark(ListTools(Cold|Hot)|ToolInfoByNameHot|CallToolWithInfo|CompileJSONArgs|NonceValidationSurfaces)}"
-PKGS=(./internal/mcppool ./internal/daemon)
+BENCH_RE="${BENCH_RE:-Benchmark(ListTools(Cold|Hot)|ToolInfoByNameHot|CallToolWithInfo|CompileJSONArgs|NonceValidationSurfaces|SpawnOrConnectHotExistingDaemon|Run(ServerToolListHotPath|RootJSONHotPath))}"
+PKGS=(./internal/mcppool ./internal/daemon ./internal/cli)
 
 run_bench() {
   go test "${PKGS[@]}" -run '^$' -bench "$BENCH_RE" -benchmem -count "$COUNT"
