@@ -7,6 +7,9 @@ mcpx \- MCP tools as Unix commands
 \fBmcpx --json\fR
 \fBmcpx --json -v\fR
 \fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--overwrite\fR]
+\fBmcpx shim install\fR \fIserver\fR [\fB--dir\fR \fIpath\fR]
+\fBmcpx shim remove\fR \fIserver\fR [\fB--dir\fR \fIpath\fR]
+\fBmcpx shim list\fR [\fB--dir\fR \fIpath\fR]
 \fBmcpx\fR \fIserver\fR [\fIFLAGS\fR]
 \fBmcpx\fR \fIserver\fR \fItool\fR [\fIFLAGS\fR]
 .SH DESCRIPTION
@@ -29,6 +32,20 @@ Set or override HTTP headers for URL-based servers (repeatable).
 .TP
 \fB--overwrite\fR
 Replace an existing server entry in mcpx config.
+.SH SHIM
+\fBmcpx shim\fR manages optional passthrough command wrappers that forward to \fBmcpx <server> ...\fR.
+.TP
+\fBinstall\fR
+Create a shim file for a server command name.
+.TP
+\fBremove\fR
+Remove an installed mcpx-managed shim.
+.TP
+\fBlist\fR
+List installed mcpx-managed shims.
+.TP
+\fB--dir\fR \fIpath\fR
+Install/list/remove directory for shim files (default: \fB$XDG_BIN_HOME\fR or \fB~/.local/bin\fR).
 .SH EXIT STATUS
 0 success
 1 tool error (tool returned isError)
@@ -43,6 +60,9 @@ mcpx --json -v
 mcpx add https://example.com/mcp-manifest.json
 mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
+mcpx shim install github
+mcpx shim list
+mcpx shim remove github
 mcpx <server>
 mcpx <server> --json
 mcpx <server> <tool> --help

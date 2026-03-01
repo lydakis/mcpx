@@ -27,6 +27,16 @@ _mcpx_has_skill_server() {
   return 1
 }
 
+_mcpx_has_shim_server() {
+  local server
+  while IFS= read -r server; do
+    if [[ "$server" == "shim" ]]; then
+      return 0
+    fi
+  done < <(mcpx __complete servers 2>/dev/null)
+  return 1
+}
+
 _mcpx_completion() {
   local cur first tool
   COMPREPLY=()
@@ -41,6 +51,9 @@ _mcpx_completion() {
     fi
     if ! _mcpx_has_skill_server; then
       words="$words"$'\n'"skill"
+    fi
+    if ! _mcpx_has_shim_server; then
+      words="$words"$'\n'"shim"
     fi
     COMPREPLY=( $(compgen -W "$words" -- "$cur") )
     return 0
@@ -63,6 +76,21 @@ _mcpx_completion() {
       return 0
     fi
     COMPREPLY=( $(compgen -W "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "$first" == "shim" ]] && ! _mcpx_has_shim_server; then
+    if [[ ${COMP_CWORD} -eq 2 ]]; then
+      COMPREPLY=( $(compgen -W "install remove list" -- "$cur") )
+      return 0
+    fi
+    if [[ ${COMP_CWORD} -eq 3 ]] && { [[ "${COMP_WORDS[2]}" == "install" ]] || [[ "${COMP_WORDS[2]}" == "remove" ]]; }; then
+      local servers
+      servers="$(mcpx __complete servers 2>/dev/null)"
+      COMPREPLY=( $(compgen -W "$servers --dir --help -h" -- "$cur") )
+      return 0
+    fi
+    COMPREPLY=( $(compgen -W "--dir --help -h" -- "$cur") )
     return 0
   fi
 
@@ -102,6 +130,16 @@ _mcpx_has_skill_server() {
   return 1
 }
 
+_mcpx_has_shim_server() {
+  local server
+  for server in ${(f)"$(mcpx __complete servers 2>/dev/null)"}; do
+    if [[ "$server" == "shim" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 _mcpx_completion() {
   local -a servers tools flags
 
@@ -113,6 +151,9 @@ _mcpx_completion() {
     fi
     if ! _mcpx_has_skill_server; then
       servers+=(skill)
+    fi
+    if ! _mcpx_has_shim_server; then
+      servers+=(shim)
     fi
     _describe 'mcpx entry' servers
     return
@@ -136,6 +177,23 @@ _mcpx_completion() {
     fi
     flags=(--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h)
     _describe 'skill flag' flags
+    return
+  fi
+
+  if [[ "${words[2]}" == "shim" ]] && ! _mcpx_has_shim_server; then
+    if (( CURRENT == 3 )); then
+      _values 'shim command' install remove list
+      return
+    fi
+    if (( CURRENT == 4 )) && { [[ "${words[3]}" == "install" ]] || [[ "${words[3]}" == "remove" ]]; }; then
+      local -a shim_servers
+      shim_servers=(${(f)"$(mcpx __complete servers 2>/dev/null)"})
+      shim_servers+=(--dir --help -h)
+      _describe 'shim target' shim_servers
+      return
+    fi
+    flags=(--dir --help -h)
+    _describe 'shim flag' flags
     return
   fi
 
@@ -187,13 +245,27 @@ function __mcpx_has_add_server
     return 1
 end
 
+function __mcpx_has_shim_server
+    for s in (mcpx __complete servers 2>/dev/null)
+        if test "$s" = shim
+            return 0
+        end
+    end
+    return 1
+end
+
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h --version -V --json (mcpx __complete servers 2>/dev/null)"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_add_server' -a "add"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill_server' -a "skill"
+complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_shim_server' -a "shim"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --header --overwrite --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = shim; and not __mcpx_has_shim_server' -a "install remove list"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and begin; test "$w[3]" = install; or test "$w[3]" = remove; end' -a "(mcpx __complete servers 2>/dev/null) --dir --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = list' -a "--dir --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = shim; and not __mcpx_has_shim_server' -a "--dir --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
 `

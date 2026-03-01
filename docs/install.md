@@ -81,3 +81,15 @@ mcpx skill install --codex-link
 mcpx skill install --kiro-link
 mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
 ```
+
+## Optional Command Shims
+
+Install a local command shim that forwards to one configured server:
+
+```bash
+mcpx shim install github
+mcpx shim list
+mcpx shim remove github
+```
+
+Default shim install directory is `$XDG_BIN_HOME` (if set) or `~/.local/bin`.

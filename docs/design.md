@@ -296,7 +296,7 @@ MCP tool parameters map to GNU-style `--long-flags`. Required params are require
 
 **Streaming:** For v1, mcpx buffers the complete MCP response then emits to stdout. Streaming to stdout is more Unix-native but conflicts with caching and with guaranteeing valid output. May add `--stream` in a future version if there's demand.
 
-**No tool subcommands.** `mcpx` (bare) lists servers, and the first positional argument is the server namespace. The only reserved utility commands are `completion` and `__complete` for shell integration; they explicitly defer to same-named servers when configured.
+**No tool subcommands.** `mcpx` (bare) lists servers, and the first positional argument is the server namespace. Reserved utility commands are `add`, `shim`, `skill`, `completion`, and `__complete`; each one explicitly defers to a same-named configured server when present.
 
 **Man pages:** Ship a static root man page (`mcpx.1`) in release artifacts and install it as part of package installation (`man mcpx`). Tool-level docs are served through `mcpx <server> <tool> --help` rather than generated tool man pages.
 

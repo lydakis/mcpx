@@ -36,6 +36,10 @@ mcpx <server> <tool> --param=value | head -20
 mcpx add https://example.com/mcp-manifest.json
 mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
+
+# Optional setup: install a convenience shim command for a server
+mcpx shim install github
+mcpx shim list
 ```
 
 ## Tool Names

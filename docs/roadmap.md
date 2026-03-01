@@ -167,12 +167,12 @@ After first release, optimize for adoption without breaking the command surface:
 - Cache registry metadata with short TTL and explicit `--no-cache` override.
 
 ## Phase 10: Optional Command Shims (Experimental, Opt-In)
-- Evaluate optional shim command surface only after Phases 7-9 signal demand:
+- ✅ Ship optional shim command surface:
   - `mcpx shim install <server>`
   - `mcpx shim remove <server>`
   - `mcpx shim list`.
-- Shim behavior must be pass-through only (`mcpx <server> "$@"`), with collision-safe install and clear uninstall path.
-- Keep shims disabled by default and document them as convenience wrappers, not MCP server installation.
+- ✅ Shim behavior is pass-through only (`mcpx <server> "$@"`), with collision-safe install and managed uninstall path.
+- ✅ Keep shims disabled by default and document them as convenience wrappers, not MCP server installation.
 
 ## Deferred / Explicitly Out of Scope (for now)
 - Full package-manager behavior (`mcpx install <server>` downloading arbitrary code).

@@ -54,6 +54,10 @@ func Run(args []string) int {
 		return code
 	}
 
+	if handled, code := maybeHandleShimCommand(args, cfg, rootStdout, rootStderr); handled {
+		return code
+	}
+
 	if verr := config.Validate(cfg); verr != nil {
 		fmt.Fprintf(rootStderr, "mcpx: invalid config: %v\n", verr)
 		return ipc.ExitUsageErr
@@ -163,9 +167,9 @@ const (
 )
 
 type invocation struct {
-	kind     invocationKind
-	rootList rootServerListArgs
-	server   string
+	kind      invocationKind
+	rootList  rootServerListArgs
+	server    string
 	serverCmd serverCommand
 }
 

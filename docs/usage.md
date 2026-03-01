@@ -52,6 +52,9 @@ mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> --help --json  # raw schema payload JSON
 mcpx <server> <tool> ...     # call tool
 mcpx add <source>            # add server config from install link/manifest/endpoint URL
+mcpx shim install <server>   # install a passthrough command shim for one server
+mcpx shim remove <server>    # remove an installed shim
+mcpx shim list               # list installed mcpx-managed shims
 mcpx skill install           # install built-in mcpx skill for agents
 ```
 
@@ -122,6 +125,26 @@ Notes:
 - `mcpx add` writes only to mcpx config; it does not install runtimes/packages.
 - Existing entries require explicit `--overwrite`.
 - `--header KEY=VALUE` can be repeated and is applied only to URL-based servers.
+
+## Command Shims (`mcpx shim`)
+
+Create optional convenience wrappers that forward directly to `mcpx <server> ...`.
+
+Examples:
+
+```bash
+mcpx shim install github
+mcpx shim install linear --dir ~/.local/bin
+mcpx shim list
+mcpx shim remove github
+```
+
+Behavior:
+
+- Shims are pass-through wrappers only; they do not install MCP servers or runtimes.
+- Default install directory is `$XDG_BIN_HOME` (if set) or `~/.local/bin`.
+- Installs are collision-safe: `mcpx shim install <server>` fails if that command already resolves elsewhere in `PATH`.
+- `mcpx shim remove <server>` removes only mcpx-managed shim files.
 
 ## Shell Completions
 

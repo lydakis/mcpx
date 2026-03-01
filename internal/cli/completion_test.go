@@ -36,17 +36,29 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_skill_server()")) {
 		t.Fatalf("bash completion missing skill server guard helper: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_shim_server()")) {
+		t.Fatalf("bash completion missing shim server guard helper: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("bash completion missing conditional skill branch: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"shim\" ]] && ! _mcpx_has_shim_server; then")) {
+		t.Fatalf("bash completion missing conditional shim branch: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("if ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("bash completion missing conditional skill root entry: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("if ! _mcpx_has_shim_server; then")) {
+		t.Fatalf("bash completion missing conditional shim root entry: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--no-claude-link")) {
 		t.Fatalf("bash completion missing skill install flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--kiro-link")) {
 		t.Fatalf("bash completion missing kiro skill install flag: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("--dir --help -h")) {
+		t.Fatalf("bash completion missing shim flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("complete -F _mcpx_completion mcpx")) {
 		t.Fatalf("bash completion missing complete hook: %q", out.String())
@@ -102,6 +114,9 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_add_server()")) {
 		t.Fatalf("zsh completion missing add server guard helper: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_shim_server()")) {
+		t.Fatalf("zsh completion missing shim server guard helper: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("servers+=(completion --help -h --version -V --json)")) {
 		t.Fatalf("zsh completion missing root command list: %q", out.String())
 	}
@@ -116,6 +131,9 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("zsh completion missing conditional skill branch: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"shim\" ]] && ! _mcpx_has_shim_server; then")) {
+		t.Fatalf("zsh completion missing conditional shim branch: %q", out.String())
 	}
 }
 
@@ -136,6 +154,9 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_add_server")) {
 		t.Fatalf("fish completion missing add server guard helper: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_shim_server")) {
+		t.Fatalf("fish completion missing shim server guard helper: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("completion --help -h --version -V --json")) {
 		t.Fatalf("fish completion missing root command list: %q", out.String())
 	}
@@ -153,6 +174,12 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = skill; and not __mcpx_has_skill_server")) {
 		t.Fatalf("fish completion missing conditional skill branch: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = shim; and not __mcpx_has_shim_server")) {
+		t.Fatalf("fish completion missing conditional shim branch: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = shim; and not __mcpx_has_shim_server; and test \"$w[3]\" = list")) {
+		t.Fatalf("fish completion missing shim list flag branch: %q", out.String())
 	}
 }
 
