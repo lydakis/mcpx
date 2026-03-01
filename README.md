@@ -78,18 +78,45 @@ Run:
 
 ```bash
 mcpx
-mcpx --json
 mcpx github
+mcpx github search-repositories --help
+mcpx github search-repositories --query=mcp
+mcpx shim install github
+github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
+```
+
+## Command Shims (Optional)
+
+```bash
+mcpx shim install github
+mcpx shim list
+mcpx shim remove github
+```
+
+Shims are pass-through wrappers (`<server> ...` -> `mcpx <server> ...`) installed in `$XDG_BIN_HOME` (if set) or `~/.local/bin`. Ensure that directory is in your `PATH`. Install is collision-safe: it fails if that command name already resolves elsewhere in `PATH`.
+
+## Output Modes
+
+`--json` applies only to mcpx-owned output surfaces:
+
+- `mcpx`
+- `mcpx <server>`
+- `mcpx <server> <tool> --help`
+
+Normal tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
+
+Use `mcpx -v` (or `mcpx --json -v`) to include per-server `origin` metadata (config/fallback-derived `kind`; JSON also includes optional `path`).
+
+## More Examples
+
+```bash
+mcpx --json
 mcpx github --json
 mcpx github -v
-mcpx github search-repositories --help
 mcpx github search-repositories --help --json
-mcpx github search-repositories --query=mcp
 mcpx add "cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=..."
 mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer \${DEEPWIKI_API_KEY}"
-mcpx shim install github
-mcpx shim list
 mcpx skill install
 ```
 
@@ -104,45 +131,6 @@ mcpx linear <tool> ...
 ```
 
 Auth is still managed by Codex. `mcpx` does not run OAuth flows or store third-party app credentials.
-
-## Shim Install: Make MCP Servers Feel Native (Optional)
-
-If you want to call a configured MCP server like a normal CLI command, install a shim:
-
-```bash
-mcpx shim install github
-```
-
-Then call tools without the `mcpx <server>` prefix:
-
-```bash
-github search-repositories --query=mcp
-github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
-```
-
-Manage shims:
-
-```bash
-mcpx shim list
-mcpx shim remove github
-```
-
-Notes:
-
-- Shims are pass-through wrappers only (`<server> ...` -> `mcpx <server> ...`).
-- They do not install MCP servers or runtimes.
-- Default install directory is `$XDG_BIN_HOME` (if set) or `~/.local/bin`; ensure that directory is in your `PATH`.
-- Installs are collision-safe: `mcpx shim install <server>` fails if that command name already resolves elsewhere in `PATH`.
-
-`--json` applies only to mcpx-owned output surfaces:
-
-- `mcpx`
-- `mcpx <server>`
-- `mcpx <server> <tool> --help`
-
-Normal tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
-
-Use `mcpx -v` (or `mcpx --json -v`) to include per-server `origin` metadata (config/fallback-derived `kind`; JSON also includes optional `path`).
 
 ## MCP Smoke Test Commands
 
