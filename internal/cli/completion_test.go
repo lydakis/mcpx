@@ -202,7 +202,7 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 4; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" != install")) {
 		t.Fatalf("fish completion missing skill flag exclusion for non-install targets: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 4; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 5; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
 		t.Fatalf("fish completion missing install flag fallback branch: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = shim; and not __mcpx_has_shim_server; and test \"$w[3]\" = install")) {
