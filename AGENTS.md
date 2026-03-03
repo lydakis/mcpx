@@ -19,6 +19,8 @@ Owner: George Lydakis (`@lydakis`)
 - Run `go test ./...` for changed scope.
 - Run `go vet ./...`.
 - Run `go build ./...`.
+- For performance-sensitive changes (daemon lifecycle, CLI dispatch, cache/pool hot paths), run `make perf`; use `make perf-loop` when validating warm CLI throughput.
+- Benchmark checks are manual/non-blocking unless explicitly requested as a hard gate; when run, include commands and a short before/after summary in handoff.
 - If any gate cannot run, document why in handoff.
 
 ## Architecture Boundaries
