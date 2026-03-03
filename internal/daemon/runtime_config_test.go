@@ -169,6 +169,57 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 	}
 }
 
+func TestSyncRuntimeConfigForRequestRearmsDaemonIdleTimerAfterReset(t *testing.T) {
+	deps := runtimeDefaultDeps()
+	deps.loadConfig = func() (*config.Config, error) {
+		return &config.Config{
+			Servers: map[string]config.ServerConfig{
+				"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}},
+			},
+		}, nil
+	}
+	deps.mergeFallbackForCWD = func(*config.Config, string) error { return nil }
+	deps.validateConfig = func(*config.Config) error { return nil }
+
+	var stopCalls int
+	deps.keepaliveStop = func(ka *Keepalive) {
+		stopCalls++
+		if ka != nil {
+			ka.Stop()
+		}
+	}
+	deps.poolReset = func(*mcppool.Pool, *config.Config) {}
+
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"old": {Command: "old-cmd"},
+		},
+	}
+	cfgHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(initial) error = %v", err)
+	}
+
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+	ka.TouchDaemon()
+
+	activeCWD := ""
+	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project", &activeCWD, &cfgHash, &cfg, nil, ka, deps); err != nil {
+		t.Fatalf("syncRuntimeConfigForRequestWithDeps() error = %v", err)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("keepaliveStop calls = %d, want 1", stopCalls)
+	}
+
+	ka.mu.Lock()
+	_, hasDaemonTimer := ka.timers[daemonIdleSentinel]
+	ka.mu.Unlock()
+	if !hasDaemonTimer {
+		t.Fatal("daemon idle timer missing after keepalive reset")
+	}
+}
+
 func TestRequestNeedsRuntimeConfig(t *testing.T) {
 	cases := []struct {
 		req  *ipc.Request
@@ -186,6 +237,33 @@ func TestRequestNeedsRuntimeConfig(t *testing.T) {
 		if got := requestNeedsRuntimeConfig(tc.req); got != tc.want {
 			t.Fatalf("requestNeedsRuntimeConfig(%#v) = %v, want %v", tc.req, got, tc.want)
 		}
+	}
+}
+
+func TestRuntimeRequestHandlerPingTouchesDaemonKeepalive(t *testing.T) {
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	handler := newRuntimeRequestHandlerWithDeps(
+		&config.Config{Servers: map[string]config.ServerConfig{}},
+		nil,
+		ka,
+		runtimeDefaultDeps(),
+	)
+
+	resp := handler.handle(context.Background(), &ipc.Request{Type: "ping"})
+	if resp == nil {
+		t.Fatal("handler returned nil response")
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("handler exit code = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+
+	ka.mu.Lock()
+	_, hasDaemonTimer := ka.timers[daemonIdleSentinel]
+	ka.mu.Unlock()
+	if !hasDaemonTimer {
+		t.Fatal("daemon idle timer missing after ping request")
 	}
 }
 

@@ -10,12 +10,22 @@ import (
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/shim"
+	"github.com/lydakis/mcpx/internal/skill"
 )
 
 type shimInstallArgs struct {
-	server string
-	dir    string
-	help   bool
+	server          string
+	dir             string
+	installSkill    bool
+	skillStrict     bool
+	dataAgentDir    string
+	claudeDir       string
+	skipClaudeLink  bool
+	codexDir        string
+	enableCodexLink bool
+	kiroDir         string
+	enableKiroLink  bool
+	help            bool
 }
 
 type shimRemoveArgs struct {
@@ -30,6 +40,7 @@ type shimListArgs struct {
 }
 
 var shimKnownServersFn = listShimKnownServers
+var installServerSkillFn = installServerSkill
 
 func maybeHandleShimCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
 	if len(args) == 0 || args[0] != "shim" {
@@ -101,6 +112,30 @@ func runShimInstallCommand(args []string, cfg *config.Config, stdout, stderr io.
 	if !result.DirInPath {
 		fmt.Fprintf(stderr, "mcpx: shim: warning: %s is not in PATH; add it to run shims directly\n", result.Dir)
 	}
+
+	if parsed.installSkill {
+		skillResult, skillErr := installServerSkillFn(parsed.server, &skillInstallArgs{
+			dataAgentDir:    parsed.dataAgentDir,
+			claudeDir:       parsed.claudeDir,
+			skipClaudeLink:  parsed.skipClaudeLink,
+			codexDir:        parsed.codexDir,
+			enableCodexLink: parsed.enableCodexLink,
+			kiroDir:         parsed.kiroDir,
+			enableKiroLink:  parsed.enableKiroLink,
+		})
+		if skillErr != nil {
+			fmt.Fprintf(stderr, "mcpx: shim: warning: installed shim %q, but failed to install skill: %v\n", parsed.server, skillErr)
+			if parsed.skillStrict {
+				if strings.Contains(strings.ToLower(skillErr.Error()), "unknown server") {
+					return ipc.ExitUsageErr
+				}
+				return ipc.ExitInternal
+			}
+			return ipc.ExitOK
+		}
+		printInstalledSkillResult(stdout, skillResult)
+	}
+
 	return ipc.ExitOK
 }
 
@@ -167,12 +202,28 @@ func classifyShimErrorExitCode(err error) int {
 
 func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 	parsed := &shimInstallArgs{}
+	skillFlagsSeen := false
+	codexDirSet := false
+	kiroDirSet := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "--help" || arg == "-h":
 			parsed.help = true
+		case arg == "--skill":
+			parsed.installSkill = true
+		case arg == "--skill-strict":
+			parsed.skillStrict = true
+		case arg == "--no-claude-link":
+			parsed.skipClaudeLink = true
+			skillFlagsSeen = true
+		case arg == "--codex-link":
+			parsed.enableCodexLink = true
+			skillFlagsSeen = true
+		case arg == "--kiro-link":
+			parsed.enableKiroLink = true
+			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "--dir="):
 			parsed.dir = strings.TrimSpace(strings.TrimPrefix(arg, "--dir="))
 		case arg == "--dir":
@@ -181,6 +232,54 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 				return nil, err
 			}
 			parsed.dir = value
+		case strings.HasPrefix(arg, "--data-agent-dir="):
+			parsed.dataAgentDir = strings.TrimSpace(strings.TrimPrefix(arg, "--data-agent-dir="))
+			skillFlagsSeen = true
+		case arg == "--data-agent-dir":
+			value, err := parseShimPathArg(args, &i, "--data-agent-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.dataAgentDir = value
+			skillFlagsSeen = true
+		case strings.HasPrefix(arg, "--claude-dir="):
+			parsed.claudeDir = strings.TrimSpace(strings.TrimPrefix(arg, "--claude-dir="))
+			skillFlagsSeen = true
+		case arg == "--claude-dir":
+			value, err := parseShimPathArg(args, &i, "--claude-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.claudeDir = value
+			skillFlagsSeen = true
+		case strings.HasPrefix(arg, "--codex-dir="):
+			parsed.codexDir = strings.TrimSpace(strings.TrimPrefix(arg, "--codex-dir="))
+			parsed.enableCodexLink = true
+			codexDirSet = true
+			skillFlagsSeen = true
+		case arg == "--codex-dir":
+			value, err := parseShimPathArg(args, &i, "--codex-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.codexDir = value
+			parsed.enableCodexLink = true
+			codexDirSet = true
+			skillFlagsSeen = true
+		case strings.HasPrefix(arg, "--kiro-dir="):
+			parsed.kiroDir = strings.TrimSpace(strings.TrimPrefix(arg, "--kiro-dir="))
+			parsed.enableKiroLink = true
+			kiroDirSet = true
+			skillFlagsSeen = true
+		case arg == "--kiro-dir":
+			value, err := parseShimPathArg(args, &i, "--kiro-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.kiroDir = value
+			parsed.enableKiroLink = true
+			kiroDirSet = true
+			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -196,6 +295,32 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 	}
 	if parsed.server == "" {
 		return nil, fmt.Errorf("missing server (usage: mcpx shim install <server>)")
+	}
+	if parsed.skillStrict && !parsed.installSkill {
+		return nil, fmt.Errorf("--skill-strict requires --skill")
+	}
+	if skillFlagsSeen && !parsed.installSkill {
+		return nil, fmt.Errorf("skill install flags require --skill")
+	}
+	if parsed.installSkill {
+		if parsed.dataAgentDir == "" {
+			parsed.dataAgentDir = skill.DefaultDataAgentDir()
+		}
+		if parsed.claudeDir == "" {
+			parsed.claudeDir = skill.DefaultClaudeDir()
+		}
+		if parsed.enableCodexLink && parsed.codexDir == "" {
+			parsed.codexDir = skill.DefaultCodexDir()
+		}
+		if parsed.enableKiroLink && parsed.kiroDir == "" {
+			parsed.kiroDir = skill.DefaultKiroDir()
+		}
+	}
+	if codexDirSet && parsed.codexDir == "" {
+		parsed.codexDir = skill.DefaultCodexDir()
+	}
+	if kiroDirSet && parsed.kiroDir == "" {
+		parsed.kiroDir = skill.DefaultKiroDir()
 	}
 	return parsed, nil
 }
@@ -294,6 +419,15 @@ func printShimHelp(out io.Writer) {
 func printShimInstallHelp(out io.Writer) {
 	fmt.Fprintln(out, "Install flags:")
 	fmt.Fprintf(out, "  --dir <path>  Install directory (default: %s)\n", shim.DefaultDir())
+	fmt.Fprintln(out, "  --skill                 Also install a generated server skill after shim install succeeds.")
+	fmt.Fprintln(out, "  --skill-strict          Fail if server skill installation fails (requires --skill).")
+	fmt.Fprintf(out, "  --data-agent-dir <path> Skill root (default: %s, requires --skill)\n", skill.DefaultDataAgentDir())
+	fmt.Fprintf(out, "  --claude-dir <path>     Claude skill link root (default: %s, requires --skill)\n", skill.DefaultClaudeDir())
+	fmt.Fprintf(out, "  --codex-dir <path>      Legacy Codex link root (default: %s, requires --skill; implies --codex-link)\n", skill.DefaultCodexDir())
+	fmt.Fprintf(out, "  --kiro-dir <path>       Kiro skill link root (default: %s, requires --skill; implies --kiro-link)\n", skill.DefaultKiroDir())
+	fmt.Fprintln(out, "  --no-claude-link        Skip creating ~/.claude/skills/<generated-name> symlink (requires --skill).")
+	fmt.Fprintln(out, "  --codex-link            Also create ~/.codex/skills/<generated-name> symlink (requires --skill).")
+	fmt.Fprintln(out, "  --kiro-link             Also create ~/.kiro/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --help, -h    Show install help.")
 }
 

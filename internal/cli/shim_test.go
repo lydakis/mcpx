@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/ipc"
+	"github.com/lydakis/mcpx/internal/skill"
 )
 
 func TestMaybeHandleShimCommandRunsWhenNameUnclaimed(t *testing.T) {
@@ -205,5 +207,55 @@ func TestRunShimRemoveMissingReturnsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "not installed") {
 		t.Fatalf("stderr = %q, want not-installed guidance", errOut.String())
+	}
+}
+
+func TestParseShimInstallArgsSkillFlagsRequireSkill(t *testing.T) {
+	_, err := parseShimInstallArgs([]string{"github", "--codex-link"})
+	if err == nil {
+		t.Fatal("parseShimInstallArgs() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "require --skill") {
+		t.Fatalf("parseShimInstallArgs() error = %q, want require --skill message", err.Error())
+	}
+}
+
+func TestRunShimInstallWithSkillFailureKeepsShimInstallSuccessful(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp)
+
+	oldInstallServerSkillFn := installServerSkillFn
+	defer func() { installServerSkillFn = oldInstallServerSkillFn }()
+	installServerSkillFn = func(string, *skillInstallArgs) (*skill.InstallResult, error) {
+		return nil, errors.New("server skill generation failed")
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := runShimCommand([]string{"install", "github", "--dir", tmp, "--skill"}, &out, &errOut)
+	if code != ipc.ExitOK {
+		t.Fatalf("runShimCommand(install --skill) = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+	if !strings.Contains(out.String(), `Installed shim "github"`) {
+		t.Fatalf("stdout = %q, want shim install confirmation", out.String())
+	}
+	if !strings.Contains(errOut.String(), "failed to install skill") {
+		t.Fatalf("stderr = %q, want skill warning", errOut.String())
+	}
+}
+
+func TestRunShimInstallWithSkillStrictFailsOnSkillError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp)
+
+	oldInstallServerSkillFn := installServerSkillFn
+	defer func() { installServerSkillFn = oldInstallServerSkillFn }()
+	installServerSkillFn = func(string, *skillInstallArgs) (*skill.InstallResult, error) {
+		return nil, errors.New("server skill generation failed")
+	}
+
+	code := runShimCommand([]string{"install", "github", "--dir", tmp, "--skill", "--skill-strict"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != ipc.ExitInternal {
+		t.Fatalf("runShimCommand(install --skill --skill-strict) = %d, want %d", code, ipc.ExitInternal)
 	}
 }

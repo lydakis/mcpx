@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
+	"github.com/lydakis/mcpx/internal/ipc"
+	"github.com/lydakis/mcpx/internal/skill"
 )
 
 func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
@@ -155,6 +158,70 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 				t.Fatalf("parseSkillInstallArgs() error = %q, want to contain %q", err.Error(), tt.want)
 			}
 		})
+	}
+}
+
+func TestParseSkillInstallServerArgsRequiresServer(t *testing.T) {
+	_, err := parseSkillInstallServerArgs(nil)
+	if err == nil {
+		t.Fatal("parseSkillInstallServerArgs() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "missing server") {
+		t.Fatalf("parseSkillInstallServerArgs() error = %q, want missing-server message", err.Error())
+	}
+}
+
+func TestParseSkillInstallServerArgsRejectsEmptyServer(t *testing.T) {
+	_, err := parseSkillInstallServerArgs([]string{""})
+	if err == nil {
+		t.Fatal("parseSkillInstallServerArgs() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "missing server") {
+		t.Fatalf("parseSkillInstallServerArgs() error = %q, want missing-server message", err.Error())
+	}
+}
+
+func TestParseSkillInstallServerArgsParsesServerAndFlags(t *testing.T) {
+	parsed, err := parseSkillInstallServerArgs([]string{"github", "--codex-dir", "/tmp/codex"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallServerArgs() error = %v, want nil", err)
+	}
+	if parsed.server != "github" {
+		t.Fatalf("server = %q, want %q", parsed.server, "github")
+	}
+	if !parsed.enableCodexLink {
+		t.Fatal("enableCodexLink = false, want true when --codex-dir is set")
+	}
+}
+
+func TestRunSkillInstallServerCommand(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+
+	oldInstallServerSkillCommandFn := installServerSkillCommandFn
+	defer func() { installServerSkillCommandFn = oldInstallServerSkillCommandFn }()
+	installServerSkillCommandFn = func(server string, _ *skillInstallArgs) (*skill.InstallResult, error) {
+		if server != "github" {
+			return nil, errors.New("unexpected server")
+		}
+		return skill.InstallSkill("mcpx-github", []byte("# test\n"), skill.InstallOptions{
+			DataAgentDir: dataDir,
+			ClaudeDir:    claudeDir,
+		})
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := runSkillInstallServerCommand([]string{"github"}, &out, &errOut)
+	if code != ipc.ExitOK {
+		t.Fatalf("runSkillInstallServerCommand() code = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Installed skill file:")) {
+		t.Fatalf("stdout missing install message: %q", out.String())
 	}
 }
 

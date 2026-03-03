@@ -2,16 +2,23 @@ package skill
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 const (
 	// Name is the built-in mcpx skill folder name.
 	Name = "mcpx"
+)
+
+var (
+	ErrInvalidSkillName = errors.New("invalid skill name")
+	skillNameRe         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
 // InstallOptions controls where the built-in mcpx skill is installed.
@@ -64,6 +71,20 @@ func DefaultClaudeDir() string {
 
 // InstallMCPXSkill installs the built-in mcpx skill.
 func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
+	content, err := fs.ReadFile(embeddedSkillFS, "assets/mcpx/SKILL.md")
+	if err != nil {
+		return nil, fmt.Errorf("reading embedded skill: %w", err)
+	}
+	return InstallSkill(Name, content, opts)
+}
+
+// InstallSkill installs a named skill from caller-provided content.
+func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallResult, error) {
+	name = strings.TrimSpace(name)
+	if !skillNameRe.MatchString(name) {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidSkillName, name)
+	}
+
 	dataAgentDir := strings.TrimSpace(opts.DataAgentDir)
 	if dataAgentDir == "" {
 		dataAgentDir = DefaultDataAgentDir()
@@ -83,14 +104,9 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 		kiroDir = DefaultKiroDir()
 	}
 
-	skillDir := filepath.Join(dataAgentDir, Name)
+	skillDir := filepath.Join(dataAgentDir, name)
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating skill directory: %w", err)
-	}
-
-	content, err := fs.ReadFile(embeddedSkillFS, "assets/mcpx/SKILL.md")
-	if err != nil {
-		return nil, fmt.Errorf("reading embedded skill: %w", err)
 	}
 
 	skillFile := filepath.Join(skillDir, "SKILL.md")
@@ -108,7 +124,7 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 			return nil, fmt.Errorf("creating claude skills directory: %w", err)
 		}
 
-		linkPath := filepath.Join(claudeDir, Name)
+		linkPath := filepath.Join(claudeDir, name)
 		linkTarget, err := ensureSymlink(skillDir, linkPath)
 		if err != nil {
 			return nil, fmt.Errorf("linking claude skill: %w", err)
@@ -122,7 +138,7 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 			return nil, fmt.Errorf("creating codex skills directory: %w", err)
 		}
 
-		linkPath := filepath.Join(codexDir, Name)
+		linkPath := filepath.Join(codexDir, name)
 		linkTarget, err := ensureSymlink(skillDir, linkPath)
 		if err != nil {
 			return nil, fmt.Errorf("linking codex skill: %w", err)
@@ -136,7 +152,7 @@ func InstallMCPXSkill(opts InstallOptions) (*InstallResult, error) {
 			return nil, fmt.Errorf("creating kiro skills directory: %w", err)
 		}
 
-		linkPath := filepath.Join(kiroDir, Name)
+		linkPath := filepath.Join(kiroDir, name)
 		linkTarget, err := ensureSymlink(skillDir, linkPath)
 		if err != nil {
 			return nil, fmt.Errorf("linking kiro skill: %w", err)

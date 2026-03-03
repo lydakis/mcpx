@@ -140,6 +140,7 @@ func Run() error {
 
 	ka := NewKeepalive(pool)
 	ka.SetOnAllIdle(deps.signalShutdownProcess)
+	ka.TouchDaemon()
 	defer ka.Stop()
 
 	handler := newRuntimeRequestHandlerWithDeps(cfg, pool, ka, deps)
@@ -190,6 +191,9 @@ func newRuntimeRequestHandlerWithDeps(cfg *config.Config, pool *mcppool.Pool, ka
 func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *ipc.Response {
 	if req == nil {
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "nil request"}
+	}
+	if h.ka != nil && req.Type != "shutdown" {
+		h.ka.TouchDaemon()
 	}
 
 	if !requestNeedsRuntimeConfig(req) {
@@ -255,6 +259,9 @@ func syncRuntimeConfigForRequestWithDeps(reqCWD string, activeCWD, cfgHash *stri
 	if nextHash != strings.TrimSpace(*cfgHash) {
 		deps.keepaliveStop(ka)
 		deps.poolReset(pool, nextCfg)
+		if ka != nil {
+			ka.TouchDaemon()
+		}
 	}
 	*cfg = nextCfg
 	*cfgHash = nextHash
