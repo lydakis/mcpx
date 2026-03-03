@@ -161,30 +161,13 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 	}
 }
 
-func TestParseSkillInstallServerArgsRequiresServer(t *testing.T) {
-	_, err := parseSkillInstallServerArgs(nil)
-	if err == nil {
-		t.Fatal("parseSkillInstallServerArgs() error = nil, want non-nil")
-	}
-	if !strings.Contains(err.Error(), "missing server") {
-		t.Fatalf("parseSkillInstallServerArgs() error = %q, want missing-server message", err.Error())
-	}
-}
-
-func TestParseSkillInstallServerArgsRejectsEmptyServer(t *testing.T) {
-	_, err := parseSkillInstallServerArgs([]string{""})
-	if err == nil {
-		t.Fatal("parseSkillInstallServerArgs() error = nil, want non-nil")
-	}
-	if !strings.Contains(err.Error(), "missing server") {
-		t.Fatalf("parseSkillInstallServerArgs() error = %q, want missing-server message", err.Error())
-	}
-}
-
-func TestParseSkillInstallServerArgsParsesServerAndFlags(t *testing.T) {
-	parsed, err := parseSkillInstallServerArgs([]string{"github", "--codex-dir", "/tmp/codex"})
+func TestParseSkillInstallCommandArgsParsesServerAndFlags(t *testing.T) {
+	parsed, installForServer, err := parseSkillInstallCommandArgs([]string{"github", "--codex-dir", "/tmp/codex", "--kiro-link"})
 	if err != nil {
-		t.Fatalf("parseSkillInstallServerArgs() error = %v, want nil", err)
+		t.Fatalf("parseSkillInstallCommandArgs() error = %v, want nil", err)
+	}
+	if !installForServer {
+		t.Fatal("installForServer = false, want true")
 	}
 	if parsed.server != "github" {
 		t.Fatalf("server = %q, want %q", parsed.server, "github")
@@ -192,9 +175,12 @@ func TestParseSkillInstallServerArgsParsesServerAndFlags(t *testing.T) {
 	if !parsed.enableCodexLink {
 		t.Fatal("enableCodexLink = false, want true when --codex-dir is set")
 	}
+	if !parsed.enableKiroLink {
+		t.Fatal("enableKiroLink = false, want true when --kiro-link is set")
+	}
 }
 
-func TestRunSkillInstallServerCommand(t *testing.T) {
+func TestRunSkillInstallCommandSupportsServerSyntax(t *testing.T) {
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "agents", "skills")
 	claudeDir := filepath.Join(tmp, "claude", "skills")
@@ -213,9 +199,9 @@ func TestRunSkillInstallServerCommand(t *testing.T) {
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	code := runSkillInstallServerCommand([]string{"github"}, &out, &errOut)
+	code := runSkillInstallCommand([]string{"github"}, &out, &errOut)
 	if code != ipc.ExitOK {
-		t.Fatalf("runSkillInstallServerCommand() code = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+		t.Fatalf("runSkillInstallCommand() code = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", errOut.String())

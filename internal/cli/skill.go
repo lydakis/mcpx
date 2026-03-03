@@ -51,8 +51,6 @@ func runSkillCommand(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "install":
 		return runSkillInstallCommand(args[1:], stdout, stderr)
-	case "install-server":
-		return runSkillInstallServerCommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "mcpx: unknown skill command: %s\n", args[0])
 		printSkillHelp(stderr)
@@ -61,7 +59,7 @@ func runSkillCommand(args []string, stdout, stderr io.Writer) int {
 }
 
 func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
-	parsed, err := parseSkillInstallArgs(args)
+	parsed, installForServer, err := parseSkillInstallCommandArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "mcpx: %v\n", err)
 		return ipc.ExitUsageErr
@@ -71,46 +69,35 @@ func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
 		return ipc.ExitOK
 	}
 
-	result, err := skill.InstallMCPXSkill(skill.InstallOptions{
-		DataAgentDir:    parsed.dataAgentDir,
-		ClaudeDir:       parsed.claudeDir,
-		SkipClaudeLink:  parsed.skipClaudeLink,
-		CodexDir:        parsed.codexDir,
-		EnableCodexLink: parsed.enableCodexLink,
-		KiroDir:         parsed.kiroDir,
-		EnableKiroLink:  parsed.enableKiroLink,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "mcpx: install skill: %v\n", err)
-		return ipc.ExitInternal
+	var result *skill.InstallResult
+	var installErr error
+	if installForServer {
+		result, installErr = installServerSkillCommandFn(parsed.server, &parsed.skillInstallArgs)
+	} else {
+		result, installErr = skill.InstallMCPXSkill(skill.InstallOptions{
+			DataAgentDir:    parsed.dataAgentDir,
+			ClaudeDir:       parsed.claudeDir,
+			SkipClaudeLink:  parsed.skipClaudeLink,
+			CodexDir:        parsed.codexDir,
+			EnableCodexLink: parsed.enableCodexLink,
+			KiroDir:         parsed.kiroDir,
+			EnableKiroLink:  parsed.enableKiroLink,
+		})
 	}
-
-	printInstalledSkillResult(stdout, result)
-
-	return ipc.ExitOK
-}
-
-func runSkillInstallServerCommand(args []string, stdout, stderr io.Writer) int {
-	parsed, err := parseSkillInstallServerArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "mcpx: %v\n", err)
-		return ipc.ExitUsageErr
-	}
-	if parsed.help {
-		printSkillInstallServerHelp(stdout)
-		return ipc.ExitOK
-	}
-
-	result, err := installServerSkillCommandFn(parsed.server, &parsed.skillInstallArgs)
-	if err != nil {
-		fmt.Fprintf(stderr, "mcpx: install server skill: %v\n", err)
-		if strings.Contains(strings.ToLower(err.Error()), "unknown server") {
-			return ipc.ExitUsageErr
+	if installErr != nil {
+		if installForServer {
+			fmt.Fprintf(stderr, "mcpx: install server skill: %v\n", installErr)
+			if strings.Contains(strings.ToLower(installErr.Error()), "unknown server") {
+				return ipc.ExitUsageErr
+			}
+			return ipc.ExitInternal
 		}
+		fmt.Fprintf(stderr, "mcpx: install skill: %v\n", installErr)
 		return ipc.ExitInternal
 	}
 
 	printInstalledSkillResult(stdout, result)
+
 	return ipc.ExitOK
 }
 
@@ -213,28 +200,29 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 	return parsed, nil
 }
 
-func parseSkillInstallServerArgs(args []string) (*skillInstallServerArgs, error) {
+func parseSkillInstallCommandArgs(args []string) (*skillInstallServerArgs, bool, error) {
 	parsed := &skillInstallServerArgs{}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("missing server (usage: mcpx skill install-server <server>)")
+	if len(args) == 0 || isHelpFlag(args[0]) || strings.HasPrefix(args[0], "-") {
+		installParsed, err := parseSkillInstallArgs(args)
+		if err != nil {
+			return nil, false, err
+		}
+		parsed.skillInstallArgs = *installParsed
+		return parsed, false, nil
 	}
 
 	first := strings.TrimSpace(args[0])
-	if first == "--help" || first == "-h" {
-		parsed.help = true
-		return parsed, nil
-	}
-	if first == "" || strings.HasPrefix(first, "-") {
-		return nil, fmt.Errorf("missing server (usage: mcpx skill install-server <server>)")
+	if first == "" {
+		return nil, false, fmt.Errorf("missing server (usage: mcpx skill install <server>)")
 	}
 	parsed.server = first
 
 	installParsed, err := parseSkillInstallArgs(args[1:])
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	parsed.skillInstallArgs = *installParsed
-	return parsed, nil
+	return parsed, true, nil
 }
 
 func parseSkillInstallPathArg(args []string, idx *int, flag string) (string, error) {
@@ -251,16 +239,12 @@ func parseSkillInstallPathArg(args []string, idx *int, flag string) (string, err
 
 func printSkillHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  mcpx skill install [FLAGS]")
-	fmt.Fprintln(out, "  mcpx skill install-server <server> [FLAGS]")
+	fmt.Fprintln(out, "  mcpx skill install [<server>] [FLAGS]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Commands:")
-	fmt.Fprintln(out, "  install    Install the built-in mcpx skill.")
-	fmt.Fprintln(out, "  install-server  Install a generated skill for one configured server.")
+	fmt.Fprintln(out, "  install    Install built-in skill, or a server-specific skill when <server> is provided.")
 	fmt.Fprintln(out, "")
 	printSkillInstallHelp(out)
-	fmt.Fprintln(out, "")
-	printSkillInstallServerHelp(out)
 }
 
 func printSkillInstallHelp(out io.Writer) {
@@ -273,19 +257,6 @@ func printSkillInstallHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --codex-link             Also create ~/.codex/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --kiro-link              Also create ~/.kiro/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --help, -h               Show install help.")
-}
-
-func printSkillInstallServerHelp(out io.Writer) {
-	fmt.Fprintln(out, "Install-server flags:")
-	fmt.Fprintln(out, "  <server>                 Server namespace to generate the skill from.")
-	fmt.Fprintf(out, "  --data-agent-dir <path>  Skill root (default: %s)\n", skill.DefaultDataAgentDir())
-	fmt.Fprintf(out, "  --claude-dir <path>      Claude skill link root (default: %s)\n", skill.DefaultClaudeDir())
-	fmt.Fprintf(out, "  --codex-dir <path>       Legacy Codex link root (default: %s, implies --codex-link)\n", skill.DefaultCodexDir())
-	fmt.Fprintf(out, "  --kiro-dir <path>        Kiro skill link root (default: %s, implies --kiro-link)\n", skill.DefaultKiroDir())
-	fmt.Fprintln(out, "  --no-claude-link         Skip creating ~/.claude/skills/<generated-name> symlink.")
-	fmt.Fprintln(out, "  --codex-link             Also create ~/.codex/skills/<generated-name> symlink.")
-	fmt.Fprintln(out, "  --kiro-link              Also create ~/.kiro/skills/<generated-name> symlink.")
-	fmt.Fprintln(out, "  --help, -h               Show install-server help.")
 }
 
 func isHelpFlag(arg string) bool {

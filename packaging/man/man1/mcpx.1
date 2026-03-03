@@ -9,7 +9,7 @@ mcpx \- MCP tools as Unix commands
 \fBmcpx completion\fR \fIbash|zsh|fish\fR
 \fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--overwrite\fR]
 \fBmcpx skill install\fR [\fIFLAGS\fR]
-\fBmcpx skill install-server\fR \fIserver\fR [\fIFLAGS\fR]
+\fBmcpx skill install\fR [\fIserver\fR] [\fIFLAGS\fR]
 \fBmcpx shim install\fR \fIserver\fR [\fB--dir\fR \fIpath\fR] [\fB--skill\fR] [\fB--skill-strict\fR] [\fIFLAGS\fR]
 \fBmcpx shim remove\fR \fIserver\fR [\fB--dir\fR \fIpath\fR]
 \fBmcpx shim list\fR [\fB--dir\fR \fIpath\fR]
@@ -41,8 +41,8 @@ Replace an existing server entry in mcpx config.
 \fBinstall\fR
 Install the built-in \fBmcpx\fR skill under \fB~/.agents/skills/mcpx\fR.
 .TP
-\fBinstall-server\fR \fIserver\fR
-Generate and install a server-specific skill from discovered tool metadata.
+\fBinstall\fR [\fIserver\fR]
+Install the built-in \fBmcpx\fR skill under \fB~/.agents/skills/mcpx\fR, or generate and install a server-specific skill from discovered tool metadata when \fIserver\fR is provided.
 .TP
 \fB--data-agent-dir\fR \fIpath\fR
 Skill root directory (default: \fB~/.agents/skills\fR).
@@ -92,7 +92,7 @@ mcpx add https://example.com/mcp-manifest.json
 mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx skill install
-mcpx skill install-server github
+mcpx skill install github
 mcpx shim install github
 mcpx shim install github --skill --skill-strict
 mcpx shim list

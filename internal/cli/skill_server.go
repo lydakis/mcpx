@@ -14,7 +14,7 @@ import (
 func installServerSkill(server string, parsed *skillInstallArgs) (*skill.InstallResult, error) {
 	server = strings.TrimSpace(server)
 	if server == "" {
-		return nil, fmt.Errorf("missing server (usage: mcpx skill install-server <server>)")
+		return nil, fmt.Errorf("missing server (usage: mcpx skill install <server>)")
 	}
 	if parsed == nil {
 		return nil, fmt.Errorf("internal: missing skill install options")

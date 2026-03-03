@@ -56,7 +56,7 @@ mcpx shim install <server>   # install a passthrough command shim for one server
 mcpx shim remove <server>    # remove an installed shim
 mcpx shim list               # list installed mcpx-managed shims
 mcpx skill install           # install built-in mcpx skill for agents
-mcpx skill install-server <server>  # generate/install a skill for one server
+mcpx skill install <server>  # generate/install a skill for one server
 ```
 
 Tool names are used exactly as exposed by the server.
@@ -186,9 +186,9 @@ mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/sk
 Generate and install a skill for one configured server:
 
 ```bash
-mcpx skill install-server github
-mcpx skill install-server github --codex-link
-mcpx skill install-server github --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
+mcpx skill install github
+mcpx skill install github --codex-link
+mcpx skill install github --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
 ```
 
 Generated server skills are installed under `~/.agents/skills/mcpx-<server>` by default.

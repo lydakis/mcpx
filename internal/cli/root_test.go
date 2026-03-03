@@ -103,7 +103,7 @@ func TestHandleRootFlagsHelp(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("mcpx shim <install|remove|list> ...")) {
 		t.Fatalf("help output missing shim command: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("mcpx skill install [FLAGS]")) {
+	if !bytes.Contains(out.Bytes(), []byte("mcpx skill install [<server>] [FLAGS]")) {
 		t.Fatalf("help output missing skill command: %q", out.String())
 	}
 	if errOut.Len() != 0 {

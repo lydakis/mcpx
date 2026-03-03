@@ -85,8 +85,8 @@ mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/sk
 Generate a server-specific skill from one configured server:
 
 ```bash
-mcpx skill install-server github
-mcpx skill install-server github --codex-link
+mcpx skill install github
+mcpx skill install github --codex-link
 ```
 
 ## Optional Command Shims

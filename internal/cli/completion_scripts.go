@@ -72,13 +72,17 @@ _mcpx_completion() {
 
   if [[ "$first" == "skill" ]] && ! _mcpx_has_skill_server; then
     if [[ ${COMP_CWORD} -eq 2 ]]; then
-      COMPREPLY=( $(compgen -W "install install-server" -- "$cur") )
+      COMPREPLY=( $(compgen -W "install" -- "$cur") )
       return 0
     fi
-    if [[ ${COMP_CWORD} -eq 3 ]] && [[ "${COMP_WORDS[2]}" == "install-server" ]]; then
+    if [[ ${COMP_CWORD} -eq 3 ]] && [[ "${COMP_WORDS[2]}" == "install" ]]; then
       local servers
       servers="$(mcpx __complete servers 2>/dev/null)"
-      COMPREPLY=( $(compgen -W "$servers --help -h" -- "$cur") )
+      COMPREPLY=( $(compgen -W "$servers --data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h" -- "$cur") )
+      return 0
+    fi
+    if [[ ${COMP_CWORD} -ge 4 ]] && [[ "${COMP_WORDS[2]}" == "install" ]]; then
+      COMPREPLY=( $(compgen -W "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h" -- "$cur") )
       return 0
     fi
     COMPREPLY=( $(compgen -W "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h" -- "$cur") )
@@ -196,10 +200,10 @@ _mcpx_completion() {
 
   if [[ "${words[2]}" == "skill" ]] && ! _mcpx_has_skill_server; then
     if (( CURRENT == 3 )); then
-      _values 'skill command' install install-server
+      _values 'skill command' install
       return
     fi
-    if (( CURRENT == 4 )) && [[ "${words[3]}" == "install-server" ]]; then
+    if (( CURRENT == 4 )) && [[ "${words[3]}" == "install" ]]; then
       local -a skill_servers
       skill_servers=(${(f)"$(mcpx __complete servers 2>/dev/null)"})
       skill_servers+=(--help -h)
@@ -304,10 +308,10 @@ complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_shim_server' -a "shim"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --header --overwrite --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install install-server"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install-server' -a "(mcpx __complete servers 2>/dev/null) --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" != install-server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install-server' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 4; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install' -a "(mcpx __complete servers 2>/dev/null) --help -h --data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 5; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" != install' -a "--data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = shim; and not __mcpx_has_shim_server' -a "install remove list"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = install' -a "(mcpx __complete servers 2>/dev/null) --dir --skill --skill-strict --data-agent-dir --claude-dir --no-claude-link --codex-dir --codex-link --kiro-dir --kiro-link --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = remove' -a "(mcpx __complete servers 2>/dev/null) --dir --help -h"

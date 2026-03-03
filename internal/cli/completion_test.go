@@ -57,8 +57,8 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--kiro-link")) {
 		t.Fatalf("bash completion missing kiro skill install flag: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("install install-server")) {
-		t.Fatalf("bash completion missing skill install-server command: %q", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("COMPREPLY=( $(compgen -W \"install\" -- \"$cur\") )")) {
+		t.Fatalf("bash completion missing skill install command: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--skill --skill-strict")) {
 		t.Fatalf("bash completion missing shim skill flags: %q", out.String())
@@ -144,8 +144,8 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("zsh completion missing conditional skill branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("install install-server")) {
-		t.Fatalf("zsh completion missing skill install-server command: %q", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("_values 'skill command' install")) {
+		t.Fatalf("zsh completion missing skill install command: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"shim\" ]] && ! _mcpx_has_shim_server; then")) {
 		t.Fatalf("zsh completion missing conditional shim branch: %q", out.String())
@@ -196,14 +196,14 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = shim; and not __mcpx_has_shim_server")) {
 		t.Fatalf("fish completion missing conditional shim branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install-server")) {
-		t.Fatalf("fish completion missing skill install-server branch: %q", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
+		t.Fatalf("fish completion missing skill install branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" != install-server")) {
-		t.Fatalf("fish completion missing skill flag exclusion before install-server target: %q", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" != install")) {
+		t.Fatalf("fish completion missing skill flag exclusion for non-install targets: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 4; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install-server")) {
-		t.Fatalf("fish completion missing install-server flag fallback branch: %q", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 4; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
+		t.Fatalf("fish completion missing install flag fallback branch: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = shim; and not __mcpx_has_shim_server; and test \"$w[3]\" = install")) {
 		t.Fatalf("fish completion missing shim install flag branch: %q", out.String())
