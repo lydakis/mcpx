@@ -89,7 +89,9 @@ func renderServerSkillContent(server string, tools []toolListEntry) string {
 	fmt.Fprintf(&b, "## Tooling notes\n\n")
 	fmt.Fprintf(&b, "- Prefer exact tool names from `mcpx %s` output.\n", server)
 	fmt.Fprintf(&b, "- Use `--help` on a tool before first call when you need argument details.\n")
-	fmt.Fprintf(&b, "- Use `--cache=<ttl>` for read-only repeated calls.\n\n")
+	fmt.Fprintf(&b, "- Prefer JSON payloads for nested or complex arguments: `mcpx %s <tool> '{\"param\":\"value\"}'`.\n", server)
+	fmt.Fprintf(&b, "- Use flags for simple one-off scalar arguments.\n")
+	fmt.Fprintf(&b, "- For read-only calls you may repeat with identical args, add `--cache=<ttl>` on the first call.\n\n")
 	fmt.Fprintf(&b, "## Tools\n\n")
 	if len(tools) == 0 {
 		fmt.Fprintf(&b, "- No tools were discovered at generation time.\n")

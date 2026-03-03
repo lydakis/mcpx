@@ -48,3 +48,19 @@ func TestServerSkillNameAddsHashForFullySanitizedInputs(t *testing.T) {
 		t.Fatalf("serverSkillName(!!!) = %q, want prefix %q", got, "mcpx-server-")
 	}
 }
+
+func TestRenderServerSkillContentIncludesJSONAndCacheGuidance(t *testing.T) {
+	content := renderServerSkillContent("github", []toolListEntry{
+		{Name: "search-repositories", Description: "Search repositories"},
+	})
+
+	if !strings.Contains(content, `Prefer JSON payloads for nested or complex arguments`) {
+		t.Fatalf("rendered skill missing JSON guidance: %q", content)
+	}
+	if !strings.Contains(content, `Use flags for simple one-off scalar arguments`) {
+		t.Fatalf("rendered skill missing flags guidance: %q", content)
+	}
+	if !strings.Contains(content, "add `--cache=<ttl>` on the first call") {
+		t.Fatalf("rendered skill missing cache guidance: %q", content)
+	}
+}

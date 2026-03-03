@@ -23,9 +23,9 @@ mcpx <server> <tool> --help --json      # raw schema payload JSON
 # Note: tool listings can be large (50k+ chars). Pipe through grep or head for discovery:
 # mcpx <server> | grep -i "search"
 
-# 3. Call with native flags (preferred) or JSON
+# 3. Call with JSON for complex shapes (preferred) or flags for simple scalars
+mcpx <server> <tool> '{"param":"value","filters":{"state":"open"}}'
 mcpx <server> <tool> --param=value
-mcpx <server> <tool> '{"param": "value"}'
 
 # 4. Pipe output through standard Unix tools
 mcpx <server> <tool> --param=value | jq '.items[:5]'
@@ -75,7 +75,7 @@ mcpx <server> <tool> --param=value || echo "transport-or-tool-failure"
 
 ## Caching
 
-Use `--cache=<ttl>` for read-only tools when you expect repeated calls with the same args in the same task (loops, retrying pipelines, multiple `jq`/Python passes). Add it on the first fetch.
+For read-only tools, default to adding `--cache=<ttl>` on the first call whenever you may repeat the same call shape in the current task (loops, retrying pipelines, multiple `jq`/Python passes).
 
 ```bash
 # first fetch (stores cache)
@@ -163,7 +163,7 @@ mcpx <server> <tool> --id=123 --cache=5m | jq '.files | length'
 
 1. Always inspect first. Run `--help` before the first call to any unfamiliar tool. It shows params, types, required/optional, and output schema.
 2. Use `--json` only for mcpx discovery/help surfaces (`mcpx`, `mcpx <server>`, `mcpx <server> <tool> --help`).
-3. Prefer flags over JSON for simple params. Use JSON for nested objects and complex payloads.
+3. Prefer JSON payloads for nested objects, arrays, and complex call shapes. Use flags for simple one-off scalar params.
 4. Booleans from schema. `--flag` sends true, `--no-flag` sends false when the tool parameter is boolean in the declared schema.
 5. Stdin. Only consumed as JSON args when no flags are provided. If flags are present, stdin is not consumed.
 6. Flag collisions. If a tool has a param named `cache`, `verbose`, `help`, etc., use `--tool-cache` or pass everything after `--`: `mcpx server tool -- --cache=value`.
@@ -174,4 +174,5 @@ id="$(mcpx <server> <tool-a> --param=value | jq -r '.items[0].id')"
 mcpx <server> <tool-b> --id="$id"
 ```
 
-8. No interactive use. Every mcpx call is a single command that exits. No shell mode, no prompts.
+8. Read-only repetition: if you might repeat a call with identical args in the same task, add `--cache=<ttl>` on the first call.
+9. No interactive use. Every mcpx call is a single command that exits. No shell mode, no prompts.
