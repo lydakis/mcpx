@@ -82,12 +82,21 @@ mcpx skill install --kiro-link
 mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
 ```
 
+Generate a server-specific skill from one configured server:
+
+```bash
+mcpx skill install-server github
+mcpx skill install-server github --codex-link
+```
+
 ## Optional Command Shims
 
 Install a local command shim that forwards to one configured server:
 
 ```bash
 mcpx shim install github
+mcpx shim install github --skill
+mcpx shim install github --skill --skill-strict
 mcpx shim list
 mcpx shim remove github
 ```

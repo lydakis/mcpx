@@ -56,6 +56,7 @@ mcpx shim install <server>   # install a passthrough command shim for one server
 mcpx shim remove <server>    # remove an installed shim
 mcpx shim list               # list installed mcpx-managed shims
 mcpx skill install           # install built-in mcpx skill for agents
+mcpx skill install-server <server>  # generate/install a skill for one server
 ```
 
 Tool names are used exactly as exposed by the server.
@@ -134,6 +135,8 @@ Examples:
 
 ```bash
 mcpx shim install github
+mcpx shim install github --skill
+mcpx shim install github --skill --skill-strict
 mcpx shim install linear --dir ~/.local/bin
 mcpx shim list
 mcpx shim remove github
@@ -145,6 +148,8 @@ Behavior:
 - Default install directory is `$XDG_BIN_HOME` (if set) or `~/.local/bin`.
 - Installs are collision-safe: `mcpx shim install <server>` fails if that command already resolves elsewhere in `PATH`.
 - `mcpx shim remove <server>` removes only mcpx-managed shim files.
+- `mcpx shim install <server> --skill` also installs a generated server skill after shim install succeeds.
+- Add `--skill-strict` to fail if the generated skill cannot be installed.
 
 ## Shell Completions
 
@@ -177,6 +182,16 @@ mcpx skill install --kiro-link
 mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
 mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
 ```
+
+Generate and install a skill for one configured server:
+
+```bash
+mcpx skill install-server github
+mcpx skill install-server github --codex-link
+mcpx skill install-server github --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
+```
+
+Generated server skills are installed under `~/.agents/skills/mcpx-<server>` by default.
 
 ## Man Pages
 
