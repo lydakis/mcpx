@@ -196,7 +196,7 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = shim; and not __mcpx_has_shim_server")) {
 		t.Fatalf("fish completion missing conditional shim branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
+	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -eq 4; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" = install")) {
 		t.Fatalf("fish completion missing skill install branch: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test (count $w) -ge 3; and test \"$w[2]\" = skill; and not __mcpx_has_skill_server; and test \"$w[3]\" != install")) {
