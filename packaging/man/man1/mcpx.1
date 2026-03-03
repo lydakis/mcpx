@@ -55,6 +55,10 @@ Skip Claude symlink creation.
 .TP
 \fB--codex-link\fR / \fB--kiro-link\fR
 Also create Codex/Kiro skill symlinks (use \fB--codex-dir\fR / \fB--kiro-dir\fR to override destinations).
+\fB--openclaw-link\fR
+Also create an OpenClaw skill symlink (defaults to \fB~/.openclaw/skills\fR when enabled).
+\fB--openclaw-dir\fR \fIpath\fR
+OpenClaw skill link root (default: \fB~/.openclaw/skills\fR).
 .SH SHIM
 \fBmcpx shim\fR manages optional passthrough command wrappers that forward to \fBmcpx <server> ...\fR.
 .TP
@@ -75,6 +79,8 @@ After successful shim install, also install a generated server skill.
 .TP
 \fB--skill-strict\fR
 Fail shim install command if generated skill installation fails (requires \fB--skill\fR).
+\fB--openclaw-link\fR / \fB--openclaw-dir\fR
+Also create OpenClaw skill links for generated server skills.
 .SH COMPLETION
 \fBmcpx completion\fR prints shell completion scripts for \fBbash\fR, \fBzsh\fR, and \fBfish\fR.
 .SH EXIT STATUS
@@ -93,6 +99,8 @@ mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx skill install
 mcpx skill install github
+mcpx skill install --openclaw-link
+mcpx skill install github --openclaw-link --openclaw-dir ~/.openclaw/skills
 mcpx shim install github
 mcpx shim install github --skill --skill-strict
 mcpx shim list

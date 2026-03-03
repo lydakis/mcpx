@@ -18,7 +18,7 @@ Utility commands:
 - `mcpx shim install <server>` installs a local passthrough command shim (`<server> ...` -> `mcpx <server> ...`)
 - `mcpx shim remove <server>` and `mcpx shim list` manage installed shims
 - `mcpx completion <bash|zsh|fish>` prints shell completion scripts
-- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code (optional flags also link for Codex/Kiro)
+- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code (optional flags also link for Codex/Kiro/OpenClaw)
 - `mcpx skill install [<server>]` installs the built-in `mcpx` skill (no server) or generates a server-specific skill when a server name is provided.
 
 It is designed for agent workflows and shell composition:
@@ -114,9 +114,10 @@ Use `mcpx shim install <server> --skill` to also install a generated server skil
 ```bash
 mcpx skill install github
 mcpx skill install github --codex-link
+mcpx skill install github --openclaw-link
 ```
 
-This writes a generated server skill to `~/.agents/skills/mcpx-<server>` by default and can optionally link it into Codex/Kiro/Claude skill directories using the same flags as `mcpx skill install`.
+This writes a generated server skill to `~/.agents/skills/mcpx-<server>` by default and can optionally link it into Codex/Kiro/OpenClaw/Claude skill directories using the same flags as `mcpx skill install`.
 
 ## Output Modes
 
