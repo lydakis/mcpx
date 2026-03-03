@@ -19,6 +19,7 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 	claudeDir := filepath.Join(tmp, "claude", "skills")
 	codexDir := filepath.Join(tmp, "codex", "skills")
 	kiroDir := filepath.Join(tmp, "kiro", "skills")
+	openClawDir := filepath.Join(tmp, "openclaw", "skills")
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	var out bytes.Buffer
@@ -33,6 +34,8 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 		"--codex-dir", codexDir,
 		"--kiro-link",
 		"--kiro-dir", kiroDir,
+		"--openclaw-link",
+		"--openclaw-dir", openClawDir,
 	}, cfg, &out, &errOut)
 	if !handled {
 		t.Fatal("handled = false, want true")
@@ -52,6 +55,7 @@ func TestMaybeHandleSkillCommandRunsWhenNameUnclaimed(t *testing.T) {
 	assertSymlinkTargets(t, filepath.Join(claudeDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
 	assertSymlinkTargets(t, filepath.Join(codexDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
 	assertSymlinkTargets(t, filepath.Join(kiroDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
+	assertSymlinkTargets(t, filepath.Join(openClawDir, "mcpx"), filepath.Join(dataDir, "mcpx"))
 
 	if !bytes.Contains(out.Bytes(), []byte("Installed skill file:")) {
 		t.Fatalf("stdout missing install message: %q", out.String())
@@ -120,6 +124,16 @@ func TestParseSkillInstallArgsKiroDirImpliesKiroLink(t *testing.T) {
 	}
 }
 
+func TestParseSkillInstallArgsOpenClawDirImpliesOpenClawLink(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--openclaw-dir", "/tmp/openclaw-skills"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableOpenClawLink {
+		t.Fatal("enableOpenClawLink = false, want true when --openclaw-dir is set")
+	}
+}
+
 func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -146,6 +160,11 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 			args: []string{"--kiro-dir", "--no-claude-link"},
 			want: "missing value for --kiro-dir",
 		},
+		{
+			name: "openclaw-dir",
+			args: []string{"--openclaw-dir", "--no-claude-link"},
+			want: "missing value for --openclaw-dir",
+		},
 	}
 
 	for _, tt := range tests {
@@ -162,7 +181,7 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 }
 
 func TestParseSkillInstallCommandArgsParsesServerAndFlags(t *testing.T) {
-	parsed, installForServer, err := parseSkillInstallCommandArgs([]string{"github", "--codex-dir", "/tmp/codex", "--kiro-link"})
+	parsed, installForServer, err := parseSkillInstallCommandArgs([]string{"github", "--codex-dir", "/tmp/codex", "--kiro-link", "--openclaw-dir", "/tmp/openclaw-skills"})
 	if err != nil {
 		t.Fatalf("parseSkillInstallCommandArgs() error = %v, want nil", err)
 	}
@@ -177,6 +196,12 @@ func TestParseSkillInstallCommandArgsParsesServerAndFlags(t *testing.T) {
 	}
 	if !parsed.enableKiroLink {
 		t.Fatal("enableKiroLink = false, want true when --kiro-link is set")
+	}
+	if !parsed.enableOpenClawLink {
+		t.Fatal("enableOpenClawLink = false, want true when --openclaw-dir is set")
+	}
+	if parsed.openClawDir != "/tmp/openclaw-skills" {
+		t.Fatalf("openClawDir = %q, want %q", parsed.openClawDir, "/tmp/openclaw-skills")
 	}
 }
 

@@ -27,13 +27,15 @@ func installServerSkill(server string, parsed *skillInstallArgs) (*skill.Install
 
 	content := []byte(renderServerSkillContent(server, tools))
 	return skill.InstallSkill(serverSkillName(server), content, skill.InstallOptions{
-		DataAgentDir:    parsed.dataAgentDir,
-		ClaudeDir:       parsed.claudeDir,
-		SkipClaudeLink:  parsed.skipClaudeLink,
-		CodexDir:        parsed.codexDir,
-		EnableCodexLink: parsed.enableCodexLink,
-		KiroDir:         parsed.kiroDir,
-		EnableKiroLink:  parsed.enableKiroLink,
+		DataAgentDir:       parsed.dataAgentDir,
+		ClaudeDir:          parsed.claudeDir,
+		SkipClaudeLink:     parsed.skipClaudeLink,
+		CodexDir:           parsed.codexDir,
+		EnableCodexLink:    parsed.enableCodexLink,
+		KiroDir:            parsed.kiroDir,
+		EnableKiroLink:     parsed.enableKiroLink,
+		OpenClawDir:        parsed.openClawDir,
+		EnableOpenClawLink: parsed.enableOpenClawLink,
 	})
 }
 

@@ -14,18 +14,20 @@ import (
 )
 
 type shimInstallArgs struct {
-	server          string
-	dir             string
-	installSkill    bool
-	skillStrict     bool
-	dataAgentDir    string
-	claudeDir       string
-	skipClaudeLink  bool
-	codexDir        string
-	enableCodexLink bool
-	kiroDir         string
-	enableKiroLink  bool
-	help            bool
+	server             string
+	dir                string
+	installSkill       bool
+	skillStrict        bool
+	dataAgentDir       string
+	claudeDir          string
+	skipClaudeLink     bool
+	codexDir           string
+	enableCodexLink    bool
+	kiroDir            string
+	enableKiroLink     bool
+	openClawDir        string
+	enableOpenClawLink bool
+	help               bool
 }
 
 type shimRemoveArgs struct {
@@ -115,13 +117,15 @@ func runShimInstallCommand(args []string, cfg *config.Config, stdout, stderr io.
 
 	if parsed.installSkill {
 		skillResult, skillErr := installServerSkillFn(parsed.server, &skillInstallArgs{
-			dataAgentDir:    parsed.dataAgentDir,
-			claudeDir:       parsed.claudeDir,
-			skipClaudeLink:  parsed.skipClaudeLink,
-			codexDir:        parsed.codexDir,
-			enableCodexLink: parsed.enableCodexLink,
-			kiroDir:         parsed.kiroDir,
-			enableKiroLink:  parsed.enableKiroLink,
+			dataAgentDir:       parsed.dataAgentDir,
+			claudeDir:          parsed.claudeDir,
+			skipClaudeLink:     parsed.skipClaudeLink,
+			codexDir:           parsed.codexDir,
+			enableCodexLink:    parsed.enableCodexLink,
+			kiroDir:            parsed.kiroDir,
+			enableKiroLink:     parsed.enableKiroLink,
+			openClawDir:        parsed.openClawDir,
+			enableOpenClawLink: parsed.enableOpenClawLink,
 		})
 		if skillErr != nil {
 			fmt.Fprintf(stderr, "mcpx: shim: warning: installed shim %q, but failed to install skill: %v\n", parsed.server, skillErr)
@@ -205,6 +209,7 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 	skillFlagsSeen := false
 	codexDirSet := false
 	kiroDirSet := false
+	openClawDirSet := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -223,6 +228,9 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			skillFlagsSeen = true
 		case arg == "--kiro-link":
 			parsed.enableKiroLink = true
+			skillFlagsSeen = true
+		case arg == "--openclaw-link":
+			parsed.enableOpenClawLink = true
 			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "--dir="):
 			parsed.dir = strings.TrimSpace(strings.TrimPrefix(arg, "--dir="))
@@ -271,6 +279,11 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			parsed.enableKiroLink = true
 			kiroDirSet = true
 			skillFlagsSeen = true
+		case strings.HasPrefix(arg, "--openclaw-dir="):
+			parsed.openClawDir = strings.TrimSpace(strings.TrimPrefix(arg, "--openclaw-dir="))
+			parsed.enableOpenClawLink = true
+			openClawDirSet = true
+			skillFlagsSeen = true
 		case arg == "--kiro-dir":
 			value, err := parseShimPathArg(args, &i, "--kiro-dir")
 			if err != nil {
@@ -279,6 +292,15 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			parsed.kiroDir = value
 			parsed.enableKiroLink = true
 			kiroDirSet = true
+			skillFlagsSeen = true
+		case arg == "--openclaw-dir":
+			value, err := parseShimPathArg(args, &i, "--openclaw-dir")
+			if err != nil {
+				return nil, err
+			}
+			parsed.openClawDir = value
+			parsed.enableOpenClawLink = true
+			openClawDirSet = true
 			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", arg)
@@ -315,12 +337,21 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 		if parsed.enableKiroLink && parsed.kiroDir == "" {
 			parsed.kiroDir = skill.DefaultKiroDir()
 		}
+		if parsed.enableOpenClawLink && parsed.openClawDir == "" {
+			parsed.openClawDir = skill.DefaultOpenClawDir()
+		}
+		if parsed.openClawDir == "" {
+			parsed.openClawDir = skill.DefaultOpenClawDir()
+		}
 	}
 	if codexDirSet && parsed.codexDir == "" {
 		parsed.codexDir = skill.DefaultCodexDir()
 	}
 	if kiroDirSet && parsed.kiroDir == "" {
 		parsed.kiroDir = skill.DefaultKiroDir()
+	}
+	if openClawDirSet && parsed.openClawDir == "" {
+		parsed.openClawDir = skill.DefaultOpenClawDir()
 	}
 	return parsed, nil
 }
@@ -425,9 +456,11 @@ func printShimInstallHelp(out io.Writer) {
 	fmt.Fprintf(out, "  --claude-dir <path>     Claude skill link root (default: %s, requires --skill)\n", skill.DefaultClaudeDir())
 	fmt.Fprintf(out, "  --codex-dir <path>      Legacy Codex link root (default: %s, requires --skill; implies --codex-link)\n", skill.DefaultCodexDir())
 	fmt.Fprintf(out, "  --kiro-dir <path>       Kiro skill link root (default: %s, requires --skill; implies --kiro-link)\n", skill.DefaultKiroDir())
+	fmt.Fprintf(out, "  --openclaw-dir <path>   OpenClaw skill link root (default: %s, requires --skill; implies --openclaw-link)\n", skill.DefaultOpenClawDir())
 	fmt.Fprintln(out, "  --no-claude-link        Skip creating ~/.claude/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --codex-link            Also create ~/.codex/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --kiro-link             Also create ~/.kiro/skills/<generated-name> symlink (requires --skill).")
+	fmt.Fprintln(out, "  --openclaw-link         Also create ~/.openclaw/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --help, -h    Show install help.")
 }
 

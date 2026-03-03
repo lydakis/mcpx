@@ -21,6 +21,9 @@ func TestDefaultDirsUseHome(t *testing.T) {
 	if got, want := DefaultKiroDir(), filepath.Join("/tmp/home", ".kiro", "skills"); got != want {
 		t.Fatalf("DefaultKiroDir() = %q, want %q", got, want)
 	}
+	if got, want := DefaultOpenClawDir(), filepath.Join("/tmp/home", ".openclaw", "skills"); got != want {
+		t.Fatalf("DefaultOpenClawDir() = %q, want %q", got, want)
+	}
 }
 
 func TestInstallMCPXSkillCreatesSkillAndClaudeLink(t *testing.T) {
@@ -107,6 +110,27 @@ func TestInstallMCPXSkillSupportsOptionalKiroLink(t *testing.T) {
 		t.Fatal("KiroLink is empty, want symlink path")
 	}
 	assertSymlinkTarget(t, result.KiroLink, filepath.Join(dataDir, Name))
+}
+
+func TestInstallMCPXSkillSupportsOptionalOpenClawLink(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+	openClawDir := filepath.Join(tmp, "openclaw", "skills")
+
+	result, err := InstallMCPXSkill(InstallOptions{
+		DataAgentDir:       dataDir,
+		ClaudeDir:          claudeDir,
+		OpenClawDir:        openClawDir,
+		EnableOpenClawLink: true,
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPXSkill() error = %v", err)
+	}
+	if result.OpenClawLink == "" {
+		t.Fatal("OpenClawLink is empty, want symlink path")
+	}
+	assertSymlinkTarget(t, result.OpenClawLink, filepath.Join(dataDir, Name))
 }
 
 func TestInstallMCPXSkillFailsWhenLinkPathExistsAsFile(t *testing.T) {

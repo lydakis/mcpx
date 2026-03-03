@@ -23,25 +23,29 @@ var (
 
 // InstallOptions controls where the built-in mcpx skill is installed.
 type InstallOptions struct {
-	DataAgentDir    string
-	ClaudeDir       string
-	SkipClaudeLink  bool
-	CodexDir        string
-	EnableCodexLink bool
-	KiroDir         string
-	EnableKiroLink  bool
+	DataAgentDir       string
+	ClaudeDir          string
+	SkipClaudeLink     bool
+	CodexDir           string
+	EnableCodexLink    bool
+	KiroDir            string
+	EnableKiroLink     bool
+	OpenClawDir        string
+	EnableOpenClawLink bool
 }
 
 // InstallResult describes where the skill was installed.
 type InstallResult struct {
-	SkillDir         string
-	SkillFile        string
-	ClaudeLink       string
-	ClaudeLinkTarget string
-	CodexLink        string
-	CodexLinkTarget  string
-	KiroLink         string
-	KiroLinkTarget   string
+	SkillDir           string
+	SkillFile          string
+	ClaudeLink         string
+	ClaudeLinkTarget   string
+	CodexLink          string
+	CodexLinkTarget    string
+	KiroLink           string
+	KiroLinkTarget     string
+	OpenClawLink       string
+	OpenClawLinkTarget string
 }
 
 var (
@@ -62,6 +66,11 @@ func DefaultCodexDir() string {
 // DefaultKiroDir returns the default Kiro skills directory.
 func DefaultKiroDir() string {
 	return filepath.Join(homeDir(), ".kiro", "skills")
+}
+
+// DefaultOpenClawDir returns the default OpenClaw skills directory.
+func DefaultOpenClawDir() string {
+	return filepath.Join(homeDir(), ".openclaw", "skills")
 }
 
 // DefaultClaudeDir returns the default Claude Code skills directory.
@@ -102,6 +111,10 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 	kiroDir := strings.TrimSpace(opts.KiroDir)
 	if opts.EnableKiroLink && kiroDir == "" {
 		kiroDir = DefaultKiroDir()
+	}
+	openClawDir := strings.TrimSpace(opts.OpenClawDir)
+	if opts.EnableOpenClawLink && openClawDir == "" {
+		openClawDir = DefaultOpenClawDir()
 	}
 
 	skillDir := filepath.Join(dataAgentDir, name)
@@ -159,6 +172,20 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 		}
 		result.KiroLink = linkPath
 		result.KiroLinkTarget = linkTarget
+	}
+
+	if opts.EnableOpenClawLink {
+		if err := os.MkdirAll(openClawDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating openclaw skills directory: %w", err)
+		}
+
+		linkPath := filepath.Join(openClawDir, name)
+		linkTarget, err := ensureSymlink(skillDir, linkPath)
+		if err != nil {
+			return nil, fmt.Errorf("linking openclaw skill: %w", err)
+		}
+		result.OpenClawLink = linkPath
+		result.OpenClawLinkTarget = linkTarget
 	}
 
 	return result, nil

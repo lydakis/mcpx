@@ -79,7 +79,9 @@ Optional links:
 ```bash
 mcpx skill install --codex-link
 mcpx skill install --kiro-link
+mcpx skill install --openclaw-link
 mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
+mcpx skill install --openclaw-dir /custom/.openclaw/skills
 ```
 
 Generate a server-specific skill from one configured server:

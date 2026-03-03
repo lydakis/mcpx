@@ -220,6 +220,29 @@ func TestParseShimInstallArgsSkillFlagsRequireSkill(t *testing.T) {
 	}
 }
 
+func TestParseShimInstallArgsOpenClawDirImpliesOpenClawLink(t *testing.T) {
+	parsed, err := parseShimInstallArgs([]string{"github", "--openclaw-dir", "/tmp/openclaw-skills", "--skill"})
+	if err != nil {
+		t.Fatalf("parseShimInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableOpenClawLink {
+		t.Fatalf("enableOpenClawLink = false, want true when --openclaw-dir is set")
+	}
+	if parsed.openClawDir != "/tmp/openclaw-skills" {
+		t.Fatalf("openClawDir = %q, want %q", parsed.openClawDir, "/tmp/openclaw-skills")
+	}
+}
+
+func TestParseShimInstallArgsRejectsOpenClawDirWithoutValue(t *testing.T) {
+	_, err := parseShimInstallArgs([]string{"github", "--openclaw-dir", "--no-claude-link", "--skill"})
+	if err == nil {
+		t.Fatal("parseShimInstallArgs() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "missing value for --openclaw-dir") {
+		t.Fatalf("parseShimInstallArgs() error = %q, want missing value message", err.Error())
+	}
+}
+
 func TestRunShimInstallWithSkillFailureKeepsShimInstallSuccessful(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("PATH", tmp)

@@ -179,8 +179,9 @@ Optional flags:
 mcpx skill install --no-claude-link
 mcpx skill install --codex-link
 mcpx skill install --kiro-link
+mcpx skill install --openclaw-link
 mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
-mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
+mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills --openclaw-dir /custom/.openclaw/skills
 ```
 
 Generate and install a skill for one configured server:
@@ -188,6 +189,7 @@ Generate and install a skill for one configured server:
 ```bash
 mcpx skill install github
 mcpx skill install github --codex-link
+mcpx skill install github --openclaw-link
 mcpx skill install github --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
 ```
 
