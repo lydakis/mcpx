@@ -12,7 +12,9 @@ Project shortcuts:
 
 ```bash
 make check   # test + vet + build
-make qa      # deterministic QA smoke + integration matrix
+make qa-core # Go gates + core smoke/integration matrix
+make qa-extended # CLI contract + wrapper packaging checks
+make qa      # full QA matrix (core + extended)
 make dist    # cross-platform artifacts + SHA256SUMS
 RUN_DIST=1 make qa  # QA matrix + distribution artifact build
 ```
@@ -51,6 +53,8 @@ mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> --help --json  # raw schema payload JSON
 mcpx <server> <tool> ...     # call tool
+mcpx <source>                # if <source> is not a known server, resolve and run it ephemerally
+mcpx <source> <tool> ...     # call tools from an ephemeral source (daemon-lifetime only)
 mcpx add <source>            # add server config from install link/manifest/endpoint URL
 mcpx shim install <server>   # install a passthrough command shim for one server
 mcpx shim remove <server>    # remove an installed shim
@@ -61,6 +65,8 @@ mcpx skill install <server>  # generate/install a skill for one server
 
 Tool names are used exactly as exposed by the server.
 Flag conventions can vary by tool and server, so run `mcpx <server> <tool> --help` before first use.
+
+Ephemeral source mode reuses the same source parsing as `mcpx add` (install links, manifests, direct MCP endpoints) but does not write to `config.toml`.
 
 `--json` is only for mcpx-owned outputs (`mcpx`, `mcpx <server>`, and `mcpx <server> <tool> --help`). Tool call output is not transformed.
 

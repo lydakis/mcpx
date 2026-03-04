@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -148,6 +149,7 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 			"github": {Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-github"}},
 		},
 	}
+	initialCfg := cfg
 	cfgHash, err := configFingerprint(cfg)
 	if err != nil {
 		t.Fatalf("configFingerprint(initial) error = %v", err)
@@ -157,8 +159,14 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-a", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
 	}
+	if cfg != initialCfg {
+		t.Fatal("cfg pointer changed after unchanged-fingerprint sync")
+	}
 	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-b", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
+	}
+	if cfg != initialCfg {
+		t.Fatal("cfg pointer changed after second unchanged-fingerprint sync")
 	}
 
 	if resetCalls != 0 || stopCalls != 0 {
@@ -333,5 +341,225 @@ func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
 
 	if got := atomic.LoadInt32(&maxInFlight); got < 2 {
 		t.Fatalf("max concurrent tool resolution = %d, want >= 2 for same-CWD parallel dispatch", got)
+	}
+}
+
+func TestRuntimeRequestHandlerInstallsEphemeralServerFromRequest(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	const source = "/tmp/ephemeral.json"
+
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+		if server != source {
+			t.Fatalf("poolListTools server = %q, want %q", server, source)
+		}
+		return []mcppool.ToolInfo{{Name: "ping", Description: "Ping"}}, nil
+	}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, ka, deps)
+	handler.activeCWD = "/tmp/project"
+
+	resp := handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project",
+		Ephemeral: &ipc.EphemeralServer{
+			Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+		},
+	})
+	if resp == nil {
+		t.Fatal("handler returned nil response")
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("handler exit code = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+	}
+
+	if _, ok := handler.cfg.Servers[source]; !ok {
+		t.Fatalf("cfg.Servers missing ephemeral source %q", source)
+	}
+	origin, ok := handler.cfg.ServerOrigins[source]
+	if !ok {
+		t.Fatalf("cfg.ServerOrigins missing source %q", source)
+	}
+	if origin.Kind != config.ServerOriginKindRuntimeEphemeral {
+		t.Fatalf("origin kind = %q, want %q", origin.Kind, config.ServerOriginKindRuntimeEphemeral)
+	}
+}
+
+func TestRuntimeRequestHandlerEphemeralInstallKeepsPersistentConfigHash(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	initialHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(initial) error = %v", err)
+	}
+
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	const source = "/tmp/ephemeral.json"
+
+	var resetCalls int
+
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+		if server != source {
+			t.Fatalf("poolListTools server = %q, want %q", server, source)
+		}
+		return []mcppool.ToolInfo{{Name: "ping"}}, nil
+	}
+	deps.loadConfig = func() (*config.Config, error) {
+		return &config.Config{Servers: map[string]config.ServerConfig{}}, nil
+	}
+	deps.mergeFallbackForCWD = func(*config.Config, string) error { return nil }
+	deps.validateConfig = func(*config.Config) error { return nil }
+	deps.poolReset = func(_ *mcppool.Pool, _ *config.Config) {
+		resetCalls++
+	}
+	deps.keepaliveStop = func(*Keepalive) {}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, ka, deps)
+	handler.activeCWD = "/tmp/project-a"
+
+	resp := handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project-a",
+		Ephemeral: &ipc.EphemeralServer{
+			Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+		},
+	})
+	if resp == nil {
+		t.Fatal("handler returned nil response")
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("handler exit code = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+	}
+	if handler.cfgHash != initialHash {
+		t.Fatalf("cfgHash = %q, want %q after ephemeral install", handler.cfgHash, initialHash)
+	}
+	expectedHash, err := configFingerprint(cfg)
+	if err != nil {
+		t.Fatalf("configFingerprint(expected) error = %v", err)
+	}
+	if handler.cfgHash != expectedHash {
+		t.Fatalf("cfgHash = %q, want %q", handler.cfgHash, expectedHash)
+	}
+
+	resp = handler.handle(context.Background(), &ipc.Request{
+		Type: "list_servers",
+		CWD:  "/tmp/project-b",
+	})
+	if resp == nil {
+		t.Fatal("handler returned nil response on cwd change")
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("handler exit code on cwd change = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+	}
+	if resetCalls != 0 {
+		t.Fatalf("poolReset calls = %d, want 0 after cwd change when persistent config is unchanged", resetCalls)
+	}
+	if _, ok := handler.cfg.Servers[source]; !ok {
+		t.Fatalf("cfg.Servers missing source %q after cwd change", source)
+	}
+	origin, ok := handler.cfg.ServerOrigins[source]
+	if !ok {
+		t.Fatalf("cfg.ServerOrigins missing source %q after cwd change", source)
+	}
+	if origin.Kind != config.ServerOriginKindRuntimeEphemeral {
+		t.Fatalf("origin kind = %q, want %q after cwd change", origin.Kind, config.ServerOriginKindRuntimeEphemeral)
+	}
+
+	resp = handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project-b",
+	})
+	if resp == nil {
+		t.Fatal("handler returned nil response on list_tools after cwd change")
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("handler exit code on list_tools after cwd change = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+	}
+	if resetCalls != 0 {
+		t.Fatalf("poolReset calls = %d, want 0 after same-cwd list_tools", resetCalls)
+	}
+}
+
+func TestRuntimeRequestHandlerBoundsRuntimeEphemeralServers(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		return []mcppool.ToolInfo{{Name: "ping"}}, nil
+	}
+	var closed []string
+	deps.poolClose = func(_ *mcppool.Pool, server string) {
+		closed = append(closed, server)
+	}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, ka, deps)
+	handler.activeCWD = "/tmp/project"
+
+	total := runtimeEphemeralMaxServer + 8
+	for i := 0; i < total; i++ {
+		source := fmt.Sprintf("/tmp/ephemeral-%03d.json", i)
+		resp := handler.handle(context.Background(), &ipc.Request{
+			Type:   "list_tools",
+			Server: source,
+			CWD:    "/tmp/project",
+			Ephemeral: &ipc.EphemeralServer{
+				Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+			},
+		})
+		if resp == nil {
+			t.Fatal("handler returned nil response")
+		}
+		if resp.ExitCode != ipc.ExitOK {
+			t.Fatalf("handler exit code = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+		}
+	}
+
+	if got := len(handler.ephemeralServers); got != runtimeEphemeralMaxServer {
+		t.Fatalf("ephemeralServers size = %d, want %d", got, runtimeEphemeralMaxServer)
+	}
+	if got := len(handler.ephemeralServerOrder); got != runtimeEphemeralMaxServer {
+		t.Fatalf("ephemeralServerOrder size = %d, want %d", got, runtimeEphemeralMaxServer)
+	}
+
+	oldest := "/tmp/ephemeral-000.json"
+	if _, ok := handler.ephemeralServers[oldest]; ok {
+		t.Fatalf("ephemeralServers still contains evicted %q", oldest)
+	}
+	if _, ok := handler.cfg.Servers[oldest]; ok {
+		t.Fatalf("cfg.Servers still contains evicted %q", oldest)
+	}
+	if _, ok := handler.cfg.ServerOrigins[oldest]; ok {
+		t.Fatalf("cfg.ServerOrigins still contains evicted %q", oldest)
+	}
+
+	newest := fmt.Sprintf("/tmp/ephemeral-%03d.json", total-1)
+	if _, ok := handler.ephemeralServers[newest]; !ok {
+		t.Fatalf("ephemeralServers missing newest %q", newest)
+	}
+	if _, ok := handler.cfg.Servers[newest]; !ok {
+		t.Fatalf("cfg.Servers missing newest %q", newest)
+	}
+	if got := handler.ephemeralServerOrder[len(handler.ephemeralServerOrder)-1]; got != newest {
+		t.Fatalf("last ephemeralServerOrder entry = %q, want %q", got, newest)
+	}
+	wantCloseCalls := total - runtimeEphemeralMaxServer
+	if got := len(closed); got != wantCloseCalls {
+		t.Fatalf("poolClose calls = %d, want %d", got, wantCloseCalls)
+	}
+	for i := 0; i < wantCloseCalls; i++ {
+		want := fmt.Sprintf("/tmp/ephemeral-%03d.json", i)
+		if got := closed[i]; got != want {
+			t.Fatalf("poolClose[%d] = %q, want %q", i, got, want)
+		}
 	}
 }

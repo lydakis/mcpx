@@ -25,7 +25,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-const codexAppsServerName = servercatalog.CodexAppsServerName
+const (
+	codexAppsServerName       = servercatalog.CodexAppsServerName
+	runtimeEphemeralMaxServer = 64
+)
 
 type runtimeDeps struct {
 	poolListTools         func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
@@ -35,6 +38,7 @@ type runtimeDeps struct {
 	cacheGetMetadata      func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
 	cachePut              func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
 	poolReset             func(pool *mcppool.Pool, cfg *config.Config)
+	poolClose             func(pool *mcppool.Pool, server string)
 	keepaliveStop         func(ka *Keepalive)
 	loadConfig            func() (*config.Config, error)
 	mergeFallbackForCWD   func(cfg *config.Config, cwd string) error
@@ -59,6 +63,11 @@ func runtimeDefaultDeps() runtimeDeps {
 		poolReset: func(pool *mcppool.Pool, cfg *config.Config) {
 			if pool != nil {
 				pool.Reset(cfg)
+			}
+		},
+		poolClose: func(pool *mcppool.Pool, server string) {
+			if pool != nil {
+				pool.Close(server)
 			}
 		},
 		keepaliveStop: func(ka *Keepalive) {
@@ -98,6 +107,9 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	}
 	if d.poolReset == nil {
 		d.poolReset = def.poolReset
+	}
+	if d.poolClose == nil {
+		d.poolClose = def.poolClose
 	}
 	if d.keepaliveStop == nil {
 		d.keepaliveStop = def.keepaliveStop
@@ -163,13 +175,15 @@ func Run() error {
 }
 
 type runtimeRequestHandler struct {
-	mu        sync.RWMutex
-	activeCWD string
-	cfgHash   string
-	cfg       *config.Config
-	pool      *mcppool.Pool
-	ka        *Keepalive
-	deps      runtimeDeps
+	mu                   sync.RWMutex
+	activeCWD            string
+	cfgHash              string
+	cfg                  *config.Config
+	pool                 *mcppool.Pool
+	ka                   *Keepalive
+	deps                 runtimeDeps
+	ephemeralServers     map[string]config.ServerConfig
+	ephemeralServerOrder []string
 }
 
 func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *runtimeRequestHandler {
@@ -179,12 +193,15 @@ func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepal
 func newRuntimeRequestHandlerWithDeps(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *runtimeRequestHandler {
 	deps = deps.withDefaults()
 	cfgHash, _ := configFingerprint(cfg)
+	ephemeralServers := runtimeEphemeralServersFromConfig(cfg)
 	return &runtimeRequestHandler{
-		cfgHash: cfgHash,
-		cfg:     cfg,
-		pool:    pool,
-		ka:      ka,
-		deps:    deps,
+		cfgHash:              cfgHash,
+		cfg:                  cfg,
+		pool:                 pool,
+		ka:                   ka,
+		deps:                 deps,
+		ephemeralServers:     ephemeralServers,
+		ephemeralServerOrder: runtimeEphemeralServerOrder(ephemeralServers),
 	}
 }
 
@@ -205,7 +222,7 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 	normalizedCWD := strings.TrimSpace(req.CWD)
 
 	h.mu.RLock()
-	if normalizedCWD == strings.TrimSpace(h.activeCWD) {
+	if normalizedCWD == strings.TrimSpace(h.activeCWD) && req.Ephemeral == nil {
 		// Safe to dispatch concurrently for same-CWD requests.
 		// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
 		defer h.mu.RUnlock()
@@ -219,8 +236,212 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 	if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
 	}
+	restoredEphemeral, restoreErr := installRuntimeEphemeralServers(h.cfg, h.ephemeralServers)
+	if restoreErr != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("restoring ephemeral servers: %v", restoreErr)}
+	}
+	installedEphemeral, resolvedName, resolvedServer, err := installRequestEphemeralServer(h.cfg, req.Server, req.Ephemeral)
+	if err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: err.Error()}
+	}
+	ephemeralStateChanged := restoredEphemeral
+	if installedEphemeral {
+		if rememberRuntimeEphemeralServer(h.cfg, h.pool, h.deps, &h.ephemeralServers, &h.ephemeralServerOrder, resolvedName, resolvedServer) {
+			ephemeralStateChanged = true
+		}
+	}
+	if ephemeralStateChanged {
+		nextHash, hashErr := configFingerprint(h.cfg)
+		if hashErr != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("fingerprinting runtime config: %v", hashErr)}
+		}
+		h.cfgHash = nextHash
+	}
 
 	return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
+}
+
+func installRequestEphemeralServer(cfg *config.Config, server string, ephemeral *ipc.EphemeralServer) (bool, string, config.ServerConfig, error) {
+	if cfg == nil || ephemeral == nil {
+		return false, "", config.ServerConfig{}, nil
+	}
+
+	resolvedName := strings.TrimSpace(server)
+	if resolvedName == "" {
+		return false, "", config.ServerConfig{}, fmt.Errorf("ephemeral server requires target name")
+	}
+
+	resolvedServer := config.ExpandServerForCurrentEnv(ephemeral.Server)
+	installed, err := installRuntimeEphemeralServer(cfg, resolvedName, resolvedServer)
+	if err != nil {
+		return false, "", config.ServerConfig{}, err
+	}
+	if !installed {
+		return false, "", config.ServerConfig{}, nil
+	}
+	return true, resolvedName, resolvedServer, nil
+}
+
+func installRuntimeEphemeralServers(cfg *config.Config, ephemeral map[string]config.ServerConfig) (bool, error) {
+	if cfg == nil || len(ephemeral) == 0 {
+		return false, nil
+	}
+
+	installedAny := false
+	for name, server := range ephemeral {
+		installed, err := installRuntimeEphemeralServer(cfg, name, server)
+		if err != nil {
+			return false, err
+		}
+		if installed {
+			installedAny = true
+		}
+	}
+	return installedAny, nil
+}
+
+func installRuntimeEphemeralServer(cfg *config.Config, name string, resolved config.ServerConfig) (bool, error) {
+	if cfg == nil {
+		return false, nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, fmt.Errorf("ephemeral server requires target name")
+	}
+	if _, exists := cfg.Servers[name]; exists {
+		return false, nil
+	}
+	validationCfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			name: resolved,
+		},
+	}
+	if err := config.Validate(validationCfg); err != nil {
+		return false, fmt.Errorf("invalid ephemeral server %q: %w", name, err)
+	}
+
+	if cfg.Servers == nil {
+		cfg.Servers = make(map[string]config.ServerConfig)
+	}
+	cfg.Servers[name] = resolved
+
+	if cfg.ServerOrigins == nil {
+		cfg.ServerOrigins = make(map[string]config.ServerOrigin)
+	}
+	cfg.ServerOrigins[name] = config.NewServerOrigin(config.ServerOriginKindRuntimeEphemeral, "")
+	return true, nil
+}
+
+func rememberRuntimeEphemeralServer(cfg *config.Config, pool *mcppool.Pool, deps runtimeDeps, servers *map[string]config.ServerConfig, order *[]string, name string, server config.ServerConfig) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	if servers == nil || order == nil {
+		return false
+	}
+	if *servers == nil {
+		*servers = make(map[string]config.ServerConfig)
+	}
+
+	if _, exists := (*servers)[name]; exists {
+		(*servers)[name] = server
+		*order = touchRuntimeEphemeralOrder(*order, name)
+		return false
+	}
+
+	(*servers)[name] = server
+	*order = touchRuntimeEphemeralOrder(*order, name)
+	changed := true
+	for len(*order) > runtimeEphemeralMaxServer {
+		evicted := strings.TrimSpace((*order)[0])
+		*order = (*order)[1:]
+		if evicted == "" {
+			continue
+		}
+		delete(*servers, evicted)
+		removeRuntimeEphemeralServer(cfg, evicted)
+		deps.poolClose(pool, evicted)
+	}
+	return changed
+}
+
+func touchRuntimeEphemeralOrder(order []string, name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return order
+	}
+	out := make([]string, 0, len(order)+1)
+	for _, existing := range order {
+		trimmed := strings.TrimSpace(existing)
+		if trimmed == "" || trimmed == name {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	out = append(out, name)
+	return out
+}
+
+func removeRuntimeEphemeralServer(cfg *config.Config, name string) {
+	if cfg == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	origin, ok := cfg.ServerOrigins[name]
+	if !ok {
+		return
+	}
+	if config.NormalizeServerOrigin(origin).Kind != config.ServerOriginKindRuntimeEphemeral {
+		return
+	}
+	delete(cfg.Servers, name)
+	delete(cfg.ServerOrigins, name)
+}
+
+func runtimeEphemeralServersFromConfig(cfg *config.Config) map[string]config.ServerConfig {
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return nil
+	}
+
+	out := make(map[string]config.ServerConfig)
+	for name, server := range cfg.Servers {
+		origin, ok := cfg.ServerOrigins[name]
+		if !ok {
+			continue
+		}
+		if config.NormalizeServerOrigin(origin).Kind != config.ServerOriginKindRuntimeEphemeral {
+			continue
+		}
+		trimmedName := strings.TrimSpace(name)
+		if trimmedName == "" {
+			continue
+		}
+		out[trimmedName] = server
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func runtimeEphemeralServerOrder(servers map[string]config.ServerConfig) []string {
+	if len(servers) == 0 {
+		return nil
+	}
+	order := make([]string, 0, len(servers))
+	for name := range servers {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		order = append(order, trimmed)
+	}
+	sort.Strings(order)
+	return order
 }
 
 func requestNeedsRuntimeConfig(req *ipc.Request) bool {
@@ -262,20 +483,58 @@ func syncRuntimeConfigForRequestWithDeps(reqCWD string, activeCWD, cfgHash *stri
 		if ka != nil {
 			ka.TouchDaemon()
 		}
+		*cfg = nextCfg
+		*cfgHash = nextHash
+		*activeCWD = normalized
+		return nil
 	}
-	*cfg = nextCfg
+
+	// Keep the existing runtime config pointer when the persistent fingerprint
+	// is unchanged so the daemon and pool continue sharing one config object.
+	if *cfg == nil {
+		*cfg = nextCfg
+	}
 	*cfgHash = nextHash
 	*activeCWD = normalized
 	return nil
 }
 
 func configFingerprint(cfg *config.Config) (string, error) {
-	data, err := json.Marshal(cfg)
+	data, err := json.Marshal(configForRuntimeFingerprint(cfg))
 	if err != nil {
 		return "", fmt.Errorf("fingerprinting config: %w", err)
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func configForRuntimeFingerprint(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+
+	filtered := &config.Config{
+		FallbackSources: append([]string(nil), cfg.FallbackSources...),
+		Servers:         make(map[string]config.ServerConfig, len(cfg.Servers)),
+		ServerOrigins:   make(map[string]config.ServerOrigin, len(cfg.ServerOrigins)),
+	}
+
+	for name, server := range cfg.Servers {
+		origin, ok := cfg.ServerOrigins[name]
+		if ok && config.NormalizeServerOrigin(origin).Kind == config.ServerOriginKindRuntimeEphemeral {
+			continue
+		}
+		filtered.Servers[name] = server
+	}
+
+	for name, origin := range cfg.ServerOrigins {
+		if config.NormalizeServerOrigin(origin).Kind == config.ServerOriginKindRuntimeEphemeral {
+			continue
+		}
+		filtered.ServerOrigins[name] = origin
+	}
+
+	return filtered
 }
 
 func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {
@@ -307,7 +566,7 @@ func dispatchWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 	case "ping":
 		return &ipc.Response{ExitCode: ipc.ExitOK}
 	case "list_servers":
-		return listServersWithDeps(ctx, cfg, pool, ka, deps)
+		return listServersWithDeps(ctx, cfg, pool, ka, req.IncludeHidden, deps)
 	case "list_tools":
 		return listToolsWithDeps(ctx, cfg, pool, ka, req.Server, req.Verbose, deps)
 	case "tool_schema":
@@ -323,16 +582,19 @@ func dispatchWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 }
 
 func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *ipc.Response {
-	return listServersWithDeps(ctx, cfg, pool, ka, runtimeDefaultDeps())
+	return listServersWithDeps(ctx, cfg, pool, ka, false, runtimeDefaultDeps())
 }
 
-func listServersWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *ipc.Response {
+func listServersWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, includeHidden bool, deps runtimeDeps) *ipc.Response {
 	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	names, err := catalog.ServerNames(ctx)
 	var warn string
 	if err != nil {
 		warn = fmt.Sprintf("mcpx: warning: failed to enumerate codex apps: %v", err)
-		names = configuredServerNames(cfg)
+		names = configuredServerNames(cfg, includeHidden)
+	}
+	if !includeHidden {
+		names = visibleServerNames(cfg, names)
 	}
 
 	entries := make([]serverListEntry, 0, len(names))
@@ -351,6 +613,22 @@ func listServersWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.
 		}
 	}
 	return &ipc.Response{Content: raw, Stderr: warn}
+}
+
+func visibleServerNames(cfg *config.Config, names []string) []string {
+	if len(names) == 0 || cfg == nil {
+		return names
+	}
+
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		origin, ok := cfg.ServerOrigins[name]
+		if ok && config.NormalizeServerOrigin(origin).Kind == config.ServerOriginKindRuntimeEphemeral {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
 }
 
 type serverListEntry struct {
@@ -375,7 +653,7 @@ func resolveServerOrigin(cfg *config.Config, name string) config.ServerOrigin {
 	return config.NewServerOrigin(config.ServerOriginKindCodexApps, "")
 }
 
-func configuredServerNames(cfg *config.Config) []string {
+func configuredServerNames(cfg *config.Config, includeHidden bool) []string {
 	if cfg == nil || len(cfg.Servers) == 0 {
 		return nil
 	}
@@ -385,10 +663,25 @@ func configuredServerNames(cfg *config.Config) []string {
 		if strings.TrimSpace(name) == "" || name == codexAppsServerName {
 			continue
 		}
+		if !includeHidden {
+			if origin, ok := cfg.ServerOrigins[name]; ok {
+				if config.NormalizeServerOrigin(origin).Kind == config.ServerOriginKindRuntimeEphemeral {
+					continue
+				}
+			}
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
+}
+
+func unknownServerResponse(server string) *ipc.Response {
+	return &ipc.Response{
+		ExitCode:  ipc.ExitUsageErr,
+		Stderr:    fmt.Sprintf("unknown server: %s", server),
+		ErrorCode: ipc.ErrorCodeUnknownServer,
+	}
 }
 
 func newServerCatalog(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *servercatalog.Catalog {
@@ -430,7 +723,7 @@ func listToolsWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Po
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
 	}
 	if !found {
-		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
+		return unknownServerResponse(server)
 	}
 
 	tools := routeTools
@@ -517,7 +810,7 @@ func toolSchemaWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.P
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
 	}
 	if !found {
-		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
+		return unknownServerResponse(server)
 	}
 
 	var info *mcppool.ToolInfo
@@ -578,11 +871,11 @@ func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("resolving server: %v", err)}
 	}
 	if !found {
-		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
+		return unknownServerResponse(server)
 	}
 	scfg, ok := cfg.Servers[route.ConfigServer]
 	if !ok {
-		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown server: %s", server)}
+		return unknownServerResponse(server)
 	}
 
 	ka.Begin(route.Backend)

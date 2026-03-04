@@ -12,13 +12,14 @@ type Config struct {
 type ServerOriginKind string
 
 const (
-	ServerOriginKindCodexApps      ServerOriginKind = "codex_apps"
-	ServerOriginKindMCPXConfig     ServerOriginKind = "mcpx_config"
-	ServerOriginKindCursor         ServerOriginKind = "cursor"
-	ServerOriginKindCodex          ServerOriginKind = "codex"
-	ServerOriginKindClaude         ServerOriginKind = "claude"
-	ServerOriginKindKiro           ServerOriginKind = "kiro"
-	ServerOriginKindFallbackCustom ServerOriginKind = "fallback_custom"
+	ServerOriginKindCodexApps        ServerOriginKind = "codex_apps"
+	ServerOriginKindMCPXConfig       ServerOriginKind = "mcpx_config"
+	ServerOriginKindCursor           ServerOriginKind = "cursor"
+	ServerOriginKindCodex            ServerOriginKind = "codex"
+	ServerOriginKindClaude           ServerOriginKind = "claude"
+	ServerOriginKindKiro             ServerOriginKind = "kiro"
+	ServerOriginKindFallbackCustom   ServerOriginKind = "fallback_custom"
+	ServerOriginKindRuntimeEphemeral ServerOriginKind = "runtime_ephemeral"
 )
 
 // ServerOrigin describes the source of a resolved server entry.

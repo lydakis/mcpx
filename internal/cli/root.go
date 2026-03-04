@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/lydakis/mcpx/internal/bootstrap"
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/daemon"
 	"github.com/lydakis/mcpx/internal/ipc"
@@ -24,6 +26,8 @@ var (
 	newDaemonClient  = func(socketPath, nonce string) daemonRequester {
 		return ipc.NewClient(socketPath, nonce)
 	}
+	resolveSourceFn = bootstrap.Resolve
+	checkPrereqsFn  = bootstrap.CheckPrerequisites
 )
 
 // Run is the main CLI entry point. Returns an exit code.
@@ -83,6 +87,7 @@ func Run(args []string) int {
 	cmd := inv.serverCmd
 
 	if cmd.list && cmd.listOpts.help {
+		cwd := callerWorkingDirectory()
 		nonce, err := spawnOrConnectFn()
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -90,8 +95,9 @@ func Run(args []string) int {
 		}
 		client := newDaemonClient(ipc.SocketPath(), nonce)
 		resp, err := client.Send(&ipc.Request{
-			Type: "list_servers",
-			CWD:  callerWorkingDirectory(),
+			Type:          "list_servers",
+			CWD:           cwd,
+			IncludeHidden: true,
 		})
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -104,9 +110,21 @@ func Run(args []string) int {
 			return resp.ExitCode
 		}
 
-		knownServers := decodeServerListPayload(resp.Content)
+		knownServerEntries := decodeServerListEntries(resp.Content)
+		knownServers := serverNamesFromEntries(knownServerEntries)
 		if !containsServerName(knownServers, server) {
-			printUnknownServer(server, knownServers)
+			ephemeral, resolveResp := resolveEphemeralSource(server)
+			if resolveResp != nil {
+				if resolveResp.Stderr != "" {
+					fmt.Fprintln(rootStderr, resolveResp.Stderr)
+				}
+				return resolveResp.ExitCode
+			}
+			if ephemeral != nil {
+				printToolListHelp(rootStdout, server)
+				return ipc.ExitOK
+			}
+			printUnknownServer(server, visibleServerNamesFromEntries(knownServerEntries))
 			return ipc.ExitUsageErr
 		}
 		printToolListHelp(rootStdout, server)
@@ -418,7 +436,7 @@ func printToolListHelp(out io.Writer, server string) {
 }
 
 func listTools(client daemonRequester, server, cwd string, verbose bool, output outputMode) int {
-	resp, err := client.Send(&ipc.Request{
+	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
 		Type:    "list_tools",
 		Server:  server,
 		Verbose: verbose,
@@ -478,16 +496,7 @@ func writePayload(w io.Writer, label string, payload []byte) error {
 }
 
 func decodeServerListPayload(payload []byte) []string {
-	entries := decodeServerListEntries(payload)
-	if len(entries) == 0 {
-		return nil
-	}
-
-	out := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry.Name)
-	}
-	return out
+	return serverNamesFromEntries(decodeServerListEntries(payload))
 }
 
 type serverListEntry struct {
@@ -556,6 +565,32 @@ func containsServerName(names []string, server string) bool {
 	return false
 }
 
+func serverNamesFromEntries(entries []serverListEntry) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.Name)
+	}
+	return out
+}
+
+func visibleServerNamesFromEntries(entries []serverListEntry) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		origin := config.NormalizeServerOrigin(entry.Origin)
+		if origin.Kind == config.ServerOriginKindRuntimeEphemeral {
+			continue
+		}
+		out = append(out, entry.Name)
+	}
+	return out
+}
+
 func printUnknownServer(server string, names []string) {
 	fmt.Fprintf(rootStderr, "mcpx: unknown server: %s\n", server)
 	if len(names) == 0 {
@@ -575,7 +610,7 @@ func resolvedToolHelpName(requested, payloadName string) string {
 }
 
 func showHelp(client daemonRequester, server, tool, cwd string, output outputMode) int {
-	resp, err := client.Send(&ipc.Request{
+	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
 		Type:   "tool_schema",
 		Server: server,
 		Tool:   tool,
@@ -630,7 +665,7 @@ func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd
 		return ipc.ExitUsageErr
 	}
 
-	resp, err := client.Send(&ipc.Request{
+	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
 		Type:    "call_tool",
 		Server:  server,
 		Tool:    tool,
@@ -696,4 +731,83 @@ func callerWorkingDirectory() string {
 		return ""
 	}
 	return cwd
+}
+
+func sendServerRequestWithEphemeralFallback(client daemonRequester, req *ipc.Request) (*ipc.Response, error) {
+	resp, err := client.Send(req)
+	if err != nil {
+		return nil, err
+	}
+	if req == nil || req.Ephemeral != nil || !isUnknownServerResponse(resp, req.Server) {
+		return resp, nil
+	}
+
+	ephemeral, resolveResp := resolveEphemeralSource(req.Server)
+	if resolveResp != nil {
+		return resolveResp, nil
+	}
+	if ephemeral == nil {
+		return resp, nil
+	}
+
+	retry := *req
+	retry.Ephemeral = ephemeral
+	return client.Send(&retry)
+}
+
+func resolveEphemeralSource(source string) (*ipc.EphemeralServer, *ipc.Response) {
+	resolved, err := resolveSourceFn(context.Background(), source, bootstrap.ResolveOptions{})
+	if err != nil {
+		if !looksLikeExplicitEphemeralSource(source) {
+			return nil, nil
+		}
+		return nil, &ipc.Response{
+			ExitCode: classifyResolveErrorExitCode(err),
+			Stderr:   fmt.Sprintf("resolving source %q: %v", source, err),
+		}
+	}
+	if err := checkPrereqsFn(config.ExpandServerForCurrentEnv(resolved.Server)); err != nil {
+		return nil, &ipc.Response{
+			ExitCode: ipc.ExitUsageErr,
+			Stderr:   fmt.Sprintf("resolving source %q: %v", source, err),
+		}
+	}
+	return &ipc.EphemeralServer{Server: resolved.Server}, nil
+}
+
+func looksLikeExplicitEphemeralSource(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	lower := strings.ToLower(source)
+	if strings.Contains(lower, "://") {
+		return true
+	}
+	if strings.Contains(source, "/") || strings.Contains(source, "\\") {
+		return true
+	}
+	if strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".toml") {
+		return true
+	}
+	if strings.Contains(lower, "?config=") {
+		return true
+	}
+	return false
+}
+
+func isUnknownServerResponse(resp *ipc.Response, server string) bool {
+	if resp == nil || resp.ExitCode != ipc.ExitUsageErr {
+		return false
+	}
+	if strings.TrimSpace(resp.ErrorCode) == ipc.ErrorCodeUnknownServer {
+		return true
+	}
+	msg := strings.TrimSpace(resp.Stderr)
+	wantPrefix := "unknown server: "
+	if !strings.HasPrefix(msg, wantPrefix) {
+		return false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(msg, wantPrefix))
+	return name == strings.TrimSpace(server)
 }

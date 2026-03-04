@@ -1,4 +1,4 @@
-.PHONY: build test vet check qa perf perf-loop dist release-snapshot clean
+.PHONY: build test vet check qa qa-core qa-extended perf perf-loop dist release-snapshot clean
 
 BINARY ?= mcpx
 CMD ?= ./cmd/mcpx
@@ -17,7 +17,13 @@ vet:
 check: test vet build
 
 qa:
-	./scripts/qa_matrix.sh
+	QA_SCOPE=all ./scripts/qa_matrix.sh
+
+qa-core:
+	QA_SCOPE=core ./scripts/qa_matrix.sh
+
+qa-extended:
+	QA_SCOPE=extended ./scripts/qa_matrix.sh
 
 perf:
 	./scripts/perf_bench.sh

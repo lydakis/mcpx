@@ -198,7 +198,7 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 		}, nil
 	}
 
-	resp := listServersWithDeps(context.Background(), cfg, nil, ka, deps)
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -244,7 +244,7 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 		return nil, errors.New("token expired")
 	}
 
-	resp := listServersWithDeps(context.Background(), cfg, nil, ka, deps)
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -262,6 +262,62 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 	}
 	if !strings.Contains(resp.Stderr, "failed to enumerate codex apps") {
 		t.Fatalf("listServers() stderr = %q, want codex-apps warning", resp.Stderr)
+	}
+}
+
+func TestListServersSkipsRuntimeEphemeralServers(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github":     {},
+			"/tmp/mcp":   {URL: "https://example.com/mcp"},
+			"filesystem": {},
+		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"github":     config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+			"/tmp/mcp":   config.NewServerOrigin(config.ServerOriginKindRuntimeEphemeral, ""),
+			"filesystem": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, runtimeDefaultDeps())
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+
+	got := decodeServerLines(resp.Content)
+	want := []string{"filesystem", "github"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("server list = %#v, want %#v", got, want)
+	}
+}
+
+func TestListServersIncludesRuntimeEphemeralServersWhenRequested(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github":     {},
+			"/tmp/mcp":   {URL: "https://example.com/mcp"},
+			"filesystem": {},
+		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"github":     config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+			"/tmp/mcp":   config.NewServerOrigin(config.ServerOriginKindRuntimeEphemeral, ""),
+			"filesystem": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, true, runtimeDefaultDeps())
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+
+	got := decodeServerLines(resp.Content)
+	want := []string{"/tmp/mcp", "filesystem", "github"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("server list = %#v, want %#v", got, want)
 	}
 }
 
@@ -321,6 +377,23 @@ func TestListToolsCodexAppsServerNameIsNotAddressable(t *testing.T) {
 	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, codexAppsServerName, false, deps)
 	if resp.ExitCode != ipc.ExitUsageErr {
 		t.Fatalf("listTools() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
+	}
+}
+
+func TestListToolsUnknownServerSetsStructuredErrorCode(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	resp := listToolsWithDeps(context.Background(), cfg, nil, ka, "missing", false, runtimeDefaultDeps())
+	if resp.ExitCode != ipc.ExitUsageErr {
+		t.Fatalf("listTools() exit = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
+	}
+	if resp.ErrorCode != ipc.ErrorCodeUnknownServer {
+		t.Fatalf("listTools() error code = %q, want %q", resp.ErrorCode, ipc.ErrorCodeUnknownServer)
+	}
+	if !strings.Contains(resp.Stderr, "unknown server: missing") {
+		t.Fatalf("listTools() stderr = %q, want unknown-server message", resp.Stderr)
 	}
 }
 

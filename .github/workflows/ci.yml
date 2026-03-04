@@ -21,8 +21,18 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run check gates
-        run: make check
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
 
-      - name: Run QA matrix
-        run: make qa
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Run QA core matrix
+        run: make qa-core
+
+      - name: Run QA extended matrix
+        run: make qa-extended
