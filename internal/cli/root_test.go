@@ -1587,6 +1587,40 @@ func TestSourceRequestServerKeyLeavesNonExplicitNameUnchanged(t *testing.T) {
 	}
 }
 
+func TestResolveEphemeralSourceReturnsUsageErrorForInvalidResolvedServer(t *testing.T) {
+	oldResolve := resolveSourceFn
+	oldCheck := checkPrereqsFn
+	defer func() {
+		resolveSourceFn = oldResolve
+		checkPrereqsFn = oldCheck
+	}()
+
+	source := "/tmp/server.json"
+	resolveSourceFn = func(_ context.Context, got string, _ bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
+		if got != source {
+			return bootstrap.ResolvedServer{}, fmt.Errorf("unexpected source %q", got)
+		}
+		return bootstrap.ResolvedServer{
+			Server: config.ServerConfig{},
+		}, nil
+	}
+	checkPrereqsFn = func(config.ServerConfig) error { return nil }
+
+	ephemeral, resp := resolveEphemeralSource(source)
+	if ephemeral != nil {
+		t.Fatalf("ephemeral = %#v, want nil", ephemeral)
+	}
+	if resp == nil {
+		t.Fatal("resolve response = nil, want usage error")
+	}
+	if resp.ExitCode != ipc.ExitUsageErr {
+		t.Fatalf("exit code = %d, want %d", resp.ExitCode, ipc.ExitUsageErr)
+	}
+	if !strings.Contains(resp.Stderr, "missing transport") {
+		t.Fatalf("stderr = %q, want missing transport validation error", resp.Stderr)
+	}
+}
+
 func TestRunConfiguredServerHelpWithSlashNameDoesNotCanonicalize(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")

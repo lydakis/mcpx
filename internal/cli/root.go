@@ -818,13 +818,32 @@ func resolveEphemeralSource(source string) (*ipc.EphemeralServer, *ipc.Response)
 			Stderr:   fmt.Sprintf("resolving source %q: %v", source, err),
 		}
 	}
-	if err := checkPrereqsFn(config.ExpandServerForCurrentEnv(resolved.Server)); err != nil {
+	expanded := config.ExpandServerForCurrentEnv(resolved.Server)
+	if err := checkPrereqsFn(expanded); err != nil {
+		return nil, &ipc.Response{
+			ExitCode: ipc.ExitUsageErr,
+			Stderr:   fmt.Sprintf("resolving source %q: %v", source, err),
+		}
+	}
+	if err := validateResolvedEphemeralServer(source, expanded); err != nil {
 		return nil, &ipc.Response{
 			ExitCode: ipc.ExitUsageErr,
 			Stderr:   fmt.Sprintf("resolving source %q: %v", source, err),
 		}
 	}
 	return &ipc.EphemeralServer{Server: resolved.Server}, nil
+}
+
+func validateResolvedEphemeralServer(name string, resolved config.ServerConfig) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("ephemeral server requires target name")
+	}
+	return config.Validate(&config.Config{
+		Servers: map[string]config.ServerConfig{
+			name: resolved,
+		},
+	})
 }
 
 func looksLikeExplicitEphemeralSource(source string) bool {

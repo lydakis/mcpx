@@ -38,6 +38,7 @@ type runtimeDeps struct {
 	cacheGetMetadata      func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
 	cachePut              func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
 	poolReset             func(pool *mcppool.Pool, cfg *config.Config)
+	poolSetConfig         func(pool *mcppool.Pool, cfg *config.Config)
 	poolClose             func(pool *mcppool.Pool, server string)
 	keepaliveStop         func(ka *Keepalive)
 	loadConfig            func() (*config.Config, error)
@@ -63,6 +64,11 @@ func runtimeDefaultDeps() runtimeDeps {
 		poolReset: func(pool *mcppool.Pool, cfg *config.Config) {
 			if pool != nil {
 				pool.Reset(cfg)
+			}
+		},
+		poolSetConfig: func(pool *mcppool.Pool, cfg *config.Config) {
+			if pool != nil {
+				pool.SetConfig(cfg)
 			}
 		},
 		poolClose: func(pool *mcppool.Pool, server string) {
@@ -107,6 +113,9 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	}
 	if d.poolReset == nil {
 		d.poolReset = def.poolReset
+	}
+	if d.poolSetConfig == nil {
+		d.poolSetConfig = def.poolSetConfig
 	}
 	if d.poolClose == nil {
 		d.poolClose = def.poolClose
@@ -491,11 +500,10 @@ func syncRuntimeConfigForRequestWithDeps(reqCWD string, activeCWD, cfgHash *stri
 		return nil
 	}
 
-	// Keep the existing runtime config pointer when the persistent fingerprint
-	// is unchanged so the daemon and pool continue sharing one config object.
-	if *cfg == nil {
-		*cfg = nextCfg
-	}
+	// Keep active pooled connections, but still move both daemon and pool to
+	// the freshly loaded config object so future runtime updates stay in sync.
+	deps.poolSetConfig(pool, nextCfg)
+	*cfg = nextCfg
 	*cfgHash = nextHash
 	*activeCWD = normalized
 	return nil

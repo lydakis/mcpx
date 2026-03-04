@@ -351,6 +351,17 @@ func closeConnection(conn *connection) {
 	}(conn)
 }
 
+// SetConfig swaps the underlying config without dropping active connections.
+func (p *Pool) SetConfig(cfg *config.Config) {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	p.cfg = cfg
+	p.mu.Unlock()
+}
+
 func marshalInputSchema(t mcp.Tool) (json.RawMessage, error) {
 	if len(t.RawInputSchema) > 0 {
 		return t.RawInputSchema, nil

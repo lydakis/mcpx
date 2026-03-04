@@ -123,7 +123,7 @@ func TestSyncRuntimeConfigForRequestReturnsConfigLoadErrors(t *testing.T) {
 	}
 }
 
-func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *testing.T) {
+func TestSyncRuntimeConfigForRequestSkipsResetAndResyncsPoolConfigWhenConfigFingerprintUnchanged(t *testing.T) {
 	deps := runtimeDefaultDeps()
 	deps.loadConfig = func() (*config.Config, error) {
 		return &config.Config{
@@ -137,8 +137,12 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 
 	var resetCalls int
 	var stopCalls int
+	var setConfigCalls int
 	deps.poolReset = func(_ *mcppool.Pool, _ *config.Config) {
 		resetCalls++
+	}
+	deps.poolSetConfig = func(_ *mcppool.Pool, _ *config.Config) {
+		setConfigCalls++
 	}
 	deps.keepaliveStop = func(_ *Keepalive) {
 		stopCalls++
@@ -159,18 +163,23 @@ func TestSyncRuntimeConfigForRequestSkipsResetWhenConfigFingerprintUnchanged(t *
 	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-a", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-a) error = %v", err)
 	}
-	if cfg != initialCfg {
-		t.Fatal("cfg pointer changed after unchanged-fingerprint sync")
+	firstReloadCfg := cfg
+	if firstReloadCfg == initialCfg {
+		t.Fatal("cfg pointer unchanged after unchanged-fingerprint sync")
 	}
 	if err := syncRuntimeConfigForRequestWithDeps("/tmp/project-b", &activeCWD, &cfgHash, &cfg, nil, nil, deps); err != nil {
 		t.Fatalf("syncRuntimeConfigForRequest(project-b) error = %v", err)
 	}
-	if cfg != initialCfg {
-		t.Fatal("cfg pointer changed after second unchanged-fingerprint sync")
+	secondReloadCfg := cfg
+	if secondReloadCfg == firstReloadCfg {
+		t.Fatal("cfg pointer unchanged after second unchanged-fingerprint sync")
 	}
 
 	if resetCalls != 0 || stopCalls != 0 {
 		t.Fatalf("lifecycle hooks called reset=%d stop=%d, want 0/0 for same effective config", resetCalls, stopCalls)
+	}
+	if setConfigCalls != 2 {
+		t.Fatalf("poolSetConfig calls = %d, want 2 for unchanged-fingerprint cwd syncs", setConfigCalls)
 	}
 	if activeCWD != "/tmp/project-b" {
 		t.Fatalf("active cwd = %q, want %q", activeCWD, "/tmp/project-b")

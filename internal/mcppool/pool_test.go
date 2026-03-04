@@ -569,6 +569,36 @@ func TestResetReturnsWithoutWaitingForBusyConnection(t *testing.T) {
 	}
 }
 
+func TestSetConfigSwapsConfigWithoutDroppingConnections(t *testing.T) {
+	conn := &connection{}
+	initial := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {Command: "echo", Args: []string{"old"}},
+		},
+	}
+	updated := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {Command: "echo", Args: []string{"new"}},
+		},
+	}
+
+	p := &Pool{
+		cfg:   initial,
+		conns: map[string]*connection{"github": conn},
+	}
+
+	p.SetConfig(updated)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cfg != updated {
+		t.Fatal("pool config pointer was not updated")
+	}
+	if got := p.conns["github"]; got != conn {
+		t.Fatal("existing connection was dropped when swapping config")
+	}
+}
+
 func TestListToolsIncludesOutputSchema(t *testing.T) {
 	conn := &connection{
 		listTools: func(context.Context) ([]mcp.Tool, error) {
