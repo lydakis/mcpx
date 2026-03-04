@@ -360,8 +360,9 @@ func rememberRuntimeEphemeralServer(cfg *config.Config, pool *mcppool.Pool, deps
 			continue
 		}
 		delete(*servers, evicted)
-		removeRuntimeEphemeralServer(cfg, evicted)
-		deps.poolClose(pool, evicted)
+		if removeRuntimeEphemeralServer(cfg, evicted) {
+			deps.poolClose(pool, evicted)
+		}
 	}
 	return changed
 }
@@ -383,23 +384,24 @@ func touchRuntimeEphemeralOrder(order []string, name string) []string {
 	return out
 }
 
-func removeRuntimeEphemeralServer(cfg *config.Config, name string) {
+func removeRuntimeEphemeralServer(cfg *config.Config, name string) bool {
 	if cfg == nil {
-		return
+		return false
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return
+		return false
 	}
 	origin, ok := cfg.ServerOrigins[name]
 	if !ok {
-		return
+		return false
 	}
 	if config.NormalizeServerOrigin(origin).Kind != config.ServerOriginKindRuntimeEphemeral {
-		return
+		return false
 	}
 	delete(cfg.Servers, name)
 	delete(cfg.ServerOrigins, name)
+	return true
 }
 
 func runtimeEphemeralServersFromConfig(cfg *config.Config) map[string]config.ServerConfig {

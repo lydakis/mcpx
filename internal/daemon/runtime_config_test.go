@@ -563,3 +563,55 @@ func TestRuntimeRequestHandlerBoundsRuntimeEphemeralServers(t *testing.T) {
 		}
 	}
 }
+
+func TestRememberRuntimeEphemeralServerDoesNotClosePersistentNameCollision(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"shared": {Command: "echo", Args: []string{"configured"}},
+		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"shared": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, "/tmp/mcpx/config.toml"),
+		},
+	}
+
+	servers := map[string]config.ServerConfig{
+		"shared": {Command: "echo", Args: []string{"runtime-ephemeral"}},
+	}
+	order := []string{"shared"}
+	for i := 0; i < runtimeEphemeralMaxServer-1; i++ {
+		name := fmt.Sprintf("ephemeral-%03d", i)
+		servers[name] = config.ServerConfig{Command: "echo", Args: []string{"ok"}}
+		order = append(order, name)
+	}
+
+	var closed []string
+	deps := runtimeDefaultDeps()
+	deps.poolClose = func(_ *mcppool.Pool, server string) {
+		closed = append(closed, server)
+	}
+
+	changed := rememberRuntimeEphemeralServer(
+		cfg,
+		nil,
+		deps,
+		&servers,
+		&order,
+		"new-ephemeral",
+		config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+	)
+	if !changed {
+		t.Fatal("rememberRuntimeEphemeralServer() changed = false, want true")
+	}
+	if _, ok := cfg.Servers["shared"]; !ok {
+		t.Fatal("cfg.Servers missing persistent collision entry")
+	}
+	if got := config.NormalizeServerOrigin(cfg.ServerOrigins["shared"]).Kind; got != config.ServerOriginKindMCPXConfig {
+		t.Fatalf("cfg.ServerOrigins[shared] kind = %q, want %q", got, config.ServerOriginKindMCPXConfig)
+	}
+	if _, ok := servers["shared"]; ok {
+		t.Fatal("runtime-ephemeral overlay still contains stale collision entry")
+	}
+	if len(closed) != 0 {
+		t.Fatalf("poolClose called for persistent collision entry: %#v", closed)
+	}
+}

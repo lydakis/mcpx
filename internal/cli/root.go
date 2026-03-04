@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -85,9 +86,14 @@ func Run(args []string) int {
 
 	server := inv.server
 	cmd := inv.serverCmd
+	canonicalizeSource := shouldCanonicalizeExplicitSource(server, cfg)
 
 	if cmd.list && cmd.listOpts.help {
 		cwd := callerWorkingDirectory()
+		requestServer := server
+		if canonicalizeSource {
+			requestServer = sourceRequestServerKey(server, cwd)
+		}
 		nonce, err := spawnOrConnectFn()
 		if err != nil {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -112,8 +118,8 @@ func Run(args []string) int {
 
 		knownServerEntries := decodeServerListEntries(resp.Content)
 		knownServers := serverNamesFromEntries(knownServerEntries)
-		if !containsServerName(knownServers, server) {
-			ephemeral, resolveResp := resolveEphemeralSource(server)
+		if !containsServerName(knownServers, requestServer) {
+			ephemeral, resolveResp := resolveEphemeralSource(requestServer)
 			if resolveResp != nil {
 				if resolveResp.Stderr != "" {
 					fmt.Fprintln(rootStderr, resolveResp.Stderr)
@@ -141,10 +147,10 @@ func Run(args []string) int {
 	cwd := callerWorkingDirectory()
 
 	if cmd.list {
-		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.output)
+		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.output, canonicalizeSource)
 	}
 
-	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd)
+	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd, canonicalizeSource)
 }
 
 func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -435,13 +441,13 @@ func printToolListHelp(out io.Writer, server string) {
 	fmt.Fprintln(out, "  --help, -h       Show this help output")
 }
 
-func listTools(client daemonRequester, server, cwd string, verbose bool, output outputMode) int {
+func listTools(client daemonRequester, server, cwd string, verbose bool, output outputMode, canonicalizeSource bool) int {
 	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
 		Type:    "list_tools",
 		Server:  server,
 		Verbose: verbose,
 		CWD:     cwd,
-	})
+	}, canonicalizeSource)
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
@@ -609,13 +615,13 @@ func resolvedToolHelpName(requested, payloadName string) string {
 	return requested
 }
 
-func showHelp(client daemonRequester, server, tool, cwd string, output outputMode) int {
+func showHelp(client daemonRequester, server, tool, cwd string, output outputMode, canonicalizeSource bool) int {
 	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
 		Type:   "tool_schema",
 		Server: server,
 		Tool:   tool,
 		CWD:    cwd,
-	})
+	}, canonicalizeSource)
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitInternal
@@ -647,14 +653,14 @@ func showHelp(client daemonRequester, server, tool, cwd string, output outputMod
 	return resp.ExitCode
 }
 
-func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd string) int {
+func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd string, canonicalizeSource bool) int {
 	parsed, err := parseToolCallArgs(rawArgs, os.Stdin, stdinIsTTY(os.Stdin))
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		return ipc.ExitUsageErr
 	}
 	if parsed.help {
-		return showHelp(client, server, tool, cwd, parsed.output)
+		return showHelp(client, server, tool, cwd, parsed.output, canonicalizeSource)
 	}
 
 	argsJSON, err := json.Marshal(parsed.toolArgs)
@@ -673,7 +679,7 @@ func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd
 		Cache:   parsed.cacheTTL,
 		Verbose: parsed.verbose,
 		CWD:     cwd,
-	})
+	}, canonicalizeSource)
 	if err != nil {
 		if !parsed.quiet {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -733,16 +739,25 @@ func callerWorkingDirectory() string {
 	return cwd
 }
 
-func sendServerRequestWithEphemeralFallback(client daemonRequester, req *ipc.Request) (*ipc.Response, error) {
-	resp, err := client.Send(req)
+func sendServerRequestWithEphemeralFallback(client daemonRequester, req *ipc.Request, canonicalizeSource bool) (*ipc.Response, error) {
+	if req == nil {
+		return client.Send(req)
+	}
+
+	effectiveReq := *req
+	if canonicalizeSource {
+		effectiveReq.Server = sourceRequestServerKey(req.Server, req.CWD)
+	}
+
+	resp, err := client.Send(&effectiveReq)
 	if err != nil {
 		return nil, err
 	}
-	if req == nil || req.Ephemeral != nil || !isUnknownServerResponse(resp, req.Server) {
+	if effectiveReq.Ephemeral != nil || !isUnknownServerResponse(resp, effectiveReq.Server) {
 		return resp, nil
 	}
 
-	ephemeral, resolveResp := resolveEphemeralSource(req.Server)
+	ephemeral, resolveResp := resolveEphemeralSource(effectiveReq.Server)
 	if resolveResp != nil {
 		return resolveResp, nil
 	}
@@ -750,9 +765,46 @@ func sendServerRequestWithEphemeralFallback(client daemonRequester, req *ipc.Req
 		return resp, nil
 	}
 
-	retry := *req
+	retry := effectiveReq
 	retry.Ephemeral = ephemeral
 	return client.Send(&retry)
+}
+
+func shouldCanonicalizeExplicitSource(server string, cfg *config.Config) bool {
+	server = strings.TrimSpace(server)
+	if server == "" || !looksLikeExplicitEphemeralSource(server) {
+		return false
+	}
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return true
+	}
+	if _, exists := cfg.Servers[server]; exists {
+		return false
+	}
+	return true
+}
+
+func sourceRequestServerKey(source, cwd string) string {
+	source = strings.TrimSpace(source)
+	if source == "" || !looksLikeExplicitEphemeralSource(source) {
+		return source
+	}
+
+	lower := strings.ToLower(source)
+	if strings.Contains(lower, "://") || strings.Contains(lower, "?config=") {
+		return source
+	}
+
+	cleaned := filepath.Clean(source)
+	if filepath.IsAbs(cleaned) {
+		return cleaned
+	}
+
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return cleaned
+	}
+	return filepath.Clean(filepath.Join(cwd, cleaned))
 }
 
 func resolveEphemeralSource(source string) (*ipc.EphemeralServer, *ipc.Response) {
