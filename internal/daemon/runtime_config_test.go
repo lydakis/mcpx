@@ -353,6 +353,101 @@ func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequestHandlerAllowsConcurrentDispatchAfterCWDSync(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {Command: "echo", Args: []string{"old"}},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	var inFlight int32
+	var maxInFlight int32
+	dispatchStarted := make(chan struct{}, 2)
+	releaseDispatch := make(chan struct{})
+
+	deps := runtimeDefaultDeps()
+	deps.loadConfig = func() (*config.Config, error) {
+		return &config.Config{
+			Servers: map[string]config.ServerConfig{
+				"github": {Command: "echo", Args: []string{"old"}},
+			},
+		}, nil
+	}
+	deps.mergeFallbackForCWD = func(*config.Config, string) error { return nil }
+	deps.validateConfig = func(*config.Config) error { return nil }
+	deps.poolSetConfig = func(*mcppool.Pool, *config.Config) {}
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+		if server != "github" {
+			t.Fatalf("poolListTools server = %q, want github", server)
+		}
+		n := atomic.AddInt32(&inFlight, 1)
+		for {
+			currentMax := atomic.LoadInt32(&maxInFlight)
+			if n <= currentMax {
+				break
+			}
+			if atomic.CompareAndSwapInt32(&maxInFlight, currentMax, n) {
+				break
+			}
+		}
+		dispatchStarted <- struct{}{}
+		<-releaseDispatch
+		atomic.AddInt32(&inFlight, -1)
+		return []mcppool.ToolInfo{{Name: "ping", Description: "Ping"}}, nil
+	}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, ka, deps)
+	handler.activeCWD = "/tmp/old"
+
+	results := make(chan *ipc.Response, 2)
+	go func() {
+		results <- handler.handle(context.Background(), &ipc.Request{
+			Type:   "list_tools",
+			Server: "github",
+			CWD:    "/tmp/new",
+		})
+	}()
+
+	select {
+	case <-dispatchStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("first request did not reach dispatch")
+	}
+
+	go func() {
+		results <- handler.handle(context.Background(), &ipc.Request{
+			Type:   "list_tools",
+			Server: "github",
+			CWD:    "/tmp/new",
+		})
+	}()
+
+	select {
+	case <-dispatchStarted:
+		// second request reached dispatch while first request was still in-flight
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("second request did not dispatch concurrently after CWD sync")
+	}
+
+	close(releaseDispatch)
+
+	for i := 0; i < 2; i++ {
+		resp := <-results
+		if resp == nil {
+			t.Fatal("handler returned nil response")
+		}
+		if resp.ExitCode != ipc.ExitOK {
+			t.Fatalf("handler exit code = %d, want %d (stderr=%q)", resp.ExitCode, ipc.ExitOK, resp.Stderr)
+		}
+	}
+
+	if got := atomic.LoadInt32(&maxInFlight); got < 2 {
+		t.Fatalf("max concurrent dispatch after CWD sync = %d, want >= 2", got)
+	}
+}
+
 func TestRuntimeRequestHandlerInstallsEphemeralServerFromRequest(t *testing.T) {
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	ka := NewKeepalive(nil)

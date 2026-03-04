@@ -185,6 +185,7 @@ func Run() error {
 
 type runtimeRequestHandler struct {
 	mu                   sync.RWMutex
+	stateVersion         uint64
 	activeCWD            string
 	cfgHash              string
 	cfg                  *config.Config
@@ -230,44 +231,61 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 
 	normalizedCWD := strings.TrimSpace(req.CWD)
 
-	h.mu.RLock()
-	if normalizedCWD == strings.TrimSpace(h.activeCWD) && req.Ephemeral == nil {
-		// Safe to dispatch concurrently for same-CWD requests.
-		// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
-		defer h.mu.RUnlock()
-		return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
-	}
-	h.mu.RUnlock()
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
-		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
-	}
-	restoredEphemeral, restoreErr := installRuntimeEphemeralServers(h.cfg, h.ephemeralServers)
-	if restoreErr != nil {
-		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("restoring ephemeral servers: %v", restoreErr)}
-	}
-	installedEphemeral, resolvedName, resolvedServer, err := installRequestEphemeralServer(h.cfg, req.Server, req.Ephemeral)
-	if err != nil {
-		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: err.Error()}
-	}
-	ephemeralStateChanged := restoredEphemeral
-	if installedEphemeral {
-		if rememberRuntimeEphemeralServer(h.cfg, h.pool, h.deps, &h.ephemeralServers, &h.ephemeralServerOrder, resolvedName, resolvedServer) {
-			ephemeralStateChanged = true
+	for {
+		h.mu.RLock()
+		if normalizedCWD == strings.TrimSpace(h.activeCWD) && req.Ephemeral == nil {
+			// Safe to dispatch concurrently for same-CWD requests.
+			// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
+			resp := dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
+			h.mu.RUnlock()
+			return resp
 		}
-	}
-	if ephemeralStateChanged {
-		nextHash, hashErr := configFingerprint(h.cfg)
-		if hashErr != nil {
-			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("fingerprinting runtime config: %v", hashErr)}
-		}
-		h.cfgHash = nextHash
-	}
+		h.mu.RUnlock()
 
-	return dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
+		h.mu.Lock()
+
+		if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
+			h.mu.Unlock()
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
+		}
+		restoredEphemeral, restoreErr := installRuntimeEphemeralServers(h.cfg, h.ephemeralServers)
+		if restoreErr != nil {
+			h.mu.Unlock()
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("restoring ephemeral servers: %v", restoreErr)}
+		}
+		installedEphemeral, resolvedName, resolvedServer, err := installRequestEphemeralServer(h.cfg, req.Server, req.Ephemeral)
+		if err != nil {
+			h.mu.Unlock()
+			return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: err.Error()}
+		}
+		ephemeralStateChanged := restoredEphemeral
+		if installedEphemeral {
+			if rememberRuntimeEphemeralServer(h.cfg, h.pool, h.deps, &h.ephemeralServers, &h.ephemeralServerOrder, resolvedName, resolvedServer) {
+				ephemeralStateChanged = true
+			}
+		}
+		if ephemeralStateChanged {
+			nextHash, hashErr := configFingerprint(h.cfg)
+			if hashErr != nil {
+				h.mu.Unlock()
+				return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("fingerprinting runtime config: %v", hashErr)}
+			}
+			h.cfgHash = nextHash
+		}
+
+		h.stateVersion++
+		dispatchVersion := h.stateVersion
+		h.mu.Unlock()
+
+		h.mu.RLock()
+		if h.stateVersion != dispatchVersion {
+			h.mu.RUnlock()
+			continue
+		}
+		resp := dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
+		h.mu.RUnlock()
+		return resp
+	}
 }
 
 func installRequestEphemeralServer(cfg *config.Config, server string, ephemeral *ipc.EphemeralServer) (bool, string, config.ServerConfig, error) {
