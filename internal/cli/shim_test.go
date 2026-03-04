@@ -282,3 +282,201 @@ func TestRunShimInstallWithSkillStrictFailsOnSkillError(t *testing.T) {
 		t.Fatalf("runShimCommand(install --skill --skill-strict) = %d, want %d", code, ipc.ExitInternal)
 	}
 }
+
+func TestPrintShimHelpIncludesUsageAndSubcommandSections(t *testing.T) {
+	var out bytes.Buffer
+	printShimHelp(&out)
+
+	got := out.String()
+	for _, want := range []string{
+		"mcpx shim install <server>",
+		"mcpx shim remove <server>",
+		"mcpx shim list",
+		"Install flags:",
+		"Remove flags:",
+		"List flags:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("printShimHelp() output missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestPrintShimInstallHelpIncludesSkillFlags(t *testing.T) {
+	var out bytes.Buffer
+	printShimInstallHelp(&out)
+
+	got := out.String()
+	for _, want := range []string{
+		"--skill",
+		"--skill-strict",
+		"--data-agent-dir",
+		"--openclaw-link",
+		"--help, -h",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("printShimInstallHelp() output missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestPrintShimRemoveAndListHelpIncludeHelpFlag(t *testing.T) {
+	var removeOut bytes.Buffer
+	printShimRemoveHelp(&removeOut)
+	if got := removeOut.String(); !strings.Contains(got, "--help, -h") {
+		t.Fatalf("printShimRemoveHelp() output missing help flag: %q", got)
+	}
+
+	var listOut bytes.Buffer
+	printShimListHelp(&listOut)
+	if got := listOut.String(); !strings.Contains(got, "--help, -h") {
+		t.Fatalf("printShimListHelp() output missing help flag: %q", got)
+	}
+}
+
+func TestShimServerKnownHandlesConfiguredDiscoveredAndDiscoveryError(t *testing.T) {
+	oldKnownServersFn := shimKnownServersFn
+	defer func() { shimKnownServersFn = oldKnownServersFn }()
+
+	known, err := shimServerKnown("github", nil)
+	if err != nil {
+		t.Fatalf("shimServerKnown(nil cfg) error = %v", err)
+	}
+	if !known {
+		t.Fatal("shimServerKnown(nil cfg) = false, want true")
+	}
+
+	known, err = shimServerKnown("github", &config.Config{Servers: map[string]config.ServerConfig{"github": {}}})
+	if err != nil {
+		t.Fatalf("shimServerKnown(configured) error = %v", err)
+	}
+	if !known {
+		t.Fatal("shimServerKnown(configured) = false, want true")
+	}
+
+	shimKnownServersFn = func() ([]string, error) {
+		return nil, errors.New("discovery failed")
+	}
+	known, err = shimServerKnown("ghost", &config.Config{Servers: map[string]config.ServerConfig{}})
+	if err != nil {
+		t.Fatalf("shimServerKnown(discovery error) error = %v", err)
+	}
+	if !known {
+		t.Fatal("shimServerKnown(discovery error) = false, want true (graceful degrade)")
+	}
+
+	shimKnownServersFn = func() ([]string, error) {
+		return []string{"alpha", "beta"}, nil
+	}
+	known, err = shimServerKnown("beta", &config.Config{Servers: map[string]config.ServerConfig{}})
+	if err != nil {
+		t.Fatalf("shimServerKnown(discovered hit) error = %v", err)
+	}
+	if !known {
+		t.Fatal("shimServerKnown(discovered hit) = false, want true")
+	}
+
+	known, err = shimServerKnown("gamma", &config.Config{Servers: map[string]config.ServerConfig{}})
+	if err != nil {
+		t.Fatalf("shimServerKnown(discovered miss) error = %v", err)
+	}
+	if known {
+		t.Fatal("shimServerKnown(discovered miss) = true, want false")
+	}
+}
+
+func TestListShimKnownServersReturnsDecodedServerNames(t *testing.T) {
+	oldSpawnOrConnect := spawnOrConnectFn
+	oldNewDaemonClient := newDaemonClient
+	defer func() {
+		spawnOrConnectFn = oldSpawnOrConnect
+		newDaemonClient = oldNewDaemonClient
+	}()
+
+	spawnOrConnectFn = func() (string, error) {
+		return "nonce", nil
+	}
+
+	newDaemonClient = func(socketPath, nonce string) daemonRequester {
+		if socketPath != ipc.SocketPath() {
+			t.Fatalf("newDaemonClient socketPath = %q, want %q", socketPath, ipc.SocketPath())
+		}
+		if nonce != "nonce" {
+			t.Fatalf("newDaemonClient nonce = %q, want %q", nonce, "nonce")
+		}
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				if req == nil {
+					t.Fatal("listShimKnownServers() sent nil request")
+				}
+				if req.Type != "list_servers" {
+					t.Fatalf("request type = %q, want %q", req.Type, "list_servers")
+				}
+				return &ipc.Response{
+					ExitCode: ipc.ExitOK,
+					Content:  []byte(`[{"name":"zeta"},{"name":"alpha"},{"name":"alpha"}]`),
+				}, nil
+			},
+		}
+	}
+
+	servers, err := listShimKnownServers()
+	if err != nil {
+		t.Fatalf("listShimKnownServers() error = %v", err)
+	}
+	if got, want := strings.Join(servers, ","), "alpha,zeta"; got != want {
+		t.Fatalf("listShimKnownServers() = %q, want %q", got, want)
+	}
+}
+
+func TestListShimKnownServersPropagatesConnectionAndDaemonErrors(t *testing.T) {
+	oldSpawnOrConnect := spawnOrConnectFn
+	oldNewDaemonClient := newDaemonClient
+	defer func() {
+		spawnOrConnectFn = oldSpawnOrConnect
+		newDaemonClient = oldNewDaemonClient
+	}()
+
+	spawnOrConnectFn = func() (string, error) {
+		return "", errors.New("spawn failed")
+	}
+	if _, err := listShimKnownServers(); err == nil || !strings.Contains(err.Error(), "spawn failed") {
+		t.Fatalf("listShimKnownServers() error = %v, want spawn error", err)
+	}
+
+	spawnOrConnectFn = func() (string, error) {
+		return "nonce", nil
+	}
+	newDaemonClient = func(string, string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				return nil, errors.New("send failed")
+			},
+		}
+	}
+	if _, err := listShimKnownServers(); err == nil || !strings.Contains(err.Error(), "send failed") {
+		t.Fatalf("listShimKnownServers() error = %v, want send error", err)
+	}
+
+	newDaemonClient = func(string, string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "daemon said no"}, nil
+			},
+		}
+	}
+	if _, err := listShimKnownServers(); err == nil || !strings.Contains(err.Error(), "daemon said no") {
+		t.Fatalf("listShimKnownServers() error = %v, want daemon stderr error", err)
+	}
+
+	newDaemonClient = func(string, string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				return &ipc.Response{ExitCode: ipc.ExitInternal}, nil
+			},
+		}
+	}
+	if _, err := listShimKnownServers(); err == nil || !strings.Contains(err.Error(), "listing servers failed") {
+		t.Fatalf("listShimKnownServers() error = %v, want generic daemon exit error", err)
+	}
+}

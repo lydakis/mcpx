@@ -28,6 +28,14 @@ func (c stubDaemonClient) Send(req *ipc.Request) (*ipc.Response, error) {
 	return &ipc.Response{}, nil
 }
 
+type errWriter struct {
+	err error
+}
+
+func (w errWriter) Write(p []byte) (int, error) {
+	return 0, w.err
+}
+
 func TestHandleRootFlagsVersion(t *testing.T) {
 	oldVersion := buildVersion
 	oldOut := rootStdout
@@ -338,6 +346,139 @@ func TestParseInvocationPrefersConfiguredServerOverRootListFlags(t *testing.T) {
 	}
 	if !inv.serverCmd.listOpts.verbose {
 		t.Fatal("verbose = false, want true")
+	}
+}
+
+func TestWritePayloadWritesContentAndWrapsErrors(t *testing.T) {
+	var out bytes.Buffer
+	if err := writePayload(&out, "help output", []byte("abc")); err != nil {
+		t.Fatalf("writePayload(success) error = %v", err)
+	}
+	if got := out.String(); got != "abc" {
+		t.Fatalf("writePayload(success) output = %q, want %q", got, "abc")
+	}
+
+	err := writePayload(errWriter{err: errors.New("disk full")}, "help output", []byte("abc"))
+	if err == nil {
+		t.Fatal("writePayload(error) error = nil, want non-nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "writing help output") {
+		t.Fatalf("writePayload(error) error = %q, want label context", got)
+	}
+}
+
+func TestShowHelpHandlesClientErrors(t *testing.T) {
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	code := showHelp(stubDaemonClient{
+		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+			return nil, errors.New("daemon unavailable")
+		},
+	}, "github", "search", "/tmp", outputModeText)
+	if code != ipc.ExitInternal {
+		t.Fatalf("showHelp(send error) = %d, want %d", code, ipc.ExitInternal)
+	}
+	if got := errOut.String(); !strings.Contains(got, "daemon unavailable") {
+		t.Fatalf("stderr = %q, want send error", got)
+	}
+
+	errOut.Reset()
+	out.Reset()
+	code = showHelp(stubDaemonClient{
+		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+			return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "tool schema failed"}, nil
+		},
+	}, "github", "search", "/tmp", outputModeText)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("showHelp(daemon stderr) = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if got := errOut.String(); got != "tool schema failed\n" {
+		t.Fatalf("stderr = %q, want %q", got, "tool schema failed\\n")
+	}
+}
+
+func TestShowHelpJSONAndTextOutputModes(t *testing.T) {
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	jsonPayload := []byte(`{"name":"search","input_schema":{"type":"object","properties":{"query":{"type":"string"}}}}`)
+	code := showHelp(stubDaemonClient{
+		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+			return &ipc.Response{ExitCode: ipc.ExitOK, Content: jsonPayload}, nil
+		},
+	}, "github", "search", "/tmp", outputModeJSON)
+	if code != ipc.ExitOK {
+		t.Fatalf("showHelp(json mode) = %d, want %d", code, ipc.ExitOK)
+	}
+	if got := out.String(); got != string(jsonPayload) {
+		t.Fatalf("stdout(json mode) = %q, want %q", got, string(jsonPayload))
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr(json mode) = %q, want empty", errOut.String())
+	}
+
+	out.Reset()
+	code = showHelp(stubDaemonClient{
+		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+			return &ipc.Response{
+				ExitCode: ipc.ExitOK,
+				Content: []byte(`{
+					"name":"search_api",
+					"description":"Search across repositories",
+					"input_schema":{"type":"object","properties":{"query":{"type":"string"}}}
+				}`),
+			}, nil
+		},
+	}, "github", "search", "/tmp", outputModeText)
+	if code != ipc.ExitOK {
+		t.Fatalf("showHelp(text mode) = %d, want %d", code, ipc.ExitOK)
+	}
+	if got := out.String(); !strings.Contains(got, "Usage: mcpx github search_api [FLAGS]") {
+		t.Fatalf("stdout(text mode) = %q, want rendered usage", got)
+	}
+}
+
+func TestShowHelpReturnsInternalWhenWritingPayloadFails(t *testing.T) {
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+
+	var errOut bytes.Buffer
+	rootStdout = errWriter{err: errors.New("write failed")}
+	rootStderr = &errOut
+
+	code := showHelp(stubDaemonClient{
+		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+			return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`{"name":"search"}`)}, nil
+		},
+	}, "github", "search", "/tmp", outputModeJSON)
+	if code != ipc.ExitInternal {
+		t.Fatalf("showHelp(write failure) = %d, want %d", code, ipc.ExitInternal)
+	}
+	if got := errOut.String(); !strings.Contains(got, "writing help output") {
+		t.Fatalf("stderr = %q, want writePayload context", got)
 	}
 }
 

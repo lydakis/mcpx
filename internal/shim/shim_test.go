@@ -275,3 +275,96 @@ func TestInstallScriptUsesPOSIXShebangOnUnix(t *testing.T) {
 		t.Fatalf("script header = %q, want #!/bin/sh", got)
 	}
 }
+
+func TestInstallRejectsPathOccupiedByManagedShimForDifferentServer(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp)
+
+	path := filepath.Join(tmp, "github")
+	content := "#!/bin/sh\n" + markerPrefix + "other\nexec mcpx 'other' \"$@\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+
+	_, err := Install("github", InstallOptions{Dir: tmp})
+	if err == nil {
+		t.Fatal("Install() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrPathOccupied) {
+		t.Fatalf("Install() error = %v, want ErrPathOccupied", err)
+	}
+}
+
+func TestRemoveRejectsManagedShimForDifferentServer(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "github")
+	content := "#!/bin/sh\n" + markerPrefix + "other\nexec mcpx 'other' \"$@\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+
+	_, err := Remove("github", RemoveOptions{Dir: tmp})
+	if err == nil {
+		t.Fatal("Remove() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrNotManagedShim) {
+		t.Fatalf("Remove() error = %v, want ErrNotManagedShim", err)
+	}
+}
+
+func TestReadManagedServerHandlesDirectoriesAndEmptyMarker(t *testing.T) {
+	tmp := t.TempDir()
+	dirInfo, err := os.Stat(tmp)
+	if err != nil {
+		t.Fatalf("Stat(dir) error = %v", err)
+	}
+	if _, managed, err := readManagedServer(tmp, dirInfo); err != nil || managed {
+		t.Fatalf("readManagedServer(dir) = managed=%v err=%v, want managed=false err=nil", managed, err)
+	}
+
+	path := filepath.Join(tmp, "shim")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+markerPrefix+"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(file) error = %v", err)
+	}
+	server, managed, err := readManagedServer(path, info)
+	if err != nil {
+		t.Fatalf("readManagedServer(file) error = %v", err)
+	}
+	if managed || server != "" {
+		t.Fatalf("readManagedServer(file) = (server=%q managed=%v), want empty/false", server, managed)
+	}
+}
+
+func TestDirInPathMatchesSymlinkedDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "target")
+	linkDir := filepath.Join(tmp, "link")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(targetDir) error = %v", err)
+	}
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Fatalf("Symlink(%q -> %q) error = %v", linkDir, targetDir, err)
+	}
+
+	t.Setenv("PATH", linkDir)
+	if !dirInPath(targetDir) {
+		t.Fatalf("dirInPath(%q) = false, want true via symlink", targetDir)
+	}
+
+	t.Setenv("PATH", filepath.Join(tmp, "other"))
+	if dirInPath(targetDir) {
+		t.Fatalf("dirInPath(%q) = true, want false", targetDir)
+	}
+}
+
+func TestHomeDirFallsBackToUserHomeWhenHOMEUnset(t *testing.T) {
+	t.Setenv("HOME", "")
+	want, _ := os.UserHomeDir()
+	if got := homeDir(); got != want {
+		t.Fatalf("homeDir() = %q, want %q", got, want)
+	}
+}

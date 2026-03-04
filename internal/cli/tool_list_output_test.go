@@ -14,6 +14,13 @@ func TestDecodeToolListPayloadRejectsLegacyText(t *testing.T) {
 	}
 }
 
+func TestDecodeToolListPayloadRejectsInvalidJSONArray(t *testing.T) {
+	raw := []byte(`[{"name":"search"},`)
+	if _, err := decodeToolListPayload(raw); err == nil {
+		t.Fatal("decodeToolListPayload() error = nil, want non-nil")
+	}
+}
+
 func TestDecodeToolListPayloadParsesEmptyJSONListAsEmptySlice(t *testing.T) {
 	entries, err := decodeToolListPayload([]byte("[]\n"))
 	if err != nil {
@@ -52,5 +59,20 @@ func TestWriteToolListTextRendersNameAndDescription(t *testing.T) {
 	}
 	if strings.TrimSpace(got[1]) != "search_repositories" {
 		t.Fatalf("second line = %q, want %q", got[1], "search_repositories")
+	}
+}
+
+func TestWriteToolListTextSkipsBlankEntryNames(t *testing.T) {
+	entries := []toolListEntry{
+		{Name: "   ", Description: "ignored"},
+		{Name: ""},
+	}
+
+	var out bytes.Buffer
+	if err := writeToolListText(&out, entries); err != nil {
+		t.Fatalf("writeToolListText() error = %v", err)
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("writeToolListText() output = %q, want empty", got)
 	}
 }

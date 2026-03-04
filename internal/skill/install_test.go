@@ -182,3 +182,95 @@ func assertSymlinkTarget(t *testing.T, linkPath, expectedTarget string) {
 		t.Fatalf("symlink target = %q, want %q", resolved, expectedTarget)
 	}
 }
+
+func TestResolveLinkTargetHandlesAbsoluteAndRelativeTargets(t *testing.T) {
+	linkPath := "/tmp/skills/mcpx"
+
+	if got, want := resolveLinkTarget(linkPath, "/opt/mcpx"), filepath.Clean("/opt/mcpx"); got != want {
+		t.Fatalf("resolveLinkTarget(abs) = %q, want %q", got, want)
+	}
+	if got, want := resolveLinkTarget(linkPath, "../targets/mcpx"), filepath.Clean("/tmp/targets/mcpx"); got != want {
+		t.Fatalf("resolveLinkTarget(rel) = %q, want %q", got, want)
+	}
+}
+
+func TestSamePathRecognizesEquivalentPaths(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("MkdirAll(target): %v", err)
+	}
+
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatalf("Symlink(alias): %v", err)
+	}
+
+	if !samePath(target, target) {
+		t.Fatal("samePath(target, target) = false, want true")
+	}
+	if !samePath(alias, target) {
+		t.Fatal("samePath(alias, target) = false, want true")
+	}
+	if samePath(filepath.Join(root, "missing-a"), filepath.Join(root, "missing-b")) {
+		t.Fatal("samePath(missing-a, missing-b) = true, want false")
+	}
+}
+
+func TestEnsureTrailingNewlineAddsOnlyWhenNeeded(t *testing.T) {
+	if got := ensureTrailingNewline(nil); got != nil {
+		t.Fatalf("ensureTrailingNewline(nil) = %#v, want nil", got)
+	}
+	if got := string(ensureTrailingNewline([]byte("line"))); got != "line\n" {
+		t.Fatalf("ensureTrailingNewline(no newline) = %q, want %q", got, "line\\n")
+	}
+	if got := string(ensureTrailingNewline([]byte("line\n"))); got != "line\n" {
+		t.Fatalf("ensureTrailingNewline(existing newline) = %q, want %q", got, "line\\n")
+	}
+}
+
+func TestHomeDirFallsBackToUserHomeWhenHOMEUnset(t *testing.T) {
+	t.Setenv("HOME", "")
+	want, _ := os.UserHomeDir()
+	if got := homeDir(); got != want {
+		t.Fatalf("homeDir() = %q, want %q", got, want)
+	}
+}
+
+func TestEnsureSymlinkHandlesExistingLinks(t *testing.T) {
+	root := t.TempDir()
+	targetA := filepath.Join(root, "target-a")
+	targetB := filepath.Join(root, "target-b")
+	if err := os.MkdirAll(targetA, 0o755); err != nil {
+		t.Fatalf("MkdirAll(targetA): %v", err)
+	}
+	if err := os.MkdirAll(targetB, 0o755); err != nil {
+		t.Fatalf("MkdirAll(targetB): %v", err)
+	}
+
+	linkPath := filepath.Join(root, "link")
+	initialTarget, err := ensureSymlink(targetA, linkPath)
+	if err != nil {
+		t.Fatalf("ensureSymlink(initial) error = %v", err)
+	}
+	if initialTarget == "" {
+		t.Fatal("ensureSymlink(initial) target = empty")
+	}
+
+	sameTarget, err := ensureSymlink(targetA, linkPath)
+	if err != nil {
+		t.Fatalf("ensureSymlink(same target) error = %v", err)
+	}
+	if sameTarget != initialTarget {
+		t.Fatalf("ensureSymlink(same target) = %q, want %q", sameTarget, initialTarget)
+	}
+
+	replacedTarget, err := ensureSymlink(targetB, linkPath)
+	if err != nil {
+		t.Fatalf("ensureSymlink(replace target) error = %v", err)
+	}
+	if replacedTarget == "" {
+		t.Fatal("ensureSymlink(replace target) = empty target")
+	}
+	assertSymlinkTarget(t, linkPath, targetB)
+}

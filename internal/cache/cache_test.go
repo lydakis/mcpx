@@ -136,3 +136,79 @@ func TestGetMetadataMiss(t *testing.T) {
 		t.Fatalf("GetMetadata() age/ttl = %s/%s, want 0/0", age, ttl)
 	}
 }
+
+func TestGetMetadataHandlesFutureCreatedAndNegativeTTL(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	args := json.RawMessage(`{"query":"mcp"}`)
+	path := entryPath("github", "search_repositories", args)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+
+	now := time.Now()
+	raw, err := json.Marshal(entry{
+		Content:  []byte("cached"),
+		ExitCode: 0,
+		Created:  now.Add(20 * time.Second),
+		Expires:  now.Add(10 * time.Second), // Expires before Created -> ttl should clamp to zero.
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(entry) error = %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	age, ttl, ok := GetMetadata("github", "search_repositories", args)
+	if !ok {
+		t.Fatal("GetMetadata() cache miss, want hit")
+	}
+	if age != 0 {
+		t.Fatalf("GetMetadata() age = %s, want 0 (clamped from future created)", age)
+	}
+	if ttl != 0 {
+		t.Fatalf("GetMetadata() ttl = %s, want 0 (clamped from negative ttl)", ttl)
+	}
+}
+
+func TestGetMetadataUsesFileModTimeWhenCreatedMissing(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	args := json.RawMessage(`{"query":"mcp"}`)
+	path := entryPath("github", "search_repositories", args)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+
+	now := time.Now()
+	modTime := now.Add(-3 * time.Second)
+	raw, err := json.Marshal(entry{
+		Content:  []byte("cached"),
+		ExitCode: 0,
+		Created:  time.Time{},               // Force stat(path).ModTime() fallback
+		Expires:  now.Add(30 * time.Second), // Keep entry valid
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(entry) error = %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("chtimes cache file: %v", err)
+	}
+
+	age, ttl, ok := GetMetadata("github", "search_repositories", args)
+	if !ok {
+		t.Fatal("GetMetadata() cache miss, want hit")
+	}
+	if age < 2*time.Second {
+		t.Fatalf("GetMetadata() age = %s, want >= 2s from file modtime", age)
+	}
+	if ttl <= 25*time.Second {
+		t.Fatalf("GetMetadata() ttl = %s, want > 25s based on expires-modtime", ttl)
+	}
+}

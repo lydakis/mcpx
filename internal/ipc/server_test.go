@@ -3,6 +3,7 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -120,4 +121,129 @@ func TestHandleConnRejectsPeerUIDMismatch(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("handleConn did not return")
 	}
+}
+
+func TestHandleConnRejectsPeerUIDCheckError(t *testing.T) {
+	restorePeer := peerUIDMatchesCurrentUserFn
+	peerUIDMatchesCurrentUserFn = func(conn net.Conn) (bool, error) { return false, errors.New("uid lookup failed") }
+	defer func() {
+		peerUIDMatchesCurrentUserFn = restorePeer
+	}()
+
+	s := &Server{
+		nonce: "secret",
+		handler: func(ctx context.Context, req *Request) *Response {
+			t.Fatal("handler should not be called on peer uid check error")
+			return &Response{ExitCode: ExitOK}
+		},
+	}
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.handleConn(serverConn)
+	}()
+
+	var resp Response
+	if err := json.NewDecoder(clientConn).Decode(&resp); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if resp.ExitCode != ExitInternal {
+		t.Fatalf("exit code = %d, want %d", resp.ExitCode, ExitInternal)
+	}
+	if resp.Stderr != "peer uid check failed" {
+		t.Fatalf("stderr = %q, want %q", resp.Stderr, "peer uid check failed")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("handleConn did not return")
+	}
+}
+
+func TestHandleConnRejectsInvalidRequestAndNonceMismatch(t *testing.T) {
+	restorePeer := peerUIDMatchesCurrentUserFn
+	peerUIDMatchesCurrentUserFn = func(conn net.Conn) (bool, error) { return true, nil }
+	defer func() {
+		peerUIDMatchesCurrentUserFn = restorePeer
+	}()
+
+	s := &Server{
+		nonce: "secret",
+		handler: func(ctx context.Context, req *Request) *Response {
+			t.Fatal("handler should not be called for invalid request or nonce mismatch")
+			return &Response{ExitCode: ExitOK}
+		},
+	}
+
+	t.Run("invalid request", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+		defer clientConn.Close()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.handleConn(serverConn)
+		}()
+
+		if _, err := clientConn.Write([]byte("{not-json\n")); err != nil {
+			t.Fatalf("writing invalid payload: %v", err)
+		}
+
+		var resp Response
+		if err := json.NewDecoder(clientConn).Decode(&resp); err != nil {
+			t.Fatalf("decoding response: %v", err)
+		}
+		if resp.ExitCode != ExitInternal {
+			t.Fatalf("exit code = %d, want %d", resp.ExitCode, ExitInternal)
+		}
+		if resp.Stderr != "invalid request" {
+			t.Fatalf("stderr = %q, want %q", resp.Stderr, "invalid request")
+		}
+
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("handleConn did not return")
+		}
+	})
+
+	t.Run("nonce mismatch", func(t *testing.T) {
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+		defer clientConn.Close()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.handleConn(serverConn)
+		}()
+
+		if err := json.NewEncoder(clientConn).Encode(&Request{Nonce: "wrong", Type: "ping"}); err != nil {
+			t.Fatalf("encoding request: %v", err)
+		}
+
+		var resp Response
+		if err := json.NewDecoder(clientConn).Decode(&resp); err != nil {
+			t.Fatalf("decoding response: %v", err)
+		}
+		if resp.ExitCode != ExitInternal {
+			t.Fatalf("exit code = %d, want %d", resp.ExitCode, ExitInternal)
+		}
+		if resp.Stderr != "nonce mismatch" {
+			t.Fatalf("stderr = %q, want %q", resp.Stderr, "nonce mismatch")
+		}
+
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("handleConn did not return")
+		}
+	})
 }
