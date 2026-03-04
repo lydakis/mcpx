@@ -274,3 +274,46 @@ func TestParseToolCallArgsAllowsPositionalJSONWithGlobalFlags(t *testing.T) {
 		t.Fatalf("query = %v, want mcp", parsed.toolArgs["query"])
 	}
 }
+
+func TestParseFlagsParsesBooleanAndRepeatedLongFlags(t *testing.T) {
+	parsed, err := parseFlags([]string{
+		"--dry-run",
+		"--query", "mcp",
+		"--tag=a",
+		"--tag=b",
+		"--no-cache",
+	})
+	if err != nil {
+		t.Fatalf("parseFlags() error = %v", err)
+	}
+	if parsed["dry-run"] != true {
+		t.Fatalf("dry-run = %#v, want true", parsed["dry-run"])
+	}
+	if parsed["query"] != "mcp" {
+		t.Fatalf("query = %#v, want %q", parsed["query"], "mcp")
+	}
+	tags, ok := parsed["tag"].([]any)
+	if !ok {
+		t.Fatalf("tag = %#v, want []any", parsed["tag"])
+	}
+	if len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
+		t.Fatalf("tag values = %#v, want [a b]", tags)
+	}
+	if parsed["no-cache"] != true {
+		t.Fatalf("no-cache = %#v, want true", parsed["no-cache"])
+	}
+}
+
+func TestParseFlagsRejectsUnexpectedPositionalArgument(t *testing.T) {
+	_, err := parseFlags([]string{"--query=mcp", "extra"})
+	if err == nil {
+		t.Fatal("parseFlags() error = nil, want non-nil")
+	}
+}
+
+func TestParseFlagsRejectsInvalidFlagToken(t *testing.T) {
+	_, err := parseFlags([]string{"--"})
+	if err == nil {
+		t.Fatal("parseFlags() error = nil, want non-nil")
+	}
+}

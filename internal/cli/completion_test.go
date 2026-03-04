@@ -115,6 +115,70 @@ func TestRunInternalCompletionRequiresQueryType(t *testing.T) {
 	}
 }
 
+func TestRunInternalCompletionRejectsUnknownQueryType(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runInternalCompletion([]string{"unknown"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runInternalCompletion() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("unknown completion query")) {
+		t.Fatalf("stderr = %q, want unknown query error", got)
+	}
+}
+
+func TestRunInternalCompletionValidatesServersArity(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runInternalCompletion([]string{"servers", "extra"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runInternalCompletion() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); got != "mcpx: usage: mcpx __complete servers\n" {
+		t.Fatalf("stderr = %q, want servers usage", got)
+	}
+}
+
+func TestRunInternalCompletionValidatesToolsArity(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runInternalCompletion([]string{"tools"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runInternalCompletion() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); got != "mcpx: usage: mcpx __complete tools <server>\n" {
+		t.Fatalf("stderr = %q, want tools usage", got)
+	}
+}
+
+func TestRunInternalCompletionValidatesFlagsArity(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runInternalCompletion([]string{"flags", "github"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runInternalCompletion() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); got != "mcpx: usage: mcpx __complete flags <server> <tool>\n" {
+		t.Fatalf("stderr = %q, want flags usage", got)
+	}
+}
+
 func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer

@@ -472,3 +472,19 @@ func TestParseAddArgsRejectsInvalidHeaderFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintAddHelpIncludesHeaderAndOverwriteGuidance(t *testing.T) {
+	var out bytes.Buffer
+	printAddHelp(&out)
+
+	help := out.String()
+	if !strings.Contains(help, "mcpx add <source>") {
+		t.Fatalf("help output missing add usage: %q", help)
+	}
+	if !strings.Contains(help, "--header KEY=VALUE") {
+		t.Fatalf("help output missing header flag guidance: %q", help)
+	}
+	if !strings.Contains(help, "--overwrite") {
+		t.Fatalf("help output missing overwrite guidance: %q", help)
+	}
+}

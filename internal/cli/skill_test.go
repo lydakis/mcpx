@@ -236,6 +236,99 @@ func TestRunSkillInstallCommandSupportsServerSyntax(t *testing.T) {
 	}
 }
 
+func TestPrintSkillHelpIncludesServerInstallUsage(t *testing.T) {
+	var out bytes.Buffer
+	printSkillHelp(&out)
+
+	help := out.String()
+	if !strings.Contains(help, "mcpx skill install [<server>] [FLAGS]") {
+		t.Fatalf("help output missing server install usage: %q", help)
+	}
+	if !strings.Contains(help, "install    Install built-in skill") {
+		t.Fatalf("help output missing install command description: %q", help)
+	}
+}
+
+func TestPrintSkillInstallHelpIncludesLinkFlags(t *testing.T) {
+	var out bytes.Buffer
+	printSkillInstallHelp(&out)
+
+	help := out.String()
+	if !strings.Contains(help, "--no-claude-link") {
+		t.Fatalf("help output missing --no-claude-link guidance: %q", help)
+	}
+	if !strings.Contains(help, "--codex-link") {
+		t.Fatalf("help output missing --codex-link guidance: %q", help)
+	}
+	if !strings.Contains(help, "--kiro-link") {
+		t.Fatalf("help output missing --kiro-link guidance: %q", help)
+	}
+	if !strings.Contains(help, "--openclaw-link") {
+		t.Fatalf("help output missing --openclaw-link guidance: %q", help)
+	}
+}
+
+func TestRunSkillCommandUnknownSubcommandReturnsUsage(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	code := runSkillCommand([]string{"unknown"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runSkillCommand() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); !strings.Contains(got, "unknown skill command") {
+		t.Fatalf("stderr = %q, want unknown command error", got)
+	}
+	if got := errOut.String(); !strings.Contains(got, "mcpx skill install [<server>] [FLAGS]") {
+		t.Fatalf("stderr = %q, want skill help usage", got)
+	}
+}
+
+func TestRunSkillInstallCommandClassifiesUnknownServerAsUsageError(t *testing.T) {
+	oldInstallServerSkillCommandFn := installServerSkillCommandFn
+	defer func() { installServerSkillCommandFn = oldInstallServerSkillCommandFn }()
+	installServerSkillCommandFn = func(server string, _ *skillInstallArgs) (*skill.InstallResult, error) {
+		return nil, errors.New("unknown server: " + server)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := runSkillInstallCommand([]string{"missing-server"}, &out, &errOut)
+	if code != ipc.ExitUsageErr {
+		t.Fatalf("runSkillInstallCommand() code = %d, want %d", code, ipc.ExitUsageErr)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); !strings.Contains(got, "install server skill") {
+		t.Fatalf("stderr = %q, want install-server context", got)
+	}
+}
+
+func TestRunSkillInstallCommandClassifiesServerInstallFailuresAsInternal(t *testing.T) {
+	oldInstallServerSkillCommandFn := installServerSkillCommandFn
+	defer func() { installServerSkillCommandFn = oldInstallServerSkillCommandFn }()
+	installServerSkillCommandFn = func(string, *skillInstallArgs) (*skill.InstallResult, error) {
+		return nil, errors.New("permission denied")
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := runSkillInstallCommand([]string{"github"}, &out, &errOut)
+	if code != ipc.ExitInternal {
+		t.Fatalf("runSkillInstallCommand() code = %d, want %d", code, ipc.ExitInternal)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if got := errOut.String(); !strings.Contains(got, "install server skill") || !strings.Contains(got, "permission denied") {
+		t.Fatalf("stderr = %q, want install failure context", got)
+	}
+}
+
 func assertSymlinkTargets(t *testing.T, linkPath, targetPath string) {
 	t.Helper()
 
