@@ -119,7 +119,7 @@ smoke_skill_help() {
   out="$("$BINARY" skill --help)"
   [[ "$out" == *"Usage:"* ]]
   [[ "$out" == *"mcpx skill install"* ]]
-  [[ "$out" == *"install-server"* ]]
+  [[ "$out" == *"mcpx skill install [<server>]"* ]]
 }
 
 packaging_pypi_tests() {
