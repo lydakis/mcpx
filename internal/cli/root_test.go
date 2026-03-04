@@ -384,7 +384,7 @@ func TestShowHelpHandlesClientErrors(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return nil, errors.New("daemon unavailable")
 		},
-	}, "github", "search", "/tmp", outputModeText)
+	}, "github", "search", "/tmp", outputModeText, false)
 	if code != ipc.ExitInternal {
 		t.Fatalf("showHelp(send error) = %d, want %d", code, ipc.ExitInternal)
 	}
@@ -398,7 +398,7 @@ func TestShowHelpHandlesClientErrors(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "tool schema failed"}, nil
 		},
-	}, "github", "search", "/tmp", outputModeText)
+	}, "github", "search", "/tmp", outputModeText, false)
 	if code != ipc.ExitUsageErr {
 		t.Fatalf("showHelp(daemon stderr) = %d, want %d", code, ipc.ExitUsageErr)
 	}
@@ -425,7 +425,7 @@ func TestShowHelpJSONAndTextOutputModes(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitOK, Content: jsonPayload}, nil
 		},
-	}, "github", "search", "/tmp", outputModeJSON)
+	}, "github", "search", "/tmp", outputModeJSON, false)
 	if code != ipc.ExitOK {
 		t.Fatalf("showHelp(json mode) = %d, want %d", code, ipc.ExitOK)
 	}
@@ -448,7 +448,7 @@ func TestShowHelpJSONAndTextOutputModes(t *testing.T) {
 				}`),
 			}, nil
 		},
-	}, "github", "search", "/tmp", outputModeText)
+	}, "github", "search", "/tmp", outputModeText, false)
 	if code != ipc.ExitOK {
 		t.Fatalf("showHelp(text mode) = %d, want %d", code, ipc.ExitOK)
 	}
@@ -473,7 +473,7 @@ func TestShowHelpReturnsInternalWhenWritingPayloadFails(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`{"name":"search"}`)}, nil
 		},
-	}, "github", "search", "/tmp", outputModeJSON)
+	}, "github", "search", "/tmp", outputModeJSON, false)
 	if code != ipc.ExitInternal {
 		t.Fatalf("showHelp(write failure) = %d, want %d", code, ipc.ExitInternal)
 	}
