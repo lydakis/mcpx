@@ -2,80 +2,65 @@
 
 Turn MCP servers into composable CLIs.
 
-`mcpx` turns MCP tools into shell commands so agents can use standard CLI composition (`|`, redirection, `jq`, `head`) and skill workflows.
+```bash
+mcpx                        # list servers
+mcpx <server>               # list tools
+mcpx <server> <tool> ...    # call a tool
+```
 
-`mcpx` keeps the command contract simple:
+Tool names match exactly what each server exposes. Tool-call output passes through unchanged (text or JSON), so you can pipe, redirect, or parse with `jq`.
 
-- `mcpx` lists servers
-- `mcpx <server>` lists tools
-- `mcpx <server> <tool>` calls a tool
-
-Tool names are used exactly as exposed by each server (no client-side renaming/aliasing).
-
-Utility commands:
-
-- `mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--overwrite]` bootstraps a server config from an install link, manifest URL, direct MCP endpoint URL, or local manifest file
-- `mcpx shim install <server>` installs a local passthrough command shim (`<server> ...` -> `mcpx <server> ...`)
-- `mcpx shim remove <server>` and `mcpx shim list` manage installed shims
-- `mcpx completion <bash|zsh|fish>` prints shell completion scripts
-- `mcpx skill install` installs the built-in `mcpx` skill to `~/.agents/skills` and links it for Claude Code (optional flags also link for Codex/Kiro/OpenClaw)
-- `mcpx skill install [<server>]` installs the built-in `mcpx` skill (no server) or generates a server-specific skill when a server name is provided.
-
-It is designed for agent workflows and shell composition:
-
-- schema-aware `--help` (inputs + declared outputs)
-- native flag surface from MCP `inputSchema`
-- standardized exit mapping (`0/1/2/3`)
-- optional response caching with TTL and config overrides
-- optional Codex Apps compatibility via virtual per-app servers
-- stdio + HTTP transports via a local daemon
-- generated shell completions and packaged root man page (`man mcpx`)
-
-## Install
-
-### Homebrew
+## Quick Start
 
 ```bash
 brew tap lydakis/mcpx
 brew install --cask mcpx
 ```
 
-### npm
+Install the general `mcpx` skill for your agent (recommended on day one):
 
 ```bash
-npm install -g mcpx-go
-mcpx --version
+mcpx skill install
 ```
 
-### PyPI
+Add extra links as needed:
 
 ```bash
-pip install mcpx-go
-mcpx --version
+mcpx skill install --codex-link
+mcpx skill install --openclaw-link
 ```
 
-### Build from source
+If you already use MCP in Cursor, Claude Code, Cline, Codex, or Kiro, `mcpx` auto-discovers those server configs.
 
 ```bash
-go build ./...
-./mcpx --version
+mcpx github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
 ```
 
-Windows users: use WSL2 and run install commands inside your Linux distro shell.
-
-## Quick Start
-
-If you already use MCP in Cursor/Claude Code/Cline/Codex/Kiro, `mcpx` will auto-discover those server configs. Start with:
+No existing configs? Point `mcpx` at any MCP endpoint and start calling tools immediately:
 
 ```bash
-mcpx
-mcpx <server>
-mcpx <server> <tool> --help
+mcpx https://docs.mcp.cloudflare.com/mcp
+mcpx https://docs.mcp.cloudflare.com/mcp search_cloudflare_documentation --query="durable objects alarms"
 ```
 
-When Codex Apps are enabled in local Codex config and authenticated, `mcpx` also exposes connected apps as MCP servers.
+Every tool gets schema-aware `--help` for free:
 
-If `mcpx` shows no servers, create `~/.config/mcpx/config.toml`:
+```bash
+mcpx https://docs.mcp.cloudflare.com/mcp search_cloudflare_documentation --help
+```
+
+## Going Deeper
+
+### Adding Servers
+
+`mcpx add` bootstraps config from install links, manifest URLs, direct MCP endpoints, or local manifest files:
+
+```bash
+mcpx add https://mcp.deepwiki.com/mcp
+mcpx deepwiki read_wiki_structure --repoName=modelcontextprotocol/specification
+```
+
+Added servers persist in `~/.config/mcpx/config.toml`. You can also write entries by hand:
 
 ```toml
 [servers.github]
@@ -85,31 +70,47 @@ env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
 default_cache_ttl = "30s"
 ```
 
-Run:
+### Ephemeral Sources
+
+Any source you pass directly (without `mcpx add`) runs ephemerally for the daemon's lifetime: no config written, nothing to clean up.
 
 ```bash
-mcpx
-mcpx github
-mcpx github search-repositories --help
-mcpx github search-repositories --query=mcp
+mcpx <source>
+mcpx <source> <tool> --help
+mcpx <source> <tool> ...
+```
+
+### Caching
+
+Cache tool responses with `--cache=<duration>`, or force fresh calls with `--no-cache`:
+
+```bash
+mcpx deepwiki read_wiki_structure --repoName=modelcontextprotocol/specification --cache=5m
+mcpx deepwiki read_wiki_structure --repoName=modelcontextprotocol/specification --no-cache
+```
+
+Set per-server defaults with `default_cache_ttl` in config.
+
+### Command Shims
+
+Install a local passthrough so `<server>` works as a standalone command:
+
+```bash
 mcpx shim install github
 github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
 ```
 
-## Command Shims (Optional)
+Shims land in `$XDG_BIN_HOME` or `~/.local/bin`. Install is collision-safe: it fails if that name already resolves elsewhere in `PATH`.
 
 ```bash
-mcpx shim install github
-mcpx shim install github --skill
+mcpx shim install github --skill   # also generate a server skill
 mcpx shim list
 mcpx shim remove github
 ```
 
-Shims are pass-through wrappers (`<server> ...` -> `mcpx <server> ...`) installed in `$XDG_BIN_HOME` (if set) or `~/.local/bin`. Ensure that directory is in your `PATH`. Install is collision-safe: it fails if that command name already resolves elsewhere in `PATH`.
+### Server-Specific Skills (Optional)
 
-Use `mcpx shim install <server> --skill` to also install a generated server skill after shim install succeeds. Add `--skill-strict` to fail the command if skill generation/install fails.
-
-## Server Skill Generation (Optional)
+When you want tighter, server-specific instructions, generate a skill file for one server (written to `~/.agents/skills/mcpx-<server>` by default):
 
 ```bash
 mcpx skill install github
@@ -117,21 +118,85 @@ mcpx skill install github --codex-link
 mcpx skill install github --openclaw-link
 ```
 
-This writes a generated server skill to `~/.agents/skills/mcpx-<server>` by default and can optionally link it into Codex/Kiro/OpenClaw/Claude skill directories using the same flags as `mcpx skill install`.
+### Codex Apps
 
-## Output Modes
+When Codex Apps are enabled and authenticated locally, `mcpx` exposes connected apps as regular servers:
 
-`--json` applies only to mcpx-owned output surfaces:
+```bash
+mcpx linear
+mcpx linear <tool> --help
+mcpx linear <tool> ...
+```
 
-- `mcpx`
-- `mcpx <server>`
-- `mcpx <server> <tool> --help`
+Auth stays with Codex. `mcpx` does not run OAuth flows or store third-party credentials.
 
-Normal tool-call output (`mcpx <server> <tool> ...`) is not transformed by `--json`.
+## Reference
 
-Use `mcpx -v` (or `mcpx --json -v`) to include per-server `origin` metadata (config/fallback-derived `kind`; JSON also includes optional `path`).
+### Other Install Methods
 
-## More Examples
+**npm:**
+
+```bash
+npm install -g mcpx-go
+```
+
+**PyPI:**
+
+```bash
+pip install mcpx-go
+```
+
+**Source:**
+
+```bash
+go build ./...
+./mcpx --version
+```
+
+Windows: use WSL2 and run install commands inside your Linux distro shell.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `mcpx add <source>` | Bootstrap a server config from a source |
+| `mcpx shim install <server>` | Install a local passthrough shim |
+| `mcpx shim remove <server>` | Remove a shim |
+| `mcpx shim list` | List installed shims |
+| `mcpx completion <shell>` | Print shell completions (bash/zsh/fish) |
+| `mcpx skill install [<server>]` | Install built-in or server-specific skill |
+
+`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`.
+
+### Output Modes
+
+`--json` applies to mcpx-owned surfaces only (`mcpx`, `mcpx <server>`, `mcpx <server> <tool> --help`). Tool-call output passes through unmodified.
+
+Use `-v` to include per-server origin metadata. Combine with `--json` for machine-readable output including config paths.
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Tool error (MCP `isError`) |
+| 2 | Usage error |
+| 3 | Internal error |
+
+### MCP Smoke Tests
+
+Validate any server quickly:
+
+```bash
+mcpx <server>                      # list tools
+mcpx <server> --json               # machine-readable
+mcpx <server> -v                   # full descriptions
+mcpx <server> <tool> --help        # inspect schema
+mcpx <server> <tool> --help --json
+echo $?                            # check exit code
+```
+
+### More Examples
 
 ```bash
 mcpx --json
@@ -140,37 +205,15 @@ mcpx github -v
 mcpx github search-repositories --help --json
 mcpx add "cursor://anysphere.cursor-deeplink/mcp/install?name=postgres&config=..."
 mcpx add https://mcp.deepwiki.com/mcp
+mcpx https://mcp.deepwiki.com/mcp
+mcpx https://mcp.deepwiki.com/mcp read_wiki_structure --repoName=modelcontextprotocol/specification
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer \${DEEPWIKI_API_KEY}"
 mcpx skill install
 ```
 
-## Codex Apps (Optional)
+### Manual Config
 
-When Codex Apps are enabled in local Codex config, `mcpx` can expose connected apps as normal MCP servers (for example, `linear` or `zillow`) through the same command contract:
-
-```bash
-mcpx linear
-mcpx linear <tool> --help
-mcpx linear <tool> ...
-```
-
-Auth is still managed by Codex. `mcpx` does not run OAuth flows or store third-party app credentials.
-
-## MCP Smoke Test Commands
-
-Use these to validate a local MCP quickly:
-
-```bash
-mcpx <server>
-mcpx <server> --json       # machine-readable list output
-mcpx <server> -v            # full tool descriptions
-mcpx <server> <tool> --help
-mcpx <server> <tool> --help --json
-mcpx <server> <tool> -v
-echo $?    # inspect exit code contract
-```
-
-For your current fallback setup, a working `browser-tools` entry should use `-y`:
+If auto-discovery finds nothing, create `~/.config/mcpx/config.toml` directly. For fallback setups, include `-y` for npx:
 
 ```toml
 [servers.browser-tools]
@@ -178,45 +221,39 @@ command = "npx"
 args = ["-y", "@agentdeskai/browser-tools-mcp@1.1.0"]
 ```
 
-## Performance Benchmarks
+## Development
 
-Benchmarks are manual by design (not part of CI):
+### QA
+
+```bash
+make check        # test + vet + build
+make qa-core      # Go gates + core smoke/integration matrix
+make qa-extended  # CLI contract + wrapper packaging checks
+make qa           # full QA matrix (core + extended)
+```
+
+### Benchmarks
+
+Benchmarks are manual (not part of CI):
 
 ```bash
 make perf
-```
-
-To compare current work against a baseline ref:
-
-```bash
-./scripts/perf_bench.sh <git-ref>
-```
-
-To measure warm CLI throughput (`mcpx --json`) for 500 calls:
-
-```bash
-make perf-loop
+./scripts/perf_bench.sh <git-ref>          # compare against baseline
+make perf-loop                              # warm CLI throughput (500 calls)
 ./scripts/perf_cli_loop.sh <git-ref>
 ```
 
-For summarized comparisons, install `benchstat`:
+For summarized comparisons: `go install golang.org/x/perf/cmd/benchstat@latest`
 
-```bash
-go install golang.org/x/perf/cmd/benchstat@latest
-```
+### Versioning
 
-## Versioning Behavior
+Local builds show `mcpx dev`. Tagged releases show the tag (for example `mcpx v0.1.0`) via GoReleaser ldflags.
 
-- Local/dev builds show `mcpx dev`.
-- Tagged release builds show the tag version in `mcpx --version` (for example `mcpx v0.1.0`) via GoReleaser ldflags.
+### Release
 
-## Release
+Tag pushes matching `v*` trigger the release workflow. GoReleaser publishes artifacts and updates `lydakis/homebrew-mcpx`. Notarization uses standard Apple Developer and App Store Connect secrets.
 
-- Tag pushes `v*` run the release workflow.
-- GoReleaser publishes artifacts and updates `lydakis/homebrew-mcpx`.
-- Notarization uses standard Apple Developer and App Store Connect secrets.
-
-Detailed docs:
+## Docs
 
 - [design](docs/design.md)
 - [usage](docs/usage.md)
