@@ -3,14 +3,17 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/mcppool"
+	"github.com/lydakis/mcpx/internal/paths"
 )
 
 func TestRunReturnsRuntimeDirErrorBeforeStartingDaemon(t *testing.T) {
@@ -22,6 +25,80 @@ func TestRunReturnsRuntimeDirErrorBeforeStartingDaemon(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "creating runtime dir") {
 		t.Fatalf("Run() error = %q, want runtime-dir setup failure", err.Error())
+	}
+}
+
+func TestRunStartsAndStopsOnSignal(t *testing.T) {
+	notifyCalled := make(chan chan<- os.Signal, 1)
+	signalNotifyPrev := signalNotifyFn
+	signalStopPrev := signalStopFn
+	signalNotifyFn = func(c chan<- os.Signal, _ ...os.Signal) {
+		notifyCalled <- c
+	}
+	signalStopFn = func(c chan<- os.Signal) {}
+	t.Cleanup(func() {
+		signalNotifyFn = signalNotifyPrev
+		signalStopFn = signalStopPrev
+	})
+
+	runtimeBase, err := os.MkdirTemp("/tmp", "mcpxrt-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime): %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeBase) })
+
+	t.Setenv("HOME", runtimeBase)
+	t.Setenv("XDG_RUNTIME_DIR", runtimeBase)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(runtimeBase, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(runtimeBase, "state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(runtimeBase, "cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(runtimeBase, "data"))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Run()
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("Run() exited before daemon became ready: %v", err)
+		default:
+		}
+
+		socketReady := false
+		stateReady := false
+		if _, err := os.Stat(paths.SocketPath()); err == nil {
+			socketReady = true
+		}
+		if _, err := os.Stat(paths.StatePath()); err == nil {
+			stateReady = true
+		}
+		if socketReady && stateReady {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout waiting for daemon readiness (socket=%v state=%v)", socketReady, stateReady)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	var sigCh chan<- os.Signal
+	select {
+	case sigCh = <-notifyCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not install signal handler")
+	}
+	sigCh <- os.Interrupt
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error after signal = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not return after shutdown signal")
 	}
 }
 

@@ -187,3 +187,47 @@ func TestToolInfoAndToolBelongsToRoute(t *testing.T) {
 		t.Fatal("ToolInfo(zillow_get_zestimate) ok = true, want false for wrong virtual prefix")
 	}
 }
+
+func TestFilterToolsVirtualRouteKeepsOnlyPrefixMatches(t *testing.T) {
+	catalog := New(&config.Config{}, nil)
+	route := Route{
+		Backend:       CodexAppsServerName,
+		ConfigServer:  CodexAppsServerName,
+		VirtualName:   "linear",
+		VirtualPrefix: "linear",
+	}
+	tools := []mcppool.ToolInfo{
+		{Name: "linear_get_profile"},
+		{Name: "zillow_get_zestimate"},
+		{Name: "linear_search_issues"},
+		{Name: "linea_get_profile"},
+	}
+
+	got := catalog.FilterTools(route, tools)
+	want := []mcppool.ToolInfo{
+		{Name: "linear_get_profile"},
+		{Name: "linear_search_issues"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FilterTools(virtual) = %#v, want %#v", got, want)
+	}
+}
+
+func TestFilterToolsNonVirtualReturnsCopyOfAllTools(t *testing.T) {
+	catalog := New(&config.Config{}, nil)
+	route := Route{Backend: "github", ConfigServer: "github"}
+	tools := []mcppool.ToolInfo{
+		{Name: "search_repositories"},
+		{Name: "list_issues"},
+	}
+
+	got := catalog.FilterTools(route, tools)
+	if !reflect.DeepEqual(got, tools) {
+		t.Fatalf("FilterTools(non-virtual) = %#v, want %#v", got, tools)
+	}
+
+	got[0].Name = "mutated"
+	if tools[0].Name != "search_repositories" {
+		t.Fatalf("FilterTools(non-virtual) did not return independent copy, original tools = %#v", tools)
+	}
+}

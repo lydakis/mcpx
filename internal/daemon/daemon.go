@@ -30,6 +30,11 @@ const (
 	runtimeEphemeralMaxServer = 64
 )
 
+var (
+	signalNotifyFn = signal.Notify
+	signalStopFn   = signal.Stop
+)
+
 type runtimeDeps struct {
 	poolListTools         func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
 	poolToolInfoByName    func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
@@ -176,7 +181,8 @@ func Run() error {
 
 	// Wait for signal
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signalStopFn(sigCh)
 	<-sigCh
 
 	fmt.Fprintln(os.Stderr, "mcpx daemon: shutting down")

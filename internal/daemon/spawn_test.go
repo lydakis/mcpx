@@ -2,8 +2,11 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"net"
 	"os"
+	"os/exec"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -81,6 +84,7 @@ func saveSpawnHooks() func() {
 	oldWait := waitForDaemonFn
 	oldLock := acquireSpawnLockFn
 	oldValidate := validateDaemonNonceFn
+	oldExecCommand := execCommandFn
 
 	return func() {
 		readNonceFn = oldReadNonce
@@ -89,6 +93,7 @@ func saveSpawnHooks() func() {
 		waitForDaemonFn = oldWait
 		acquireSpawnLockFn = oldLock
 		validateDaemonNonceFn = oldValidate
+		execCommandFn = oldExecCommand
 	}
 }
 
@@ -286,5 +291,198 @@ func TestValidateDaemonNonceUsesPingRequest(t *testing.T) {
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("server did not receive nonce validation request")
+	}
+}
+
+func TestValidateDaemonNonceTreatsNonceMismatchAsInvalidWithoutError(t *testing.T) {
+	runtimeDir, err := os.MkdirTemp("/tmp", "mcpxrt-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime): %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+
+	const nonce = "test-nonce"
+	srv := ipc.NewServer(paths.SocketPath(), nonce, func(_ context.Context, _ *ipc.Request) *ipc.Response {
+		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "nonce mismatch"}
+	})
+	if err := srv.Start(); err != nil {
+		t.Fatalf("server start: %v", err)
+	}
+	defer srv.Stop()
+
+	valid, err := validateDaemonNonce(nonce)
+	if err != nil {
+		t.Fatalf("validateDaemonNonce() error = %v, want nil", err)
+	}
+	if valid {
+		t.Fatal("validateDaemonNonce() = true, want false for nonce mismatch response")
+	}
+}
+
+func TestIsListeningDetectsUnixSocketPresence(t *testing.T) {
+	runtimeDir, err := os.MkdirTemp("/tmp", "mcpxrt-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime): %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+
+	if isListening() {
+		t.Fatal("isListening() = true before socket exists, want false")
+	}
+
+	ln, err := net.Listen("unix", paths.SocketPath())
+	if err != nil {
+		t.Fatalf("Listen(unix) error = %v", err)
+	}
+	defer ln.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err == nil && conn != nil {
+			_ = conn.Close()
+		}
+	}()
+
+	if !isListening() {
+		t.Fatal("isListening() = false with active socket, want true")
+	}
+
+	_ = ln.Close()
+	<-done
+}
+
+func TestReadNonceAndReadOrCreateNonce(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+
+	if err := os.WriteFile(paths.StatePath(), []byte("nonce-from-file\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(state): %v", err)
+	}
+	nonce, err := readNonce()
+	if err != nil {
+		t.Fatalf("readNonce() error = %v", err)
+	}
+	if nonce != "nonce-from-file" {
+		t.Fatalf("readNonce() = %q, want %q", nonce, "nonce-from-file")
+	}
+
+	created, err := readOrCreateNonce()
+	if err != nil {
+		t.Fatalf("readOrCreateNonce() error = %v", err)
+	}
+	if len(created) != 32 {
+		t.Fatalf("readOrCreateNonce() nonce len = %d, want 32", len(created))
+	}
+	if _, err := hex.DecodeString(created); err != nil {
+		t.Fatalf("readOrCreateNonce() nonce %q is not hex: %v", created, err)
+	}
+
+	raw, err := os.ReadFile(paths.StatePath())
+	if err != nil {
+		t.Fatalf("ReadFile(state) error = %v", err)
+	}
+	if got := string(raw); got != created+"\n" {
+		t.Fatalf("state file = %q, want %q", got, created+"\n")
+	}
+}
+
+func TestGenerateNonceReturnsHexEncodedRandomValue(t *testing.T) {
+	first, err := generateNonce()
+	if err != nil {
+		t.Fatalf("generateNonce(first) error = %v", err)
+	}
+	second, err := generateNonce()
+	if err != nil {
+		t.Fatalf("generateNonce(second) error = %v", err)
+	}
+
+	if len(first) != 32 || len(second) != 32 {
+		t.Fatalf("nonce lengths = (%d, %d), want (32, 32)", len(first), len(second))
+	}
+	if _, err := hex.DecodeString(first); err != nil {
+		t.Fatalf("first nonce is not hex: %v", err)
+	}
+	if _, err := hex.DecodeString(second); err != nil {
+		t.Fatalf("second nonce is not hex: %v", err)
+	}
+	if first == second {
+		t.Fatalf("nonces are identical (%q), want distinct random values", first)
+	}
+}
+
+func TestWaitForDaemonReturnsWhenNonceAndSocketAreReady(t *testing.T) {
+	runtimeDir, err := os.MkdirTemp("/tmp", "mcpxrt-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime): %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+	if err := os.WriteFile(paths.StatePath(), []byte("ready-nonce\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(state): %v", err)
+	}
+
+	ln, err := net.Listen("unix", paths.SocketPath())
+	if err != nil {
+		t.Fatalf("Listen(unix) error = %v", err)
+	}
+	defer ln.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err == nil && conn != nil {
+			_ = conn.Close()
+		}
+	}()
+
+	nonce, err := waitForDaemon()
+	if err != nil {
+		t.Fatalf("waitForDaemon() error = %v", err)
+	}
+	if nonce != "ready-nonce" {
+		t.Fatalf("waitForDaemon() nonce = %q, want %q", nonce, "ready-nonce")
+	}
+
+	_ = ln.Close()
+	<-done
+}
+
+func TestSpawnDaemonPropagatesCommandStartErrors(t *testing.T) {
+	restore := saveSpawnHooks()
+	defer restore()
+
+	execCommandFn = func(string, ...string) *exec.Cmd {
+		return exec.Command("/definitely-missing-binary-for-mcpx-tests")
+	}
+
+	if err := spawnDaemon(); err == nil {
+		t.Fatal("spawnDaemon() error = nil, want non-nil for start failure")
+	}
+}
+
+func TestAcquireSpawnLockReturnsErrorForInvalidPath(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
+		t.Fatalf("EnsureDir(runtime): %v", err)
+	}
+
+	if _, err := acquireSpawnLock(paths.RuntimeDir()); err == nil {
+		t.Fatal("acquireSpawnLock(directory path) error = nil, want non-nil")
 	}
 }

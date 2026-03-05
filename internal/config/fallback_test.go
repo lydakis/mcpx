@@ -833,3 +833,62 @@ func TestFallbackSourcePathsPreserveDeclaredDefaultOrder(t *testing.T) {
 		t.Fatalf("fallback source order = %#v, want %#v", got, want)
 	}
 }
+
+func TestCodexAuthFilePathResolutionOrder(t *testing.T) {
+	t.Setenv("CODEX_HOME", "/tmp/codex-home")
+	fromCodexHome := codexAuthFilePath("/tmp/ignored/config.toml")
+	if fromCodexHome != filepath.Join("/tmp/codex-home", codexAuthFileName) {
+		t.Fatalf("codexAuthFilePath(CODEX_HOME set) = %q, want %q", fromCodexHome, filepath.Join("/tmp/codex-home", codexAuthFileName))
+	}
+
+	t.Setenv("CODEX_HOME", "")
+	configPath := filepath.Join("/tmp", codexConfigDirName, codexConfigName)
+	fromConfigDir := codexAuthFilePath(configPath)
+	if fromConfigDir != filepath.Join("/tmp", codexConfigDirName, codexAuthFileName) {
+		t.Fatalf("codexAuthFilePath(config dir) = %q, want %q", fromConfigDir, filepath.Join("/tmp", codexConfigDirName, codexAuthFileName))
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	fromHome := codexAuthFilePath("/tmp/other.toml")
+	if fromHome != filepath.Join(home, codexConfigDirName, codexAuthFileName) {
+		t.Fatalf("codexAuthFilePath(home fallback) = %q, want %q", fromHome, filepath.Join(home, codexConfigDirName, codexAuthFileName))
+	}
+}
+
+func TestReadCodexAuthTokensParsesAndValidatesDocument(t *testing.T) {
+	if token, accountID, ok := readCodexAuthTokens(""); ok || token != "" || accountID != "" {
+		t.Fatalf("readCodexAuthTokens(empty path) = (%q, %q, %v), want empty/empty/false", token, accountID, ok)
+	}
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, codexAuthFileName)
+
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatalf("WriteFile(invalid json) error = %v", err)
+	}
+	if token, accountID, ok := readCodexAuthTokens(path); ok || token != "" || accountID != "" {
+		t.Fatalf("readCodexAuthTokens(invalid json) = (%q, %q, %v), want empty/empty/false", token, accountID, ok)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"   ","account_id":"acct"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(blank token) error = %v", err)
+	}
+	if token, accountID, ok := readCodexAuthTokens(path); ok || token != "" || accountID != "" {
+		t.Fatalf("readCodexAuthTokens(blank token) = (%q, %q, %v), want empty/empty/false", token, accountID, ok)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":" token-123 ","account_id":" acct-9 "}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(valid token) error = %v", err)
+	}
+	token, accountID, ok := readCodexAuthTokens(path)
+	if !ok {
+		t.Fatal("readCodexAuthTokens(valid) ok = false, want true")
+	}
+	if token != "token-123" {
+		t.Fatalf("readCodexAuthTokens(valid) token = %q, want %q", token, "token-123")
+	}
+	if accountID != "acct-9" {
+		t.Fatalf("readCodexAuthTokens(valid) accountID = %q, want %q", accountID, "acct-9")
+	}
+}

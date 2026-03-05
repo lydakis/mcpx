@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lydakis/mcpx/internal/paths"
 )
 
 func TestLoadForEditFromPreservesEnvPlaceholders(t *testing.T) {
@@ -89,5 +91,56 @@ func TestValidateForCurrentEnvExpandsWithoutMutatingSource(t *testing.T) {
 	}
 	if cfg.Servers["existing"].URL != "${MCP_URL}" {
 		t.Fatalf("source config URL mutated to %q, want placeholder preserved", cfg.Servers["existing"].URL)
+	}
+}
+
+func TestSaveWritesToDefaultPath(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {URL: "https://example.com/mcp"},
+		},
+	}
+
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	savedPath := paths.ConfigFile()
+	if _, err := os.Stat(savedPath); err != nil {
+		t.Fatalf("Stat(saved config) error = %v", err)
+	}
+
+	loaded, err := LoadForEditFrom(savedPath)
+	if err != nil {
+		t.Fatalf("LoadForEditFrom(saved path) error = %v", err)
+	}
+	if got := loaded.Servers["github"].URL; got != "https://example.com/mcp" {
+		t.Fatalf("saved github URL = %q, want %q", got, "https://example.com/mcp")
+	}
+}
+
+func TestSaveHandlesNilConfig(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	if err := Save(nil); err != nil {
+		t.Fatalf("Save(nil) error = %v", err)
+	}
+
+	if _, err := os.Stat(paths.ConfigFile()); err != nil {
+		t.Fatalf("Stat(default config path) error = %v", err)
+	}
+
+	loaded, err := LoadForEdit()
+	if err != nil {
+		t.Fatalf("LoadForEdit() error after Save(nil) = %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("LoadForEdit() = nil after Save(nil), want non-nil")
 	}
 }
