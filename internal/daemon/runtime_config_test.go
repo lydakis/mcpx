@@ -588,6 +588,93 @@ func TestRuntimeRequestHandlerDoesNotRememberEphemeralServerOnFailedFirstUse(t *
 	}
 }
 
+func TestFinalizeRequestEphemeralInstallRemembersOnStateVersionAdvance(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, nil, runtimeDefaultDeps())
+
+	const source = "/tmp/ephemeral-version-race.json"
+	installed, resolvedName, resolvedServer, err := installRequestEphemeralServer(handler.cfg, source, &ipc.EphemeralServer{
+		Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+	})
+	if err != nil {
+		t.Fatalf("installRequestEphemeralServer() error = %v", err)
+	}
+	if !installed {
+		t.Fatal("installRequestEphemeralServer() installed = false, want true")
+	}
+
+	const dispatchVersion = uint64(10)
+	handler.stateVersion = dispatchVersion + 1
+
+	resp := &ipc.Response{ExitCode: ipc.ExitOK}
+	finalResp, finalized := handler.finalizeRequestEphemeralInstall(dispatchVersion, resolvedName, resolvedServer, resp)
+	if !finalized {
+		t.Fatal("finalizeRequestEphemeralInstall() finalized = false, want true")
+	}
+	if finalResp != resp {
+		t.Fatal("finalizeRequestEphemeralInstall() returned unexpected response pointer")
+	}
+	if _, ok := handler.ephemeralServers[source]; !ok {
+		t.Fatalf("ephemeralServers missing source %q after finalize", source)
+	}
+	if _, ok := handler.cfg.Servers[source]; !ok {
+		t.Fatalf("cfg.Servers missing source %q after finalize", source)
+	}
+	if got := handler.stateVersion; got != dispatchVersion+2 {
+		t.Fatalf("stateVersion = %d, want %d", got, dispatchVersion+2)
+	}
+}
+
+func TestFinalizeRequestEphemeralInstallRollsBackOnStateVersionAdvance(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+
+	var poolClosed []string
+	deps := runtimeDefaultDeps()
+	deps.poolClose = func(_ *mcppool.Pool, server string) {
+		poolClosed = append(poolClosed, server)
+	}
+
+	handler := newRuntimeRequestHandlerWithDeps(cfg, nil, nil, deps)
+
+	const source = "/tmp/ephemeral-version-race-fail.json"
+	installed, resolvedName, resolvedServer, err := installRequestEphemeralServer(handler.cfg, source, &ipc.EphemeralServer{
+		Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+	})
+	if err != nil {
+		t.Fatalf("installRequestEphemeralServer() error = %v", err)
+	}
+	if !installed {
+		t.Fatal("installRequestEphemeralServer() installed = false, want true")
+	}
+
+	const dispatchVersion = uint64(20)
+	handler.stateVersion = dispatchVersion + 1
+
+	resp := &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: "bootstrap failed"}
+	finalResp, finalized := handler.finalizeRequestEphemeralInstall(dispatchVersion, resolvedName, resolvedServer, resp)
+	if !finalized {
+		t.Fatal("finalizeRequestEphemeralInstall() finalized = false, want true")
+	}
+	if finalResp != resp {
+		t.Fatal("finalizeRequestEphemeralInstall() returned unexpected response pointer")
+	}
+	if _, ok := handler.cfg.Servers[source]; ok {
+		t.Fatalf("cfg.Servers still contains failed source %q", source)
+	}
+	if _, ok := handler.cfg.ServerOrigins[source]; ok {
+		t.Fatalf("cfg.ServerOrigins still contains failed source %q", source)
+	}
+	if _, ok := handler.ephemeralServers[source]; ok {
+		t.Fatalf("ephemeralServers still contains failed source %q", source)
+	}
+	if len(poolClosed) != 1 || poolClosed[0] != source {
+		t.Fatalf("poolClose calls = %#v, want one close for %q", poolClosed, source)
+	}
+	if got := handler.stateVersion; got != dispatchVersion+2 {
+		t.Fatalf("stateVersion = %d, want %d", got, dispatchVersion+2)
+	}
+}
+
 func TestRuntimeRequestHandlerEphemeralInstallKeepsPersistentConfigHash(t *testing.T) {
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	initialHash, err := configFingerprint(cfg)

@@ -289,14 +289,9 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 	}
 }
 
-func (h *runtimeRequestHandler) finalizeRequestEphemeralInstall(dispatchVersion uint64, name string, server config.ServerConfig, resp *ipc.Response) (*ipc.Response, bool) {
+func (h *runtimeRequestHandler) finalizeRequestEphemeralInstall(_ uint64, name string, server config.ServerConfig, resp *ipc.Response) (*ipc.Response, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
-	if h.stateVersion != dispatchVersion {
-		// The request already dispatched; do not retry and risk duplicate tool execution.
-		return resp, false
-	}
 
 	changed := false
 	if resp != nil && resp.ExitCode == ipc.ExitOK {
