@@ -31,6 +31,15 @@ func Validate(cfg *Config) error {
 	return errors.Join(errs...)
 }
 
+// ValidateServerConfig checks invariants for a single named server.
+func ValidateServerConfig(name string, srv ServerConfig) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("server name is required")
+	}
+	return errors.Join(validateServer(name, srv)...)
+}
+
 // ValidateForCurrentEnv checks config invariants after expanding ${ENV_VAR}
 // placeholders against the current process environment.
 func ValidateForCurrentEnv(cfg *Config) error {

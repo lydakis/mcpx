@@ -835,15 +835,7 @@ func resolveEphemeralSource(source string) (*ipc.EphemeralServer, *ipc.Response)
 }
 
 func validateResolvedEphemeralServer(name string, resolved config.ServerConfig) error {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("ephemeral server requires target name")
-	}
-	return config.Validate(&config.Config{
-		Servers: map[string]config.ServerConfig{
-			name: resolved,
-		},
-	})
+	return config.ValidateServerConfig(name, resolved)
 }
 
 func looksLikeExplicitEphemeralSource(source string) bool {

@@ -493,6 +493,101 @@ func TestRuntimeRequestHandlerInstallsEphemeralServerFromRequest(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequestHandlerDoesNotRememberEphemeralServerOnFailedFirstUse(t *testing.T) {
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	const source = "/tmp/ephemeral.json"
+
+	var poolClosed []string
+	var listCalls int
+	var handler *runtimeRequestHandler
+
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
+		if server != source {
+			t.Fatalf("poolListTools server = %q, want %q", server, source)
+		}
+		listCalls++
+		if _, ok := handler.cfg.Servers[source]; !ok {
+			return nil, fmt.Errorf("unknown server: %s", source)
+		}
+		if listCalls == 1 {
+			return nil, errors.New("bootstrap failed")
+		}
+		return []mcppool.ToolInfo{{Name: "ping", Description: "Ping"}}, nil
+	}
+	deps.poolClose = func(_ *mcppool.Pool, server string) {
+		poolClosed = append(poolClosed, server)
+	}
+
+	handler = newRuntimeRequestHandlerWithDeps(cfg, nil, ka, deps)
+	handler.activeCWD = "/tmp/project"
+
+	first := handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project",
+		Ephemeral: &ipc.EphemeralServer{
+			Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+		},
+	})
+	if first == nil {
+		t.Fatal("first handler response is nil")
+	}
+	if first.ExitCode == ipc.ExitOK {
+		t.Fatalf("first handler exit code = %d, want non-OK for failed bootstrap", first.ExitCode)
+	}
+	if _, ok := handler.cfg.Servers[source]; ok {
+		t.Fatalf("cfg.Servers still contains failed first-use source %q", source)
+	}
+	if _, ok := handler.cfg.ServerOrigins[source]; ok {
+		t.Fatalf("cfg.ServerOrigins still contains failed first-use source %q", source)
+	}
+	if _, ok := handler.ephemeralServers[source]; ok {
+		t.Fatalf("ephemeralServers still contains failed first-use source %q", source)
+	}
+	for _, name := range handler.ephemeralServerOrder {
+		if name == source {
+			t.Fatalf("ephemeralServerOrder still contains failed first-use source %q", source)
+		}
+	}
+	if len(poolClosed) != 1 || poolClosed[0] != source {
+		t.Fatalf("poolClose calls = %#v, want one close for %q", poolClosed, source)
+	}
+
+	second := handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project",
+	})
+	if second == nil {
+		t.Fatal("second handler response is nil")
+	}
+	if second.ExitCode != ipc.ExitUsageErr {
+		t.Fatalf("second handler exit code = %d, want %d for unknown server after rollback", second.ExitCode, ipc.ExitUsageErr)
+	}
+
+	third := handler.handle(context.Background(), &ipc.Request{
+		Type:   "list_tools",
+		Server: source,
+		CWD:    "/tmp/project",
+		Ephemeral: &ipc.EphemeralServer{
+			Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+		},
+	})
+	if third == nil {
+		t.Fatal("third handler response is nil")
+	}
+	if third.ExitCode != ipc.ExitOK {
+		t.Fatalf("third handler exit code = %d, want %d (stderr=%q)", third.ExitCode, ipc.ExitOK, third.Stderr)
+	}
+	if _, ok := handler.ephemeralServers[source]; !ok {
+		t.Fatalf("ephemeralServers missing source %q after successful retry", source)
+	}
+}
+
 func TestRuntimeRequestHandlerEphemeralInstallKeepsPersistentConfigHash(t *testing.T) {
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	initialHash, err := configFingerprint(cfg)

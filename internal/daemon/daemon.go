@@ -243,7 +243,6 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 		h.mu.RUnlock()
 
 		h.mu.Lock()
-
 		if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
 			h.mu.Unlock()
 			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
@@ -258,13 +257,7 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 			h.mu.Unlock()
 			return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: err.Error()}
 		}
-		ephemeralStateChanged := restoredEphemeral
-		if installedEphemeral {
-			if rememberRuntimeEphemeralServer(h.cfg, h.pool, h.deps, &h.ephemeralServers, &h.ephemeralServerOrder, resolvedName, resolvedServer) {
-				ephemeralStateChanged = true
-			}
-		}
-		if ephemeralStateChanged {
+		if restoredEphemeral {
 			nextHash, hashErr := configFingerprint(h.cfg)
 			if hashErr != nil {
 				h.mu.Unlock()
@@ -284,8 +277,90 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 		}
 		resp := dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
 		h.mu.RUnlock()
-		return resp
+
+		if !installedEphemeral {
+			return resp
+		}
+		finalResp, finalized := h.finalizeRequestEphemeralInstall(dispatchVersion, resolvedName, resolvedServer, resp)
+		if !finalized {
+			return resp
+		}
+		return finalResp
 	}
+}
+
+func (h *runtimeRequestHandler) finalizeRequestEphemeralInstall(dispatchVersion uint64, name string, server config.ServerConfig, resp *ipc.Response) (*ipc.Response, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.stateVersion != dispatchVersion {
+		// The request already dispatched; do not retry and risk duplicate tool execution.
+		return resp, false
+	}
+
+	changed := false
+	if resp != nil && resp.ExitCode == ipc.ExitOK {
+		if rememberRuntimeEphemeralServer(h.cfg, h.pool, h.deps, &h.ephemeralServers, &h.ephemeralServerOrder, name, server) {
+			changed = true
+		}
+	} else {
+		overlayChanged := forgetRuntimeEphemeralServer(&h.ephemeralServers, &h.ephemeralServerOrder, name)
+		removed := removeRuntimeEphemeralServer(h.cfg, name)
+		if removed {
+			h.deps.poolClose(h.pool, name)
+		}
+		if overlayChanged || removed {
+			changed = true
+		}
+	}
+
+	if changed {
+		nextHash, hashErr := configFingerprint(h.cfg)
+		if hashErr != nil {
+			return &ipc.Response{
+				ExitCode: ipc.ExitInternal,
+				Stderr:   fmt.Sprintf("fingerprinting runtime config: %v", hashErr),
+			}, true
+		}
+		h.cfgHash = nextHash
+		h.stateVersion++
+	}
+
+	return resp, true
+}
+
+func forgetRuntimeEphemeralServer(servers *map[string]config.ServerConfig, order *[]string, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+
+	changed := false
+	if servers != nil && *servers != nil {
+		if _, exists := (*servers)[name]; exists {
+			delete(*servers, name)
+			changed = true
+		}
+	}
+
+	if order != nil && len(*order) > 0 {
+		filtered := make([]string, 0, len(*order))
+		removedFromOrder := false
+		for _, existing := range *order {
+			trimmed := strings.TrimSpace(existing)
+			if trimmed == "" || trimmed == name {
+				removedFromOrder = true
+				continue
+			}
+			filtered = append(filtered, trimmed)
+		}
+		if removedFromOrder || len(filtered) != len(*order) {
+			*order = filtered
+			changed = true
+		}
+	}
+
+	return changed
 }
 
 func installRequestEphemeralServer(cfg *config.Config, server string, ephemeral *ipc.EphemeralServer) (bool, string, config.ServerConfig, error) {
@@ -338,12 +413,7 @@ func installRuntimeEphemeralServer(cfg *config.Config, name string, resolved con
 	if _, exists := cfg.Servers[name]; exists {
 		return false, nil
 	}
-	validationCfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			name: resolved,
-		},
-	}
-	if err := config.Validate(validationCfg); err != nil {
+	if err := config.ValidateServerConfig(name, resolved); err != nil {
 		return false, fmt.Errorf("invalid ephemeral server %q: %w", name, err)
 	}
 
