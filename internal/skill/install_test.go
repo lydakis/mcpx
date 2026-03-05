@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,15 @@ func TestDefaultDirsUseHome(t *testing.T) {
 	}
 	if got, want := DefaultOpenClawDir(), filepath.Join("/tmp/home", ".openclaw", "skills"); got != want {
 		t.Fatalf("DefaultOpenClawDir() = %q, want %q", got, want)
+	}
+	if got, want := DefaultGuidanceFile(), filepath.Join("/tmp/home", ".agents", "AGENTS.md"); got != want {
+		t.Fatalf("DefaultGuidanceFile() = %q, want %q", got, want)
+	}
+	if got, want := DefaultKiroGuidanceFile(), filepath.Join("/tmp/home", ".kiro", "AGENTS.md"); got != want {
+		t.Fatalf("DefaultKiroGuidanceFile() = %q, want %q", got, want)
+	}
+	if got, want := DefaultOpenClawGuidanceFile(), filepath.Join("/tmp/home", ".openclaw", "AGENTS.md"); got != want {
+		t.Fatalf("DefaultOpenClawGuidanceFile() = %q, want %q", got, want)
 	}
 }
 
@@ -155,6 +165,99 @@ func TestInstallMCPXSkillFailsWhenLinkPathExistsAsFile(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("InstallMCPXSkill() error = nil, want non-nil")
+	}
+}
+
+func TestInstallMCPXSkillWritesGuidanceBlock(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+	guidanceFile := filepath.Join(tmp, "agents", "AGENTS.md")
+
+	result, err := InstallMCPXSkill(InstallOptions{
+		DataAgentDir:    dataDir,
+		ClaudeDir:       claudeDir,
+		EnableGuidance:  true,
+		GuidanceFile:    guidanceFile,
+		GuidanceText:    "Prefer mcpx for CLI composition-heavy MCP work.",
+		SkipClaudeLink:  true,
+		EnableCodexLink: false,
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPXSkill() error = %v", err)
+	}
+	if result.GuidanceFile != guidanceFile {
+		t.Fatalf("GuidanceFile = %q, want %q", result.GuidanceFile, guidanceFile)
+	}
+
+	raw, err := os.ReadFile(guidanceFile)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", guidanceFile, err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, "MCPX MANAGED GUIDANCE START") {
+		t.Fatalf("guidance file missing start marker: %q", body)
+	}
+	if !strings.Contains(body, "Prefer mcpx for CLI composition-heavy MCP work.") {
+		t.Fatalf("guidance file missing custom text: %q", body)
+	}
+}
+
+func TestInstallMCPXSkillGuidanceIsIdempotent(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+	guidanceFile := filepath.Join(tmp, "agents", "AGENTS.md")
+
+	opts := InstallOptions{
+		DataAgentDir:   dataDir,
+		ClaudeDir:      claudeDir,
+		SkipClaudeLink: true,
+		EnableGuidance: true,
+		GuidanceFile:   guidanceFile,
+		GuidanceText:   "Prefer mcpx for MCP tasks that benefit from shell composition.",
+	}
+	if _, err := InstallMCPXSkill(opts); err != nil {
+		t.Fatalf("first InstallMCPXSkill() error = %v", err)
+	}
+	if _, err := InstallMCPXSkill(opts); err != nil {
+		t.Fatalf("second InstallMCPXSkill() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(guidanceFile)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", guidanceFile, err)
+	}
+	body := string(raw)
+	if strings.Count(body, "MCPX MANAGED GUIDANCE START") != 1 {
+		t.Fatalf("guidance marker count = %d, want 1 (body=%q)", strings.Count(body, "MCPX MANAGED GUIDANCE START"), body)
+	}
+}
+
+func TestInstallMCPXSkillGuidanceRejectsMalformedExistingBlock(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+	guidanceFile := filepath.Join(tmp, "agents", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(guidanceFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", filepath.Dir(guidanceFile), err)
+	}
+	if err := os.WriteFile(guidanceFile, []byte("<!-- MCPX MANAGED GUIDANCE START -->\nbroken\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", guidanceFile, err)
+	}
+
+	_, err := InstallMCPXSkill(InstallOptions{
+		DataAgentDir:   dataDir,
+		ClaudeDir:      claudeDir,
+		SkipClaudeLink: true,
+		EnableGuidance: true,
+		GuidanceFile:   guidanceFile,
+	})
+	if err == nil {
+		t.Fatal("InstallMCPXSkill() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "malformed managed guidance block") {
+		t.Fatalf("InstallMCPXSkill() error = %q, want malformed guidance error", err.Error())
 	}
 }
 

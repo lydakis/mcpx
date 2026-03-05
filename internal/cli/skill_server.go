@@ -36,6 +36,9 @@ func installServerSkill(server string, parsed *skillInstallArgs) (*skill.Install
 		EnableKiroLink:     parsed.enableKiroLink,
 		OpenClawDir:        parsed.openClawDir,
 		EnableOpenClawLink: parsed.enableOpenClawLink,
+		EnableGuidance:     parsed.enableGuidance,
+		GuidanceFile:       parsed.guidanceFile,
+		GuidanceText:       parsed.guidanceText,
 	})
 }
 

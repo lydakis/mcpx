@@ -59,6 +59,15 @@ Also create Codex/Kiro skill symlinks (use \fB--codex-dir\fR / \fB--kiro-dir\fR 
 Also create an OpenClaw skill symlink (defaults to \fB~/.openclaw/skills\fR when enabled).
 \fB--openclaw-dir\fR \fIpath\fR
 OpenClaw skill link root (default: \fB~/.openclaw/skills\fR).
+.TP
+\fB--guidance\fR
+Write/update a managed mcpx guidance block in \fB~/.agents/AGENTS.md\fR.
+.TP
+\fB--guidance-file\fR \fIpath\fR
+Guidance target file (implies \fB--guidance\fR).
+.TP
+\fB--guidance-text\fR \fItext\fR
+Custom guidance text for the managed guidance block (implies \fB--guidance\fR).
 .SH SHIM
 \fBmcpx shim\fR manages optional passthrough command wrappers that forward to \fBmcpx <server> ...\fR.
 .TP
@@ -79,6 +88,7 @@ After successful shim install, also install a generated server skill.
 .TP
 \fB--skill-strict\fR
 Fail shim install command if generated skill installation fails (requires \fB--skill\fR).
+.TP
 \fB--openclaw-link\fR / \fB--openclaw-dir\fR
 Also create OpenClaw skill links for generated server skills.
 .SH COMPLETION
@@ -99,6 +109,9 @@ mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx skill install
 mcpx skill install github
+mcpx skill install --guidance
+mcpx skill install --guidance --kiro-link
+mcpx skill install --guidance --openclaw-link
 mcpx skill install --openclaw-link
 mcpx skill install github --openclaw-link --openclaw-dir ~/.openclaw/skills
 mcpx shim install github

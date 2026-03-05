@@ -63,6 +63,15 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--openclaw-dir")) {
 		t.Fatalf("bash completion missing openclaw dir flag: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("--guidance")) {
+		t.Fatalf("bash completion missing guidance flag: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("--guidance-file")) {
+		t.Fatalf("bash completion missing guidance-file flag: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("--guidance-text")) {
+		t.Fatalf("bash completion missing guidance-text flag: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("COMPREPLY=( $(compgen -W \"install\" -- \"$cur\") )")) {
 		t.Fatalf("bash completion missing skill install command: %q", out.String())
 	}
@@ -220,6 +229,9 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--openclaw-link")) {
 		t.Fatalf("zsh completion missing openclaw skill install flag: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("--guidance-file")) {
+		t.Fatalf("zsh completion missing guidance-file skill install flag: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"shim\" ]] && ! _mcpx_has_shim_server; then")) {
 		t.Fatalf("zsh completion missing conditional shim branch: %q", out.String())
 	}
@@ -268,6 +280,9 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--openclaw-dir")) {
 		t.Fatalf("fish completion missing openclaw skill install flag: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("--guidance-text")) {
+		t.Fatalf("fish completion missing guidance-text skill install flag: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = shim; and not __mcpx_has_shim_server")) {
 		t.Fatalf("fish completion missing conditional shim branch: %q", out.String())

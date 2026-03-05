@@ -13,7 +13,9 @@ import (
 
 const (
 	// Name is the built-in mcpx skill folder name.
-	Name = "mcpx"
+	Name                = "mcpx"
+	guidanceStartMarker = "<!-- MCPX MANAGED GUIDANCE START -->"
+	guidanceEndMarker   = "<!-- MCPX MANAGED GUIDANCE END -->"
 )
 
 var (
@@ -32,6 +34,9 @@ type InstallOptions struct {
 	EnableKiroLink     bool
 	OpenClawDir        string
 	EnableOpenClawLink bool
+	EnableGuidance     bool
+	GuidanceFile       string
+	GuidanceText       string
 }
 
 // InstallResult describes where the skill was installed.
@@ -46,6 +51,7 @@ type InstallResult struct {
 	KiroLinkTarget     string
 	OpenClawLink       string
 	OpenClawLinkTarget string
+	GuidanceFile       string
 }
 
 var (
@@ -76,6 +82,21 @@ func DefaultOpenClawDir() string {
 // DefaultClaudeDir returns the default Claude Code skills directory.
 func DefaultClaudeDir() string {
 	return filepath.Join(homeDir(), ".claude", "skills")
+}
+
+// DefaultGuidanceFile returns the default global AGENTS.md path.
+func DefaultGuidanceFile() string {
+	return filepath.Join(homeDir(), ".agents", "AGENTS.md")
+}
+
+// DefaultKiroGuidanceFile returns the default Kiro guidance path.
+func DefaultKiroGuidanceFile() string {
+	return filepath.Join(homeDir(), ".kiro", "AGENTS.md")
+}
+
+// DefaultOpenClawGuidanceFile returns the default OpenClaw guidance path.
+func DefaultOpenClawGuidanceFile() string {
+	return filepath.Join(homeDir(), ".openclaw", "AGENTS.md")
 }
 
 // InstallMCPXSkill installs the built-in mcpx skill.
@@ -188,6 +209,17 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 		result.OpenClawLinkTarget = linkTarget
 	}
 
+	if opts.EnableGuidance {
+		guidanceFile := strings.TrimSpace(opts.GuidanceFile)
+		if guidanceFile == "" {
+			guidanceFile = DefaultGuidanceFile()
+		}
+		if err := installManagedGuidance(guidanceFile, opts.GuidanceText); err != nil {
+			return nil, fmt.Errorf("writing guidance file: %w", err)
+		}
+		result.GuidanceFile = guidanceFile
+	}
+
 	return result, nil
 }
 
@@ -260,4 +292,70 @@ func samePath(pathA, pathB string) bool {
 		cleanB = filepath.Clean(resolved)
 	}
 	return cleanA == cleanB
+}
+
+func installManagedGuidance(path string, customText string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("guidance file path is required")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating guidance directory: %w", err)
+	}
+
+	var existing []byte
+	raw, err := os.ReadFile(path)
+	if err == nil {
+		existing = raw
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading guidance file: %w", err)
+	}
+
+	block := renderManagedGuidanceBlock(customText)
+	next, err := upsertManagedGuidanceBlock(existing, block)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, ensureTrailingNewline(next), 0o644); err != nil {
+		return fmt.Errorf("writing guidance file: %w", err)
+	}
+	return nil
+}
+
+func renderManagedGuidanceBlock(customText string) string {
+	text := strings.TrimSpace(customText)
+	if text == "" {
+		text = "Prefer using `mcpx` plus the installed `mcpx` skill for MCP tasks that benefit from CLI composition (`|`, redirection, `jq`, scripts, caching, shims). Use direct MCP tool calls when raw structured output is explicitly required."
+	}
+
+	var b strings.Builder
+	b.WriteString(guidanceStartMarker)
+	b.WriteString("\n## mcpx guidance\n\n")
+	b.WriteString(text)
+	b.WriteString("\n")
+	b.WriteString(guidanceEndMarker)
+	return b.String()
+}
+
+func upsertManagedGuidanceBlock(existing []byte, block string) ([]byte, error) {
+	content := string(existing)
+	start := strings.Index(content, guidanceStartMarker)
+	end := strings.Index(content, guidanceEndMarker)
+
+	if start == -1 && end == -1 {
+		trimmed := strings.TrimRight(content, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			return []byte(block), nil
+		}
+		return []byte(trimmed + "\n\n" + block), nil
+	}
+	if start == -1 || end == -1 || end < start {
+		return nil, errors.New("malformed managed guidance block")
+	}
+
+	afterEnd := end + len(guidanceEndMarker)
+	updated := content[:start] + block + content[afterEnd:]
+	return []byte(updated), nil
 }

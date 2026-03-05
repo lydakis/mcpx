@@ -20,6 +20,9 @@ type skillInstallArgs struct {
 	enableKiroLink     bool
 	openClawDir        string
 	enableOpenClawLink bool
+	enableGuidance     bool
+	guidanceFile       string
+	guidanceText       string
 	help               bool
 }
 
@@ -86,6 +89,9 @@ func runSkillInstallCommand(args []string, stdout, stderr io.Writer) int {
 			EnableKiroLink:     parsed.enableKiroLink,
 			OpenClawDir:        parsed.openClawDir,
 			EnableOpenClawLink: parsed.enableOpenClawLink,
+			EnableGuidance:     parsed.enableGuidance,
+			GuidanceFile:       parsed.guidanceFile,
+			GuidanceText:       parsed.guidanceText,
 		})
 	}
 	if installErr != nil {
@@ -119,6 +125,9 @@ func printInstalledSkillResult(stdout io.Writer, result *skill.InstallResult) {
 	if result.OpenClawLink != "" {
 		fmt.Fprintf(stdout, "OpenClaw link: %s -> %s\n", result.OpenClawLink, result.OpenClawLinkTarget)
 	}
+	if result.GuidanceFile != "" {
+		fmt.Fprintf(stdout, "Guidance file: %s\n", result.GuidanceFile)
+	}
 	if result.ClaudeLink == "" && result.CodexLink == "" && result.KiroLink == "" && result.OpenClawLink == "" {
 		fmt.Fprintln(stdout, "No symlinks created.")
 	}
@@ -143,6 +152,8 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 			parsed.enableKiroLink = true
 		case arg == "--openclaw-link":
 			parsed.enableOpenClawLink = true
+		case arg == "--guidance":
+			parsed.enableGuidance = true
 		case strings.HasPrefix(arg, "--data-agent-dir="):
 			parsed.dataAgentDir = strings.TrimSpace(strings.TrimPrefix(arg, "--data-agent-dir="))
 		case arg == "--data-agent-dir":
@@ -189,6 +200,26 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 			}
 			parsed.openClawDir = value
 			openClawDirSet = true
+		case strings.HasPrefix(arg, "--guidance-file="):
+			parsed.guidanceFile = strings.TrimSpace(strings.TrimPrefix(arg, "--guidance-file="))
+			parsed.enableGuidance = true
+		case arg == "--guidance-file":
+			value, err := parseSkillInstallPathArg(args, &i, "--guidance-file")
+			if err != nil {
+				return nil, err
+			}
+			parsed.guidanceFile = value
+			parsed.enableGuidance = true
+		case strings.HasPrefix(arg, "--guidance-text="):
+			parsed.guidanceText = strings.TrimSpace(strings.TrimPrefix(arg, "--guidance-text="))
+			parsed.enableGuidance = true
+		case arg == "--guidance-text":
+			value, err := parseSkillInstallPathArg(args, &i, "--guidance-text")
+			if err != nil {
+				return nil, err
+			}
+			parsed.guidanceText = value
+			parsed.enableGuidance = true
 		case strings.HasPrefix(arg, "-"):
 			return nil, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -220,6 +251,13 @@ func parseSkillInstallArgs(args []string) (*skillInstallArgs, error) {
 		}
 		if parsed.openClawDir == "" {
 			parsed.openClawDir = skill.DefaultOpenClawDir()
+		}
+		if parsed.enableGuidance && parsed.guidanceFile == "" {
+			inferredPath, err := inferGuidanceTargetFromSkillLinks(parsed)
+			if err != nil {
+				return nil, err
+			}
+			parsed.guidanceFile = inferredPath
 		}
 	}
 
@@ -284,7 +322,36 @@ func printSkillInstallHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --codex-link             Also create ~/.codex/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --kiro-link              Also create ~/.kiro/skills/mcpx symlink.")
 	fmt.Fprintln(out, "  --openclaw-link          Also create ~/.openclaw/skills/mcpx symlink.")
+	fmt.Fprintln(out, "  --guidance               Write/update managed guidance (default ~/.agents/AGENTS.md; follows a single codex/kiro/openclaw link target).")
+	fmt.Fprintf(out, "  --guidance-file <path>   Guidance target file (default: %s, implies --guidance)\n", skill.DefaultGuidanceFile())
+	fmt.Fprintln(out, "  --guidance-text <text>   Custom guidance text for the managed block (implies --guidance).")
 	fmt.Fprintln(out, "  --help, -h               Show install help.")
+}
+
+func inferGuidanceTargetFromSkillLinks(parsed *skillInstallArgs) (string, error) {
+	if parsed == nil {
+		return skill.DefaultGuidanceFile(), nil
+	}
+
+	targets := make([]string, 0, 3)
+	if parsed.enableCodexLink {
+		targets = append(targets, skill.DefaultGuidanceFile())
+	}
+	if parsed.enableKiroLink {
+		targets = append(targets, skill.DefaultKiroGuidanceFile())
+	}
+	if parsed.enableOpenClawLink {
+		targets = append(targets, skill.DefaultOpenClawGuidanceFile())
+	}
+
+	switch len(targets) {
+	case 0:
+		return skill.DefaultGuidanceFile(), nil
+	case 1:
+		return targets[0], nil
+	default:
+		return "", fmt.Errorf("--guidance with multiple link targets requires --guidance-file")
+	}
 }
 
 func isHelpFlag(arg string) bool {

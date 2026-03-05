@@ -186,6 +186,11 @@ mcpx skill install --no-claude-link
 mcpx skill install --codex-link
 mcpx skill install --kiro-link
 mcpx skill install --openclaw-link
+mcpx skill install --guidance
+mcpx skill install --guidance --kiro-link
+mcpx skill install --guidance --openclaw-link
+mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP work benefits from CLI composition."
+mcpx skill install --guidance-file /custom/AGENTS.md
 mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
 mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills --openclaw-dir /custom/.openclaw/skills
 ```

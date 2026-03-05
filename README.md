@@ -30,6 +30,15 @@ mcpx skill install --codex-link
 mcpx skill install --openclaw-link
 ```
 
+Optionally write/update a managed `mcpx` guidance block in your global AGENTS file:
+
+```bash
+mcpx skill install --guidance
+mcpx skill install --guidance --kiro-link
+mcpx skill install --guidance --openclaw-link
+mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP work benefits from CLI composition."
+```
+
 If you already use MCP in Cursor, Claude Code, Cline, Codex, or Kiro, `mcpx` auto-discovers those server configs.
 
 ```bash
@@ -166,7 +175,7 @@ Windows: use WSL2 and run install commands inside your Linux distro shell.
 | `mcpx completion <shell>` | Print shell completions (bash/zsh/fish) |
 | `mcpx skill install [<server>]` | Install built-in or server-specific skill |
 
-`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`.
+`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`. `mcpx skill install` accepts `--guidance`, `--guidance-file`, and `--guidance-text` (`--guidance` follows a single `--codex-link`/`--kiro-link`/`--openclaw-link` target when provided).
 
 ### Output Modes
 

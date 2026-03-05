@@ -134,6 +134,85 @@ func TestParseSkillInstallArgsOpenClawDirImpliesOpenClawLink(t *testing.T) {
 	}
 }
 
+func TestParseSkillInstallArgsGuidanceFileImpliesGuidance(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance-file", "/tmp/AGENTS.md"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableGuidance {
+		t.Fatal("enableGuidance = false, want true when --guidance-file is set")
+	}
+	if parsed.guidanceFile != "/tmp/AGENTS.md" {
+		t.Fatalf("guidanceFile = %q, want %q", parsed.guidanceFile, "/tmp/AGENTS.md")
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceFollowsCodexLinkTarget(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance", "--codex-link"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableGuidance {
+		t.Fatal("enableGuidance = false, want true when --guidance is set")
+	}
+	if parsed.guidanceFile != skill.DefaultGuidanceFile() {
+		t.Fatalf("guidanceFile = %q, want %q", parsed.guidanceFile, skill.DefaultGuidanceFile())
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceFollowsKiroLinkTarget(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance", "--kiro-link"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if parsed.guidanceFile != skill.DefaultKiroGuidanceFile() {
+		t.Fatalf("guidanceFile = %q, want %q", parsed.guidanceFile, skill.DefaultKiroGuidanceFile())
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceFollowsOpenClawLinkTarget(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance", "--openclaw-link"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if parsed.guidanceFile != skill.DefaultOpenClawGuidanceFile() {
+		t.Fatalf("guidanceFile = %q, want %q", parsed.guidanceFile, skill.DefaultOpenClawGuidanceFile())
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceWithMultipleLinksRequiresGuidanceFile(t *testing.T) {
+	_, err := parseSkillInstallArgs([]string{"--guidance", "--kiro-link", "--openclaw-link"})
+	if err == nil {
+		t.Fatal("parseSkillInstallArgs() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "requires --guidance-file") {
+		t.Fatalf("parseSkillInstallArgs() error = %q, want guidance-file requirement", err.Error())
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceFileOverridesMultipleLinks(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance", "--kiro-link", "--openclaw-link", "--guidance-file", "/tmp/AGENTS.md"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if parsed.guidanceFile != "/tmp/AGENTS.md" {
+		t.Fatalf("guidanceFile = %q, want %q", parsed.guidanceFile, "/tmp/AGENTS.md")
+	}
+}
+
+func TestParseSkillInstallArgsGuidanceTextImpliesGuidance(t *testing.T) {
+	parsed, err := parseSkillInstallArgs([]string{"--guidance-text", "Prefer mcpx"})
+	if err != nil {
+		t.Fatalf("parseSkillInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableGuidance {
+		t.Fatal("enableGuidance = false, want true when --guidance-text is set")
+	}
+	if parsed.guidanceText != "Prefer mcpx" {
+		t.Fatalf("guidanceText = %q, want %q", parsed.guidanceText, "Prefer mcpx")
+	}
+}
+
 func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -164,6 +243,16 @@ func TestParseSkillInstallArgsRejectsFlagLikeValues(t *testing.T) {
 			name: "openclaw-dir",
 			args: []string{"--openclaw-dir", "--no-claude-link"},
 			want: "missing value for --openclaw-dir",
+		},
+		{
+			name: "guidance-file",
+			args: []string{"--guidance-file", "--no-claude-link"},
+			want: "missing value for --guidance-file",
+		},
+		{
+			name: "guidance-text",
+			args: []string{"--guidance-text", "--no-claude-link"},
+			want: "missing value for --guidance-text",
 		},
 	}
 
@@ -265,6 +354,15 @@ func TestPrintSkillInstallHelpIncludesLinkFlags(t *testing.T) {
 	}
 	if !strings.Contains(help, "--openclaw-link") {
 		t.Fatalf("help output missing --openclaw-link guidance: %q", help)
+	}
+	if !strings.Contains(help, "--guidance") {
+		t.Fatalf("help output missing --guidance flag: %q", help)
+	}
+	if !strings.Contains(help, "--guidance-file") {
+		t.Fatalf("help output missing --guidance-file flag: %q", help)
+	}
+	if !strings.Contains(help, "--guidance-text") {
+		t.Fatalf("help output missing --guidance-text flag: %q", help)
 	}
 }
 

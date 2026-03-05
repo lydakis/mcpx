@@ -84,6 +84,16 @@ mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/sk
 mcpx skill install --openclaw-dir /custom/.openclaw/skills
 ```
 
+Optional AGENTS guidance block:
+
+```bash
+mcpx skill install --guidance
+mcpx skill install --guidance --kiro-link
+mcpx skill install --guidance --openclaw-link
+mcpx skill install --guidance --guidance-file /custom/AGENTS.md
+mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP tasks benefit from CLI composition."
+```
+
 Generate a server-specific skill from one configured server:
 
 ```bash
