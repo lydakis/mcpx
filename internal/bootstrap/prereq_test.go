@@ -154,3 +154,9 @@ func TestCheckPrerequisitesSkipsHTTPServers(t *testing.T) {
 		t.Fatalf("checkPrerequisitesWithLookup() error = %v, want nil", err)
 	}
 }
+
+func TestCheckPrerequisitesWrapperSkipsHTTPServers(t *testing.T) {
+	if err := CheckPrerequisites(config.ServerConfig{URL: "https://example.com/mcp"}); err != nil {
+		t.Fatalf("CheckPrerequisites(http server) error = %v, want nil", err)
+	}
+}
