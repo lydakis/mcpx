@@ -20,9 +20,7 @@ type shimInstallArgs struct {
 	skillStrict        bool
 	dataAgentDir       string
 	claudeDir          string
-	skipClaudeLink     bool
-	codexDir           string
-	enableCodexLink    bool
+	enableClaudeLink   bool
 	kiroDir            string
 	enableKiroLink     bool
 	openClawDir        string
@@ -119,9 +117,7 @@ func runShimInstallCommand(args []string, cfg *config.Config, stdout, stderr io.
 		skillResult, skillErr := installServerSkillFn(parsed.server, &skillInstallArgs{
 			dataAgentDir:       parsed.dataAgentDir,
 			claudeDir:          parsed.claudeDir,
-			skipClaudeLink:     parsed.skipClaudeLink,
-			codexDir:           parsed.codexDir,
-			enableCodexLink:    parsed.enableCodexLink,
+			enableClaudeLink:   parsed.enableClaudeLink,
 			kiroDir:            parsed.kiroDir,
 			enableKiroLink:     parsed.enableKiroLink,
 			openClawDir:        parsed.openClawDir,
@@ -207,7 +203,7 @@ func classifyShimErrorExitCode(err error) int {
 func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 	parsed := &shimInstallArgs{}
 	skillFlagsSeen := false
-	codexDirSet := false
+	claudeDirSet := false
 	kiroDirSet := false
 	openClawDirSet := false
 
@@ -220,11 +216,8 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			parsed.installSkill = true
 		case arg == "--skill-strict":
 			parsed.skillStrict = true
-		case arg == "--no-claude-link":
-			parsed.skipClaudeLink = true
-			skillFlagsSeen = true
-		case arg == "--codex-link":
-			parsed.enableCodexLink = true
+		case arg == "--claude-link":
+			parsed.enableClaudeLink = true
 			skillFlagsSeen = true
 		case arg == "--kiro-link":
 			parsed.enableKiroLink = true
@@ -252,6 +245,8 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "--claude-dir="):
 			parsed.claudeDir = strings.TrimSpace(strings.TrimPrefix(arg, "--claude-dir="))
+			parsed.enableClaudeLink = true
+			claudeDirSet = true
 			skillFlagsSeen = true
 		case arg == "--claude-dir":
 			value, err := parseShimPathArg(args, &i, "--claude-dir")
@@ -259,20 +254,8 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 				return nil, err
 			}
 			parsed.claudeDir = value
-			skillFlagsSeen = true
-		case strings.HasPrefix(arg, "--codex-dir="):
-			parsed.codexDir = strings.TrimSpace(strings.TrimPrefix(arg, "--codex-dir="))
-			parsed.enableCodexLink = true
-			codexDirSet = true
-			skillFlagsSeen = true
-		case arg == "--codex-dir":
-			value, err := parseShimPathArg(args, &i, "--codex-dir")
-			if err != nil {
-				return nil, err
-			}
-			parsed.codexDir = value
-			parsed.enableCodexLink = true
-			codexDirSet = true
+			parsed.enableClaudeLink = true
+			claudeDirSet = true
 			skillFlagsSeen = true
 		case strings.HasPrefix(arg, "--kiro-dir="):
 			parsed.kiroDir = strings.TrimSpace(strings.TrimPrefix(arg, "--kiro-dir="))
@@ -328,11 +311,8 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 		if parsed.dataAgentDir == "" {
 			parsed.dataAgentDir = skill.DefaultDataAgentDir()
 		}
-		if parsed.claudeDir == "" {
+		if parsed.enableClaudeLink && parsed.claudeDir == "" {
 			parsed.claudeDir = skill.DefaultClaudeDir()
-		}
-		if parsed.enableCodexLink && parsed.codexDir == "" {
-			parsed.codexDir = skill.DefaultCodexDir()
 		}
 		if parsed.enableKiroLink && parsed.kiroDir == "" {
 			parsed.kiroDir = skill.DefaultKiroDir()
@@ -344,8 +324,8 @@ func parseShimInstallArgs(args []string) (*shimInstallArgs, error) {
 			parsed.openClawDir = skill.DefaultOpenClawDir()
 		}
 	}
-	if codexDirSet && parsed.codexDir == "" {
-		parsed.codexDir = skill.DefaultCodexDir()
+	if claudeDirSet && parsed.claudeDir == "" {
+		parsed.claudeDir = skill.DefaultClaudeDir()
 	}
 	if kiroDirSet && parsed.kiroDir == "" {
 		parsed.kiroDir = skill.DefaultKiroDir()
@@ -453,12 +433,10 @@ func printShimInstallHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --skill                 Also install a generated server skill after shim install succeeds.")
 	fmt.Fprintln(out, "  --skill-strict          Fail if server skill installation fails (requires --skill).")
 	fmt.Fprintf(out, "  --data-agent-dir <path> Skill root (default: %s, requires --skill)\n", skill.DefaultDataAgentDir())
-	fmt.Fprintf(out, "  --claude-dir <path>     Claude skill link root (default: %s, requires --skill)\n", skill.DefaultClaudeDir())
-	fmt.Fprintf(out, "  --codex-dir <path>      Legacy Codex link root (default: %s, requires --skill; implies --codex-link)\n", skill.DefaultCodexDir())
+	fmt.Fprintf(out, "  --claude-dir <path>     Claude skill link root (default: %s, requires --skill; implies --claude-link)\n", skill.DefaultClaudeDir())
 	fmt.Fprintf(out, "  --kiro-dir <path>       Kiro skill link root (default: %s, requires --skill; implies --kiro-link)\n", skill.DefaultKiroDir())
 	fmt.Fprintf(out, "  --openclaw-dir <path>   OpenClaw skill link root (default: %s, requires --skill; implies --openclaw-link)\n", skill.DefaultOpenClawDir())
-	fmt.Fprintln(out, "  --no-claude-link        Skip creating ~/.claude/skills/<generated-name> symlink (requires --skill).")
-	fmt.Fprintln(out, "  --codex-link            Also create ~/.codex/skills/<generated-name> symlink (requires --skill).")
+	fmt.Fprintln(out, "  --claude-link           Also create ~/.claude/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --kiro-link             Also create ~/.kiro/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --openclaw-link         Also create ~/.openclaw/skills/<generated-name> symlink (requires --skill).")
 	fmt.Fprintln(out, "  --help, -h    Show install help.")

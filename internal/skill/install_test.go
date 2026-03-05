@@ -16,8 +16,8 @@ func TestDefaultDirsUseHome(t *testing.T) {
 	if got, want := DefaultClaudeDir(), filepath.Join("/tmp/home", ".claude", "skills"); got != want {
 		t.Fatalf("DefaultClaudeDir() = %q, want %q", got, want)
 	}
-	if got, want := DefaultCodexDir(), filepath.Join("/tmp/home", ".codex", "skills"); got != want {
-		t.Fatalf("DefaultCodexDir() = %q, want %q", got, want)
+	if got, want := DefaultClaudeGuidanceFile(), filepath.Join("/tmp/home", ".claude", "CLAUDE.md"); got != want {
+		t.Fatalf("DefaultClaudeGuidanceFile() = %q, want %q", got, want)
 	}
 	if got, want := DefaultKiroDir(), filepath.Join("/tmp/home", ".kiro", "skills"); got != want {
 		t.Fatalf("DefaultKiroDir() = %q, want %q", got, want)
@@ -36,7 +36,7 @@ func TestDefaultDirsUseHome(t *testing.T) {
 	}
 }
 
-func TestInstallMCPXSkillCreatesSkillAndClaudeLink(t *testing.T) {
+func TestInstallMCPXSkillDoesNotCreateClaudeLinkByDefault(t *testing.T) {
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "agents", "skills")
 	claudeDir := filepath.Join(tmp, "claude", "skills")
@@ -52,53 +52,28 @@ func TestInstallMCPXSkillCreatesSkillAndClaudeLink(t *testing.T) {
 	if _, err := os.Stat(result.SkillFile); err != nil {
 		t.Fatalf("skill file missing at %s: %v", result.SkillFile, err)
 	}
+	if result.ClaudeLink != "" {
+		t.Fatalf("ClaudeLink = %q, want empty by default", result.ClaudeLink)
+	}
+}
+
+func TestInstallMCPXSkillCreatesClaudeLinkWhenEnabled(t *testing.T) {
+	tmp := t.TempDir()
+	dataDir := filepath.Join(tmp, "agents", "skills")
+	claudeDir := filepath.Join(tmp, "claude", "skills")
+
+	result, err := InstallMCPXSkill(InstallOptions{
+		DataAgentDir:     dataDir,
+		ClaudeDir:        claudeDir,
+		EnableClaudeLink: true,
+	})
+	if err != nil {
+		t.Fatalf("InstallMCPXSkill() error = %v", err)
+	}
 	if result.ClaudeLink == "" {
 		t.Fatal("ClaudeLink is empty, want symlink path")
 	}
-
 	assertSymlinkTarget(t, result.ClaudeLink, filepath.Join(dataDir, Name))
-}
-
-func TestInstallMCPXSkillSkipsClaudeLink(t *testing.T) {
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "agents", "skills")
-	claudeDir := filepath.Join(tmp, "claude", "skills")
-
-	result, err := InstallMCPXSkill(InstallOptions{
-		DataAgentDir:   dataDir,
-		ClaudeDir:      claudeDir,
-		SkipClaudeLink: true,
-	})
-	if err != nil {
-		t.Fatalf("InstallMCPXSkill() error = %v", err)
-	}
-	if result.ClaudeLink != "" {
-		t.Fatalf("ClaudeLink = %q, want empty", result.ClaudeLink)
-	}
-	if _, err := os.Lstat(filepath.Join(claudeDir, Name)); !os.IsNotExist(err) {
-		t.Fatalf("expected no claude symlink, got err=%v", err)
-	}
-}
-
-func TestInstallMCPXSkillSupportsOptionalCodexLink(t *testing.T) {
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "agents", "skills")
-	claudeDir := filepath.Join(tmp, "claude", "skills")
-	codexDir := filepath.Join(tmp, "codex", "skills")
-
-	result, err := InstallMCPXSkill(InstallOptions{
-		DataAgentDir:    dataDir,
-		ClaudeDir:       claudeDir,
-		CodexDir:        codexDir,
-		EnableCodexLink: true,
-	})
-	if err != nil {
-		t.Fatalf("InstallMCPXSkill() error = %v", err)
-	}
-	if result.CodexLink == "" {
-		t.Fatal("CodexLink is empty, want symlink path")
-	}
-	assertSymlinkTarget(t, result.CodexLink, filepath.Join(dataDir, Name))
 }
 
 func TestInstallMCPXSkillSupportsOptionalKiroLink(t *testing.T) {
@@ -147,21 +122,21 @@ func TestInstallMCPXSkillFailsWhenLinkPathExistsAsFile(t *testing.T) {
 	tmp := t.TempDir()
 	dataDir := filepath.Join(tmp, "agents", "skills")
 	claudeDir := filepath.Join(tmp, "claude", "skills")
-	codexDir := filepath.Join(tmp, "codex", "skills")
+	kiroDir := filepath.Join(tmp, "kiro", "skills")
 
-	if err := os.MkdirAll(codexDir, 0o755); err != nil {
-		t.Fatalf("mkdir codex dir: %v", err)
+	if err := os.MkdirAll(kiroDir, 0o755); err != nil {
+		t.Fatalf("mkdir kiro dir: %v", err)
 	}
-	blockingPath := filepath.Join(codexDir, Name)
+	blockingPath := filepath.Join(kiroDir, Name)
 	if err := os.WriteFile(blockingPath, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write blocking path: %v", err)
 	}
 
 	_, err := InstallMCPXSkill(InstallOptions{
-		DataAgentDir:    dataDir,
-		ClaudeDir:       claudeDir,
-		CodexDir:        codexDir,
-		EnableCodexLink: true,
+		DataAgentDir:   dataDir,
+		ClaudeDir:      claudeDir,
+		KiroDir:        kiroDir,
+		EnableKiroLink: true,
 	})
 	if err == nil {
 		t.Fatal("InstallMCPXSkill() error = nil, want non-nil")
@@ -175,13 +150,11 @@ func TestInstallMCPXSkillWritesGuidanceBlock(t *testing.T) {
 	guidanceFile := filepath.Join(tmp, "agents", "AGENTS.md")
 
 	result, err := InstallMCPXSkill(InstallOptions{
-		DataAgentDir:    dataDir,
-		ClaudeDir:       claudeDir,
-		EnableGuidance:  true,
-		GuidanceFile:    guidanceFile,
-		GuidanceText:    "Prefer mcpx for CLI composition-heavy MCP work.",
-		SkipClaudeLink:  true,
-		EnableCodexLink: false,
+		DataAgentDir:   dataDir,
+		ClaudeDir:      claudeDir,
+		EnableGuidance: true,
+		GuidanceFile:   guidanceFile,
+		GuidanceText:   "Prefer mcpx for CLI composition-heavy MCP work.",
 	})
 	if err != nil {
 		t.Fatalf("InstallMCPXSkill() error = %v", err)
@@ -212,7 +185,6 @@ func TestInstallMCPXSkillGuidanceIsIdempotent(t *testing.T) {
 	opts := InstallOptions{
 		DataAgentDir:   dataDir,
 		ClaudeDir:      claudeDir,
-		SkipClaudeLink: true,
 		EnableGuidance: true,
 		GuidanceFile:   guidanceFile,
 		GuidanceText:   "Prefer mcpx for MCP tasks that benefit from shell composition.",
@@ -249,7 +221,6 @@ func TestInstallMCPXSkillGuidanceRejectsMalformedExistingBlock(t *testing.T) {
 	_, err := InstallMCPXSkill(InstallOptions{
 		DataAgentDir:   dataDir,
 		ClaudeDir:      claudeDir,
-		SkipClaudeLink: true,
 		EnableGuidance: true,
 		GuidanceFile:   guidanceFile,
 	})

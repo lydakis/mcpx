@@ -212,7 +212,7 @@ func TestRunShimRemoveMissingReturnsUsageError(t *testing.T) {
 }
 
 func TestParseShimInstallArgsSkillFlagsRequireSkill(t *testing.T) {
-	_, err := parseShimInstallArgs([]string{"github", "--codex-link"})
+	_, err := parseShimInstallArgs([]string{"github", "--kiro-link"})
 	if err == nil {
 		t.Fatal("parseShimInstallArgs() error = nil, want non-nil")
 	}
@@ -234,8 +234,21 @@ func TestParseShimInstallArgsOpenClawDirImpliesOpenClawLink(t *testing.T) {
 	}
 }
 
+func TestParseShimInstallArgsClaudeDirImpliesClaudeLink(t *testing.T) {
+	parsed, err := parseShimInstallArgs([]string{"github", "--claude-dir", "/tmp/claude-skills", "--skill"})
+	if err != nil {
+		t.Fatalf("parseShimInstallArgs() error = %v, want nil", err)
+	}
+	if !parsed.enableClaudeLink {
+		t.Fatalf("enableClaudeLink = false, want true when --claude-dir is set")
+	}
+	if parsed.claudeDir != "/tmp/claude-skills" {
+		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, "/tmp/claude-skills")
+	}
+}
+
 func TestParseShimInstallArgsRejectsOpenClawDirWithoutValue(t *testing.T) {
-	_, err := parseShimInstallArgs([]string{"github", "--openclaw-dir", "--no-claude-link", "--skill"})
+	_, err := parseShimInstallArgs([]string{"github", "--openclaw-dir", "--claude-link", "--skill"})
 	if err == nil {
 		t.Fatal("parseShimInstallArgs() error = nil, want non-nil")
 	}
@@ -572,18 +585,15 @@ func TestParseShimInstallArgsValidationAndDefaults(t *testing.T) {
 		t.Fatal("parsedHelp.help = false, want true")
 	}
 
-	parsed, err := parseShimInstallArgs([]string{"github", "--skill", "--codex-link", "--kiro-link", "--openclaw-link"})
+	parsed, err := parseShimInstallArgs([]string{"github", "--skill", "--kiro-link", "--openclaw-link"})
 	if err != nil {
 		t.Fatalf("parseShimInstallArgs(skill defaults) error = %v, want nil", err)
 	}
 	if parsed.dataAgentDir != skill.DefaultDataAgentDir() {
 		t.Fatalf("dataAgentDir = %q, want %q", parsed.dataAgentDir, skill.DefaultDataAgentDir())
 	}
-	if parsed.claudeDir != skill.DefaultClaudeDir() {
-		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, skill.DefaultClaudeDir())
-	}
-	if parsed.codexDir != skill.DefaultCodexDir() {
-		t.Fatalf("codexDir = %q, want %q", parsed.codexDir, skill.DefaultCodexDir())
+	if parsed.claudeDir != "" {
+		t.Fatalf("claudeDir = %q, want empty when --claude-link is not set", parsed.claudeDir)
 	}
 	if parsed.kiroDir != skill.DefaultKiroDir() {
 		t.Fatalf("kiroDir = %q, want %q", parsed.kiroDir, skill.DefaultKiroDir())
@@ -597,11 +607,9 @@ func TestParseShimInstallArgsParsesInlineSkillDirectories(t *testing.T) {
 	parsed, err := parseShimInstallArgs([]string{
 		"github",
 		"--skill",
-		"--no-claude-link",
 		"--dir=/tmp/shims",
 		"--data-agent-dir=/tmp/data-agent",
 		"--claude-dir=/tmp/claude",
-		"--codex-dir=/tmp/codex",
 		"--kiro-dir=/tmp/kiro",
 		"--openclaw-dir=/tmp/openclaw",
 	})
@@ -618,20 +626,17 @@ func TestParseShimInstallArgsParsesInlineSkillDirectories(t *testing.T) {
 	if parsed.claudeDir != "/tmp/claude" {
 		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, "/tmp/claude")
 	}
-	if parsed.codexDir != "/tmp/codex" {
-		t.Fatalf("codexDir = %q, want %q", parsed.codexDir, "/tmp/codex")
-	}
 	if parsed.kiroDir != "/tmp/kiro" {
 		t.Fatalf("kiroDir = %q, want %q", parsed.kiroDir, "/tmp/kiro")
 	}
 	if parsed.openClawDir != "/tmp/openclaw" {
 		t.Fatalf("openClawDir = %q, want %q", parsed.openClawDir, "/tmp/openclaw")
 	}
-	if !parsed.skipClaudeLink {
-		t.Fatal("skipClaudeLink = false, want true")
+	if !parsed.enableClaudeLink {
+		t.Fatal("enableClaudeLink = false, want true")
 	}
-	if !parsed.enableCodexLink || !parsed.enableKiroLink || !parsed.enableOpenClawLink {
-		t.Fatalf("link flags = codex:%v kiro:%v openclaw:%v, want all true", parsed.enableCodexLink, parsed.enableKiroLink, parsed.enableOpenClawLink)
+	if !parsed.enableKiroLink || !parsed.enableOpenClawLink {
+		t.Fatalf("link flags = kiro:%v openclaw:%v, want both true", parsed.enableKiroLink, parsed.enableOpenClawLink)
 	}
 }
 
@@ -641,7 +646,6 @@ func TestParseShimInstallArgsParsesSeparateSkillDirectories(t *testing.T) {
 		"--skill",
 		"--data-agent-dir", "/tmp/data-agent",
 		"--claude-dir", "/tmp/claude",
-		"--codex-dir", "/tmp/codex",
 		"--kiro-dir", "/tmp/kiro",
 		"--openclaw-dir", "/tmp/openclaw",
 	})
@@ -654,9 +658,6 @@ func TestParseShimInstallArgsParsesSeparateSkillDirectories(t *testing.T) {
 	}
 	if parsed.claudeDir != "/tmp/claude" {
 		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, "/tmp/claude")
-	}
-	if parsed.codexDir != "/tmp/codex" {
-		t.Fatalf("codexDir = %q, want %q", parsed.codexDir, "/tmp/codex")
 	}
 	if parsed.kiroDir != "/tmp/kiro" {
 		t.Fatalf("kiroDir = %q, want %q", parsed.kiroDir, "/tmp/kiro")

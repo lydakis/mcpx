@@ -27,9 +27,7 @@ var (
 type InstallOptions struct {
 	DataAgentDir       string
 	ClaudeDir          string
-	SkipClaudeLink     bool
-	CodexDir           string
-	EnableCodexLink    bool
+	EnableClaudeLink   bool
 	KiroDir            string
 	EnableKiroLink     bool
 	OpenClawDir        string
@@ -45,8 +43,6 @@ type InstallResult struct {
 	SkillFile          string
 	ClaudeLink         string
 	ClaudeLinkTarget   string
-	CodexLink          string
-	CodexLinkTarget    string
 	KiroLink           string
 	KiroLinkTarget     string
 	OpenClawLink       string
@@ -64,11 +60,6 @@ func DefaultDataAgentDir() string {
 	return filepath.Join(homeDir(), ".agents", "skills")
 }
 
-// DefaultCodexDir returns the default Codex skills directory.
-func DefaultCodexDir() string {
-	return filepath.Join(homeDir(), ".codex", "skills")
-}
-
 // DefaultKiroDir returns the default Kiro skills directory.
 func DefaultKiroDir() string {
 	return filepath.Join(homeDir(), ".kiro", "skills")
@@ -82,6 +73,11 @@ func DefaultOpenClawDir() string {
 // DefaultClaudeDir returns the default Claude Code skills directory.
 func DefaultClaudeDir() string {
 	return filepath.Join(homeDir(), ".claude", "skills")
+}
+
+// DefaultClaudeGuidanceFile returns the default Claude guidance path.
+func DefaultClaudeGuidanceFile() string {
+	return filepath.Join(homeDir(), ".claude", "CLAUDE.md")
 }
 
 // DefaultGuidanceFile returns the default global AGENTS.md path.
@@ -121,14 +117,10 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 	}
 
 	claudeDir := strings.TrimSpace(opts.ClaudeDir)
-	if claudeDir == "" {
+	if opts.EnableClaudeLink && claudeDir == "" {
 		claudeDir = DefaultClaudeDir()
 	}
 
-	codexDir := strings.TrimSpace(opts.CodexDir)
-	if opts.EnableCodexLink && codexDir == "" {
-		codexDir = DefaultCodexDir()
-	}
 	kiroDir := strings.TrimSpace(opts.KiroDir)
 	if opts.EnableKiroLink && kiroDir == "" {
 		kiroDir = DefaultKiroDir()
@@ -153,7 +145,7 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 		SkillFile: skillFile,
 	}
 
-	if !opts.SkipClaudeLink {
+	if opts.EnableClaudeLink {
 		if err := os.MkdirAll(claudeDir, 0o755); err != nil {
 			return nil, fmt.Errorf("creating claude skills directory: %w", err)
 		}
@@ -165,20 +157,6 @@ func InstallSkill(name string, content []byte, opts InstallOptions) (*InstallRes
 		}
 		result.ClaudeLink = linkPath
 		result.ClaudeLinkTarget = linkTarget
-	}
-
-	if opts.EnableCodexLink {
-		if err := os.MkdirAll(codexDir, 0o755); err != nil {
-			return nil, fmt.Errorf("creating codex skills directory: %w", err)
-		}
-
-		linkPath := filepath.Join(codexDir, name)
-		linkTarget, err := ensureSymlink(skillDir, linkPath)
-		if err != nil {
-			return nil, fmt.Errorf("linking codex skill: %w", err)
-		}
-		result.CodexLink = linkPath
-		result.CodexLinkTarget = linkTarget
 	}
 
 	if opts.EnableKiroLink {

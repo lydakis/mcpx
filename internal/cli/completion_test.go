@@ -51,7 +51,7 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if ! _mcpx_has_shim_server; then")) {
 		t.Fatalf("bash completion missing conditional shim root entry: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("--no-claude-link")) {
+	if !bytes.Contains(out.Bytes(), []byte("--claude-link")) {
 		t.Fatalf("bash completion missing skill install flags: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--kiro-link")) {

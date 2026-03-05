@@ -26,7 +26,8 @@ mcpx skill install
 Add extra links as needed:
 
 ```bash
-mcpx skill install --codex-link
+mcpx skill install --claude-link
+mcpx skill install --kiro-link
 mcpx skill install --openclaw-link
 ```
 
@@ -34,6 +35,7 @@ Optionally write/update a managed `mcpx` guidance block in your global AGENTS fi
 
 ```bash
 mcpx skill install --guidance
+mcpx skill install --guidance --claude-link
 mcpx skill install --guidance --kiro-link
 mcpx skill install --guidance --openclaw-link
 mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP work benefits from CLI composition."
@@ -123,7 +125,6 @@ When you want tighter, server-specific instructions, generate a skill file for o
 
 ```bash
 mcpx skill install github
-mcpx skill install github --codex-link
 mcpx skill install github --openclaw-link
 ```
 
@@ -175,7 +176,7 @@ Windows: use WSL2 and run install commands inside your Linux distro shell.
 | `mcpx completion <shell>` | Print shell completions (bash/zsh/fish) |
 | `mcpx skill install [<server>]` | Install built-in or server-specific skill |
 
-`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`. `mcpx skill install` accepts `--guidance`, `--guidance-file`, and `--guidance-text` (`--guidance` follows a single `--codex-link`/`--kiro-link`/`--openclaw-link` target when provided).
+`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`. `mcpx skill install` accepts `--guidance`, `--guidance-file`, and `--guidance-text` (`--guidance` follows a single `--claude-link`/`--kiro-link`/`--openclaw-link` target when provided).
 
 ### Output Modes
 

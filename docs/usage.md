@@ -177,29 +177,28 @@ Install the built-in `mcpx` skill:
 mcpx skill install
 ```
 
-By default this writes `SKILL.md` under `~/.agents/skills/mcpx`, then links into Claude Code at `~/.claude/skills/mcpx`.
+By default this writes `SKILL.md` under `~/.agents/skills/mcpx`.
 
 Optional flags:
 
 ```bash
-mcpx skill install --no-claude-link
-mcpx skill install --codex-link
+mcpx skill install --claude-link
 mcpx skill install --kiro-link
 mcpx skill install --openclaw-link
 mcpx skill install --guidance
+mcpx skill install --guidance --claude-link
 mcpx skill install --guidance --kiro-link
 mcpx skill install --guidance --openclaw-link
 mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP work benefits from CLI composition."
 mcpx skill install --guidance-file /custom/AGENTS.md
 mcpx skill install --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
-mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills --openclaw-dir /custom/.openclaw/skills
+mcpx skill install --kiro-dir /custom/.kiro/skills --openclaw-dir /custom/.openclaw/skills
 ```
 
 Generate and install a skill for one configured server:
 
 ```bash
 mcpx skill install github
-mcpx skill install github --codex-link
 mcpx skill install github --openclaw-link
 mcpx skill install github --data-agent-dir /custom/agents/skills --claude-dir /custom/.claude/skills
 ```

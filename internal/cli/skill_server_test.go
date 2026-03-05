@@ -258,8 +258,7 @@ func TestInstallServerSkillCreatesServerSpecificSkillFile(t *testing.T) {
 
 	tmp := t.TempDir()
 	result, err := installServerSkill("github", &skillInstallArgs{
-		dataAgentDir:   filepath.Join(tmp, "agents", "skills"),
-		skipClaudeLink: true,
+		dataAgentDir: filepath.Join(tmp, "agents", "skills"),
 	})
 	if err != nil {
 		t.Fatalf("installServerSkill() error = %v, want nil", err)
@@ -271,7 +270,7 @@ func TestInstallServerSkillCreatesServerSpecificSkillFile(t *testing.T) {
 		t.Fatalf("SkillFile = %q, want mcpx-github/SKILL.md suffix", result.SkillFile)
 	}
 	if result.ClaudeLink != "" {
-		t.Fatalf("ClaudeLink = %q, want empty when skipClaudeLink=true", result.ClaudeLink)
+		t.Fatalf("ClaudeLink = %q, want empty when claude link is disabled", result.ClaudeLink)
 	}
 
 	content, readErr := os.ReadFile(result.SkillFile)

@@ -72,15 +72,15 @@ mcpx completion fish > ~/.config/fish/completions/mcpx.fish
 mcpx skill install
 ```
 
-This installs the built-in `mcpx` skill at `~/.agents/skills/mcpx` and creates a Claude Code symlink at `~/.claude/skills/mcpx`.
+This installs the built-in `mcpx` skill at `~/.agents/skills/mcpx`.
 
 Optional links:
 
 ```bash
-mcpx skill install --codex-link
+mcpx skill install --claude-link
 mcpx skill install --kiro-link
 mcpx skill install --openclaw-link
-mcpx skill install --codex-dir /custom/.codex/skills --kiro-dir /custom/.kiro/skills
+mcpx skill install --kiro-dir /custom/.kiro/skills
 mcpx skill install --openclaw-dir /custom/.openclaw/skills
 ```
 
@@ -88,6 +88,7 @@ Optional AGENTS guidance block:
 
 ```bash
 mcpx skill install --guidance
+mcpx skill install --guidance --claude-link
 mcpx skill install --guidance --kiro-link
 mcpx skill install --guidance --openclaw-link
 mcpx skill install --guidance --guidance-file /custom/AGENTS.md
@@ -98,7 +99,6 @@ Generate a server-specific skill from one configured server:
 
 ```bash
 mcpx skill install github
-mcpx skill install github --codex-link
 ```
 
 ## Optional Command Shims

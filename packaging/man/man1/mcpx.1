@@ -48,20 +48,20 @@ Install the built-in \fBmcpx\fR skill under \fB~/.agents/skills/mcpx\fR, or gene
 Skill root directory (default: \fB~/.agents/skills\fR).
 .TP
 \fB--claude-dir\fR \fIpath\fR
-Claude skill link root (default: \fB~/.claude/skills\fR).
+Claude skill link root (default: \fB~/.claude/skills\fR, implies \fB--claude-link\fR).
 .TP
-\fB--no-claude-link\fR
-Skip Claude symlink creation.
+\fB--claude-link\fR
+Also create a Claude skill symlink (defaults to \fB~/.claude/skills\fR when enabled).
 .TP
-\fB--codex-link\fR / \fB--kiro-link\fR
-Also create Codex/Kiro skill symlinks (use \fB--codex-dir\fR / \fB--kiro-dir\fR to override destinations).
+\fB--kiro-link\fR
+Also create a Kiro skill symlink (defaults to \fB~/.kiro/skills\fR when enabled).
 \fB--openclaw-link\fR
 Also create an OpenClaw skill symlink (defaults to \fB~/.openclaw/skills\fR when enabled).
 \fB--openclaw-dir\fR \fIpath\fR
 OpenClaw skill link root (default: \fB~/.openclaw/skills\fR).
 .TP
 \fB--guidance\fR
-Write/update a managed mcpx guidance block in \fB~/.agents/AGENTS.md\fR.
+Write/update a managed mcpx guidance block in \fB~/.agents/AGENTS.md\fR; follows a single \fB--claude-link\fR/\fB--kiro-link\fR/\fB--openclaw-link\fR target when provided.
 .TP
 \fB--guidance-file\fR \fIpath\fR
 Guidance target file (implies \fB--guidance\fR).
@@ -110,6 +110,7 @@ mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer
 mcpx skill install
 mcpx skill install github
 mcpx skill install --guidance
+mcpx skill install --guidance --claude-link
 mcpx skill install --guidance --kiro-link
 mcpx skill install --guidance --openclaw-link
 mcpx skill install --openclaw-link
