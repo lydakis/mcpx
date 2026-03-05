@@ -593,6 +593,89 @@ func TestParseShimInstallArgsValidationAndDefaults(t *testing.T) {
 	}
 }
 
+func TestParseShimInstallArgsParsesInlineSkillDirectories(t *testing.T) {
+	parsed, err := parseShimInstallArgs([]string{
+		"github",
+		"--skill",
+		"--no-claude-link",
+		"--dir=/tmp/shims",
+		"--data-agent-dir=/tmp/data-agent",
+		"--claude-dir=/tmp/claude",
+		"--codex-dir=/tmp/codex",
+		"--kiro-dir=/tmp/kiro",
+		"--openclaw-dir=/tmp/openclaw",
+	})
+	if err != nil {
+		t.Fatalf("parseShimInstallArgs(inline dirs) error = %v, want nil", err)
+	}
+
+	if parsed.dir != "/tmp/shims" {
+		t.Fatalf("dir = %q, want %q", parsed.dir, "/tmp/shims")
+	}
+	if parsed.dataAgentDir != "/tmp/data-agent" {
+		t.Fatalf("dataAgentDir = %q, want %q", parsed.dataAgentDir, "/tmp/data-agent")
+	}
+	if parsed.claudeDir != "/tmp/claude" {
+		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, "/tmp/claude")
+	}
+	if parsed.codexDir != "/tmp/codex" {
+		t.Fatalf("codexDir = %q, want %q", parsed.codexDir, "/tmp/codex")
+	}
+	if parsed.kiroDir != "/tmp/kiro" {
+		t.Fatalf("kiroDir = %q, want %q", parsed.kiroDir, "/tmp/kiro")
+	}
+	if parsed.openClawDir != "/tmp/openclaw" {
+		t.Fatalf("openClawDir = %q, want %q", parsed.openClawDir, "/tmp/openclaw")
+	}
+	if !parsed.skipClaudeLink {
+		t.Fatal("skipClaudeLink = false, want true")
+	}
+	if !parsed.enableCodexLink || !parsed.enableKiroLink || !parsed.enableOpenClawLink {
+		t.Fatalf("link flags = codex:%v kiro:%v openclaw:%v, want all true", parsed.enableCodexLink, parsed.enableKiroLink, parsed.enableOpenClawLink)
+	}
+}
+
+func TestParseShimInstallArgsParsesSeparateSkillDirectories(t *testing.T) {
+	parsed, err := parseShimInstallArgs([]string{
+		"github",
+		"--skill",
+		"--data-agent-dir", "/tmp/data-agent",
+		"--claude-dir", "/tmp/claude",
+		"--codex-dir", "/tmp/codex",
+		"--kiro-dir", "/tmp/kiro",
+		"--openclaw-dir", "/tmp/openclaw",
+	})
+	if err != nil {
+		t.Fatalf("parseShimInstallArgs(separate dirs) error = %v, want nil", err)
+	}
+
+	if parsed.dataAgentDir != "/tmp/data-agent" {
+		t.Fatalf("dataAgentDir = %q, want %q", parsed.dataAgentDir, "/tmp/data-agent")
+	}
+	if parsed.claudeDir != "/tmp/claude" {
+		t.Fatalf("claudeDir = %q, want %q", parsed.claudeDir, "/tmp/claude")
+	}
+	if parsed.codexDir != "/tmp/codex" {
+		t.Fatalf("codexDir = %q, want %q", parsed.codexDir, "/tmp/codex")
+	}
+	if parsed.kiroDir != "/tmp/kiro" {
+		t.Fatalf("kiroDir = %q, want %q", parsed.kiroDir, "/tmp/kiro")
+	}
+	if parsed.openClawDir != "/tmp/openclaw" {
+		t.Fatalf("openClawDir = %q, want %q", parsed.openClawDir, "/tmp/openclaw")
+	}
+}
+
+func TestParseShimInstallArgsRejectsDirFlagWithoutValue(t *testing.T) {
+	_, err := parseShimInstallArgs([]string{"github", "--dir"})
+	if err == nil {
+		t.Fatal("parseShimInstallArgs([github --dir]) error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "missing value for --dir") {
+		t.Fatalf("parseShimInstallArgs([github --dir]) error = %q, want missing value message", err.Error())
+	}
+}
+
 func TestParseShimRemoveAndListArgsValidation(t *testing.T) {
 	parsedRemoveHelp, err := parseShimRemoveArgs([]string{"--help"})
 	if err != nil {

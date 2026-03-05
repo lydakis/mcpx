@@ -643,3 +643,99 @@ func TestListToolsIncludesOutputSchema(t *testing.T) {
 		t.Fatalf("output type = %v, want object", parsed["type"])
 	}
 }
+
+func TestToolSchemaReturnsInputSchemaForNamedTool(t *testing.T) {
+	t.Parallel()
+
+	listCalls := 0
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			listCalls++
+			return []mcp.Tool{
+				{
+					Name:           "search",
+					RawInputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
+				},
+			}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	got, err := p.ToolSchema(context.Background(), "github", "search")
+	if err != nil {
+		t.Fatalf("ToolSchema() error = %v", err)
+	}
+	if string(got) != `{"type":"object","properties":{"q":{"type":"string"}}}` {
+		t.Fatalf("ToolSchema() = %s, want raw input schema", got)
+	}
+	if listCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listCalls)
+	}
+}
+
+func TestToolSchemaReturnsLookupErrorForMissingTool(t *testing.T) {
+	t.Parallel()
+
+	conn := &connection{
+		listTools: func(context.Context) ([]mcp.Tool, error) {
+			return []mcp.Tool{{Name: "search"}}, nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	_, err := p.ToolSchema(context.Background(), "github", "missing")
+	if err == nil {
+		t.Fatal("ToolSchema() error = nil, want non-nil")
+	}
+}
+
+func TestCloseRemovesConnectionAndInvokesCloseHook(t *testing.T) {
+	t.Parallel()
+
+	closed := make(chan struct{}, 1)
+	conn := &connection{
+		close: func() error {
+			closed <- struct{}{}
+			return nil
+		},
+	}
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{"github": conn},
+	}
+
+	p.Close("github")
+
+	p.mu.Lock()
+	_, exists := p.conns["github"]
+	p.mu.Unlock()
+	if exists {
+		t.Fatal("Close() did not remove connection from pool")
+	}
+
+	select {
+	case <-closed:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close() did not invoke connection close hook")
+	}
+}
+
+func TestCloseIsNoopForUnknownServer(t *testing.T) {
+	t.Parallel()
+
+	p := &Pool{
+		cfg:   &config.Config{Servers: map[string]config.ServerConfig{"github": {}}},
+		conns: map[string]*connection{},
+	}
+
+	p.Close("missing")
+}
