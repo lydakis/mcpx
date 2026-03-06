@@ -34,4 +34,7 @@ Command contract:
 - Optional: when Codex Apps are enabled locally, `mcpx` can expose connected apps as virtual MCP servers. Auth remains managed by Codex.
 - Installs `mcpx.1` to `${XDG_DATA_HOME:-~/.local/share}/man/man1` when available.
 - Set `MCPX_GO_SKIP_DOWNLOAD=1` to skip downloading and rely on `mcpx` in `PATH`.
+- Downloaded archives are verified with SHA-256 checksums embedded in the package.
+- Override checksum with `MCPX_GO_BINARY_SHA256=<sha256>` for custom mirrors.
+- Set `MCPX_GO_SKIP_CHECKSUM=1` to bypass checksum verification (not recommended).
 - Full docs and source: https://github.com/lydakis/mcpx

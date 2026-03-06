@@ -127,6 +127,50 @@ packaging_pypi_tests() {
   python3 -m unittest discover -s packaging/pypi/tests -p 'test_*.py'
 }
 
+packaging_pypi_checksum_manifest_shape() {
+  require_cmd python3
+  python3 <<'PY'
+from pathlib import Path
+import json
+
+path = Path("packaging/pypi/src/mcpx_go/checksums.json")
+manifest = json.loads(path.read_text())
+if not isinstance(manifest.get("version"), str):
+    raise SystemExit(1)
+if not isinstance(manifest.get("checksums"), dict):
+    raise SystemExit(1)
+PY
+}
+
+packaging_pypi_dist_contains_checksum_manifest() {
+  require_cmd python3
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp:-}"' RETURN
+
+  bash "$ROOT_DIR/scripts/build_pypi_dist.sh" packaging/pypi "$tmp" >/dev/null
+
+  python3 - "$tmp" <<'PY'
+from pathlib import Path
+import tarfile
+import zipfile
+import sys
+
+dist_dir = Path(sys.argv[1])
+wheel = next(dist_dir.glob("mcpx_go-*.whl"))
+sdist = next(dist_dir.glob("mcpx_go-*.tar.gz"))
+
+with zipfile.ZipFile(wheel) as archive:
+    if "mcpx_go/checksums.json" not in archive.namelist():
+        raise SystemExit(1)
+
+with tarfile.open(sdist, "r:gz") as archive:
+    names = archive.getnames()
+    if not any(name.endswith("/src/mcpx_go/checksums.json") for name in names):
+        raise SystemExit(1)
+PY
+}
+
 packaging_npm_pack_dry_run() {
   require_cmd npm
   (
@@ -135,9 +179,24 @@ packaging_npm_pack_dry_run() {
   )
 }
 
+packaging_npm_tests() {
+  require_cmd node
+  node --test packaging/npm/tests/*.test.js
+}
+
 packaging_npm_postinstall_skip_download() {
   require_cmd node
   MCPX_GO_SKIP_DOWNLOAD=1 node ./packaging/npm/lib/postinstall.js >/dev/null
+}
+
+packaging_npm_checksum_manifest_shape() {
+  require_cmd node
+  node <<'NODE'
+const manifest = require("./packaging/npm/lib/checksums.json");
+if (!manifest || typeof manifest !== "object") process.exit(1);
+if (typeof manifest.version !== "string") process.exit(1);
+if (!manifest.checksums || typeof manifest.checksums !== "object") process.exit(1);
+NODE
 }
 
 validate_scope() {
@@ -176,7 +235,11 @@ run_extended() {
   run_step "contract: skill --help surface" smoke_skill_help
 
   run_step "packaging: pypi wrapper tests" packaging_pypi_tests
+  run_step "packaging: pypi checksum manifest shape" packaging_pypi_checksum_manifest_shape
+  run_step "packaging: pypi dist ships checksum manifest" packaging_pypi_dist_contains_checksum_manifest
   run_step "packaging: npm wrapper pack dry-run" packaging_npm_pack_dry_run
+  run_step "packaging: npm wrapper tests" packaging_npm_tests
+  run_step "packaging: npm checksum manifest shape" packaging_npm_checksum_manifest_shape
   run_step "packaging: npm wrapper postinstall skip-download path" packaging_npm_postinstall_skip_download
 
   if [[ "$RUN_DIST" == "1" ]]; then
