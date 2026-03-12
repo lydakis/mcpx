@@ -2111,18 +2111,12 @@ func TestRunUnknownServerToolCallKeepsUsageErrorForTypoServerName(t *testing.T) 
 	}()
 
 	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
-	resolveSourceFn = func(_ context.Context, source string, _ bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
-		if source != typoServer {
-			return bootstrap.ResolvedServer{}, errors.New("unexpected source")
-		}
-		return bootstrap.Resolve(context.Background(), source, bootstrap.ResolveOptions{
-			ReadFile: func(string) ([]byte, error) {
-				return nil, os.ErrNotExist
-			},
-		})
+	resolveSourceFn = func(context.Context, string, bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
+		t.Fatal("resolveSourceFn should not be called for implicit unknown-server fallback")
+		return bootstrap.ResolvedServer{}, nil
 	}
 	checkPrereqsFn = func(config.ServerConfig) error {
-		t.Fatal("checkPrereqsFn should not be called when resolve fails")
+		t.Fatal("checkPrereqsFn should not be called when resolve is skipped")
 		return nil
 	}
 

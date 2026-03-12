@@ -756,6 +756,9 @@ func sendServerRequestWithEphemeralFallback(client daemonRequester, req *ipc.Req
 	if effectiveReq.Ephemeral != nil || !isUnknownServerResponse(resp, effectiveReq.Server) {
 		return resp, nil
 	}
+	if !looksLikeExplicitEphemeralSource(effectiveReq.Server) {
+		return resp, nil
+	}
 
 	ephemeral, resolveResp := resolveEphemeralSource(effectiveReq.Server)
 	if resolveResp != nil {
