@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,8 @@ import (
 const (
 	codexAppsServerName       = servercatalog.CodexAppsServerName
 	runtimeEphemeralMaxServer = 64
+	runtimeConfigPollInterval = 250 * time.Millisecond
+	runtimeConfigPollMaxRetry = 8
 )
 
 var (
@@ -36,20 +39,22 @@ var (
 )
 
 type runtimeDeps struct {
-	poolListTools         func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
-	poolToolInfoByName    func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
-	poolCallToolWithInfo  func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error)
-	cacheGet              func(server, tool string, args json.RawMessage) ([]byte, int, bool)
-	cacheGetMetadata      func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
-	cachePut              func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
-	poolReset             func(pool *mcppool.Pool, cfg *config.Config)
-	poolSetConfig         func(pool *mcppool.Pool, cfg *config.Config)
-	poolClose             func(pool *mcppool.Pool, server string)
-	keepaliveStop         func(ka *Keepalive)
-	loadConfig            func() (*config.Config, error)
-	mergeFallbackForCWD   func(cfg *config.Config, cwd string) error
-	validateConfig        func(cfg *config.Config) error
-	signalShutdownProcess func()
+	poolListTools             func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
+	poolToolInfoByName        func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
+	poolCallToolWithInfo      func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error)
+	cacheGet                  func(server, tool string, args json.RawMessage) ([]byte, int, bool)
+	cacheGetMetadata          func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
+	cachePut                  func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
+	poolReset                 func(pool *mcppool.Pool, cfg *config.Config)
+	poolSetConfig             func(pool *mcppool.Pool, cfg *config.Config)
+	poolClose                 func(pool *mcppool.Pool, server string)
+	keepaliveStop             func(ka *Keepalive)
+	loadConfig                func() (*config.Config, error)
+	mergeFallbackForCWD       func(cfg *config.Config, cwd string) error
+	validateConfig            func(cfg *config.Config) error
+	currentRuntimeConfigStamp func(cfg *config.Config, cwd string) runtimeConfigStamp
+	now                       func() time.Time
+	signalShutdownProcess     func()
 }
 
 func runtimeDefaultDeps() runtimeDeps {
@@ -86,9 +91,11 @@ func runtimeDefaultDeps() runtimeDeps {
 				ka.Stop()
 			}
 		},
-		loadConfig:          config.Load,
-		mergeFallbackForCWD: config.MergeFallbackServersForCWD,
-		validateConfig:      config.Validate,
+		loadConfig:                config.Load,
+		mergeFallbackForCWD:       config.MergeFallbackServersForCWD,
+		validateConfig:            config.Validate,
+		currentRuntimeConfigStamp: currentRuntimeConfigStamp,
+		now:                       time.Now,
 		signalShutdownProcess: func() {
 			p, _ := os.FindProcess(os.Getpid())
 			_ = p.Signal(syscall.SIGTERM)
@@ -137,6 +144,12 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	if d.validateConfig == nil {
 		d.validateConfig = def.validateConfig
 	}
+	if d.currentRuntimeConfigStamp == nil {
+		d.currentRuntimeConfigStamp = def.currentRuntimeConfigStamp
+	}
+	if d.now == nil {
+		d.now = def.now
+	}
 	if d.signalShutdownProcess == nil {
 		d.signalShutdownProcess = def.signalShutdownProcess
 	}
@@ -151,7 +164,7 @@ func Run() error {
 		return fmt.Errorf("creating runtime dir: %w", err)
 	}
 
-	cfg, err := loadValidatedConfigForCWDWithDeps("", deps)
+	cfg, _, err := loadValidatedConfigForCWDWithDeps("", deps, nil)
 	if err != nil {
 		return err
 	}
@@ -190,16 +203,30 @@ func Run() error {
 }
 
 type runtimeRequestHandler struct {
-	mu                   sync.RWMutex
-	stateVersion         uint64
-	activeCWD            string
-	cfgHash              string
-	cfg                  *config.Config
-	pool                 *mcppool.Pool
-	ka                   *Keepalive
-	deps                 runtimeDeps
-	ephemeralServers     map[string]config.ServerConfig
-	ephemeralServerOrder []string
+	mu                    sync.RWMutex
+	stateVersion          uint64
+	activeCWD             string
+	cfgHash               string
+	runtimeConfigStamp    runtimeConfigStamp
+	lastPolledConfigStamp runtimeConfigStamp
+	nextConfigPollAt      time.Time
+	cfg                   *config.Config
+	pool                  *mcppool.Pool
+	ka                    *Keepalive
+	deps                  runtimeDeps
+	ephemeralServers      map[string]config.ServerConfig
+	ephemeralServerOrder  []string
+}
+
+type runtimeConfigStamp struct {
+	Digest string
+}
+
+type runtimeConfigState struct {
+	activeCWD       string
+	cfgHash         string
+	cfg             *config.Config
+	fallbackWarning bool
 }
 
 func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *runtimeRequestHandler {
@@ -209,15 +236,19 @@ func newRuntimeRequestHandler(cfg *config.Config, pool *mcppool.Pool, ka *Keepal
 func newRuntimeRequestHandlerWithDeps(cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) *runtimeRequestHandler {
 	deps = deps.withDefaults()
 	cfgHash, _ := configFingerprint(cfg)
+	initialStamp := deps.currentRuntimeConfigStamp(cfg, "")
 	ephemeralServers := runtimeEphemeralServersFromConfig(cfg)
 	return &runtimeRequestHandler{
-		cfgHash:              cfgHash,
-		cfg:                  cfg,
-		pool:                 pool,
-		ka:                   ka,
-		deps:                 deps,
-		ephemeralServers:     ephemeralServers,
-		ephemeralServerOrder: runtimeEphemeralServerOrder(ephemeralServers),
+		cfgHash:               cfgHash,
+		runtimeConfigStamp:    initialStamp,
+		lastPolledConfigStamp: initialStamp,
+		nextConfigPollAt:      time.Time{},
+		cfg:                   cfg,
+		pool:                  pool,
+		ka:                    ka,
+		deps:                  deps,
+		ephemeralServers:      ephemeralServers,
+		ephemeralServerOrder:  runtimeEphemeralServerOrder(ephemeralServers),
 	}
 }
 
@@ -239,7 +270,17 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 
 	for {
 		h.mu.RLock()
-		if normalizedCWD == strings.TrimSpace(h.activeCWD) && req.Ephemeral == nil {
+		sameLiveCWD := normalizedCWD == strings.TrimSpace(h.activeCWD)
+		var currentStamp runtimeConfigStamp
+		hasCurrentStamp := false
+		if sameLiveCWD && req.Ephemeral == nil {
+			currentStamp = h.deps.currentRuntimeConfigStamp(h.cfg, normalizedCWD)
+			hasCurrentStamp = true
+		}
+		if sameLiveCWD &&
+			req.Ephemeral == nil &&
+			currentStamp == h.lastPolledConfigStamp &&
+			!h.configPollDueLocked(h.deps.now()) {
 			// Safe to dispatch concurrently for same-CWD requests.
 			// mcppool serializes per-connection RPCs to prevent stdio frame interleaving.
 			resp := dispatchWithDeps(ctx, h.cfg, h.pool, h.ka, req, h.deps)
@@ -249,7 +290,7 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 		h.mu.RUnlock()
 
 		h.mu.Lock()
-		if err := syncRuntimeConfigForRequestWithDeps(normalizedCWD, &h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps); err != nil {
+		if err := h.syncRuntimeConfigLocked(normalizedCWD, currentStamp, hasCurrentStamp); err != nil {
 			h.mu.Unlock()
 			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: err.Error()}
 		}
@@ -293,6 +334,87 @@ func (h *runtimeRequestHandler) handle(ctx context.Context, req *ipc.Request) *i
 		}
 		return finalResp
 	}
+}
+
+func (h *runtimeRequestHandler) syncRuntimeConfigLocked(normalizedCWD string, currentStamp runtimeConfigStamp, hasCurrentStamp bool) error {
+	now := h.deps.now()
+	sameLiveCWD := normalizedCWD == strings.TrimSpace(h.activeCWD)
+	if sameLiveCWD && !hasCurrentStamp {
+		currentStamp = h.deps.currentRuntimeConfigStamp(h.cfg, normalizedCWD)
+		hasCurrentStamp = true
+	}
+	if sameLiveCWD &&
+		currentStamp == h.lastPolledConfigStamp &&
+		!h.configPollDueLocked(now) {
+		return nil
+	}
+
+	nextState := runtimeConfigState{
+		activeCWD: h.activeCWD,
+		cfgHash:   h.cfgHash,
+		cfg:       h.cfg,
+	}
+	reloaded := false
+	for attempts := 0; ; attempts++ {
+		loadStamp := currentStamp
+		if attempts > 0 || !sameLiveCWD || !hasCurrentStamp {
+			loadStamp = h.deps.currentRuntimeConfigStamp(nextState.cfg, normalizedCWD)
+		}
+		forceReload := reloaded ||
+			!sameLiveCWD ||
+			loadStamp != h.runtimeConfigStamp
+		if forceReload {
+			var err error
+			var preserveFallbackFrom *config.Config
+			if sameLiveCWD {
+				preserveFallbackFrom = h.cfg
+			}
+			nextState, err = loadRuntimeConfigStateForRequestWithDeps(normalizedCWD, nextState, h.deps, preserveFallbackFrom)
+			if err != nil {
+				if sameLiveCWD {
+					h.lastPolledConfigStamp = loadStamp
+					h.nextConfigPollAt = h.deps.now().Add(runtimeConfigPollInterval)
+					return nil
+				}
+				return err
+			}
+			reloaded = true
+		}
+
+		confirmedStamp := h.deps.currentRuntimeConfigStamp(nextState.cfg, normalizedCWD)
+		if loadStamp != confirmedStamp {
+			// The config changed while we were reloading it, so retry until the
+			// loaded config and cached stamp represent the same file contents.
+			// This also covers the window where the stamp changes between a
+			// same-CWD preflight check and the confirmation read, before we
+			// decided to reload on the first pass. Cap the loop so a hot writer
+			// does not block the daemon indefinitely.
+			if attempts+1 >= runtimeConfigPollMaxRetry {
+				if !sameLiveCWD {
+					return fmt.Errorf("runtime config did not stabilize after %d reload attempts", runtimeConfigPollMaxRetry)
+				}
+				h.lastPolledConfigStamp = confirmedStamp
+				h.nextConfigPollAt = now
+				return nil
+			}
+			continue
+		}
+		if err := applyRuntimeConfigStateWithDeps(&h.activeCWD, &h.cfgHash, &h.cfg, h.pool, h.ka, h.deps, nextState); err != nil {
+			if sameLiveCWD {
+				h.nextConfigPollAt = h.deps.now().Add(runtimeConfigPollInterval)
+				return nil
+			}
+			return err
+		}
+		h.runtimeConfigStamp = confirmedStamp
+		h.lastPolledConfigStamp = confirmedStamp
+		h.nextConfigPollAt = h.deps.now().Add(runtimeConfigPollInterval)
+		return nil
+	}
+}
+
+func (h *runtimeRequestHandler) configPollDueLocked(now time.Time) bool {
+	return !now.Before(h.nextConfigPollAt)
 }
 
 func (h *runtimeRequestHandler) finalizeRequestEphemeralInstall(_ uint64, name string, server config.ServerConfig, resp *ipc.Response) (*ipc.Response, bool) {
@@ -561,41 +683,105 @@ func syncRuntimeConfigForRequest(reqCWD string, activeCWD, cfgHash *string, cfg 
 }
 
 func syncRuntimeConfigForRequestWithDeps(reqCWD string, activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps) error {
+	return syncRuntimeConfigForRequestForceWithDeps(reqCWD, activeCWD, cfgHash, cfg, pool, ka, deps, false)
+}
+
+func loadRuntimeConfigStateForRequestWithDeps(reqCWD string, current runtimeConfigState, deps runtimeDeps, preserveFallbackFrom *config.Config) (runtimeConfigState, error) {
 	deps = deps.withDefaults()
 	normalized := strings.TrimSpace(reqCWD)
-	if normalized == strings.TrimSpace(*activeCWD) {
-		return nil
-	}
-
-	nextCfg, err := loadValidatedConfigForCWDWithDeps(normalized, deps)
+	nextCfg, fallbackWarning, err := loadValidatedConfigForCWDWithDeps(normalized, deps, preserveFallbackFrom)
 	if err != nil {
-		return err
+		return runtimeConfigState{}, err
 	}
 
 	nextHash, err := configFingerprint(nextCfg)
 	if err != nil {
-		return err
+		return runtimeConfigState{}, err
 	}
 
-	if nextHash != strings.TrimSpace(*cfgHash) {
-		deps.keepaliveStop(ka)
-		deps.poolReset(pool, nextCfg)
-		if ka != nil {
-			ka.TouchDaemon()
-		}
-		*cfg = nextCfg
-		*cfgHash = nextHash
-		*activeCWD = normalized
+	return runtimeConfigState{
+		activeCWD:       normalized,
+		cfgHash:         nextHash,
+		cfg:             nextCfg,
+		fallbackWarning: fallbackWarning,
+	}, nil
+}
+
+func applyRuntimeConfigStateWithDeps(activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps, next runtimeConfigState) error {
+	deps = deps.withDefaults()
+	if next.cfg == nil {
+		return fmt.Errorf("runtime config is nil")
+	}
+	if next.activeCWD == *activeCWD && next.cfgHash == *cfgHash && next.cfg == *cfg {
 		return nil
 	}
 
-	// Keep active pooled connections, but still move both daemon and pool to
-	// the freshly loaded config object so future runtime updates stay in sync.
-	deps.poolSetConfig(pool, nextCfg)
-	*cfg = nextCfg
-	*cfgHash = nextHash
-	*activeCWD = normalized
+	if next.cfgHash != strings.TrimSpace(*cfgHash) {
+		deps.keepaliveStop(ka)
+		deps.poolReset(pool, next.cfg)
+		if ka != nil {
+			ka.TouchDaemon()
+		}
+	} else {
+		// Keep active pooled connections, but still move both daemon and pool to
+		// the freshly loaded config object so future runtime updates stay in sync.
+		deps.poolSetConfig(pool, next.cfg)
+	}
+
+	*cfg = next.cfg
+	*cfgHash = next.cfgHash
+	*activeCWD = next.activeCWD
 	return nil
+}
+
+func syncRuntimeConfigForRequestForceWithDeps(reqCWD string, activeCWD, cfgHash *string, cfg **config.Config, pool *mcppool.Pool, ka *Keepalive, deps runtimeDeps, force bool) error {
+	deps = deps.withDefaults()
+	normalized := strings.TrimSpace(reqCWD)
+	sameCWD := normalized == strings.TrimSpace(*activeCWD)
+	if sameCWD && !force {
+		return nil
+	}
+
+	var preserveFallbackFrom *config.Config
+	if sameCWD && force {
+		preserveFallbackFrom = *cfg
+	}
+
+	nextState, err := loadRuntimeConfigStateForRequestWithDeps(normalized, runtimeConfigState{
+		activeCWD: *activeCWD,
+		cfgHash:   *cfgHash,
+		cfg:       *cfg,
+	}, deps, preserveFallbackFrom)
+	if err != nil {
+		return err
+	}
+
+	return applyRuntimeConfigStateWithDeps(activeCWD, cfgHash, cfg, pool, ka, deps, nextState)
+}
+
+func currentRuntimeConfigStamp(cfg *config.Config, cwd string) runtimeConfigStamp {
+	hasher := sha256.New()
+	for _, sourcePath := range config.RuntimeConfigSourcePathsForCWD(cfg, cwd) {
+		_, _ = hasher.Write([]byte(sourcePath))
+		_, _ = hasher.Write([]byte{0})
+
+		data, err := os.ReadFile(sourcePath)
+		switch {
+		case err == nil:
+			_, _ = hasher.Write([]byte("file"))
+			_, _ = hasher.Write([]byte{0})
+			sum := sha256.Sum256(data)
+			_, _ = hasher.Write(sum[:])
+		case os.IsNotExist(err):
+			_, _ = hasher.Write([]byte("missing"))
+		default:
+			_, _ = hasher.Write([]byte("error"))
+			_, _ = hasher.Write([]byte{0})
+			_, _ = hasher.Write([]byte(err.Error()))
+		}
+		_, _ = hasher.Write([]byte{0})
+	}
+	return runtimeConfigStamp{Digest: hex.EncodeToString(hasher.Sum(nil))}
 }
 
 func configFingerprint(cfg *config.Config) (string, error) {
@@ -637,22 +823,117 @@ func configForRuntimeFingerprint(cfg *config.Config) *config.Config {
 }
 
 func loadValidatedConfigForCWD(cwd string) (*config.Config, error) {
-	return loadValidatedConfigForCWDWithDeps(cwd, runtimeDefaultDeps())
+	cfg, _, err := loadValidatedConfigForCWDWithDeps(cwd, runtimeDefaultDeps(), nil)
+	return cfg, err
 }
 
-func loadValidatedConfigForCWDWithDeps(cwd string, deps runtimeDeps) (*config.Config, error) {
+func loadValidatedConfigForCWDWithDeps(cwd string, deps runtimeDeps, preserveFallbackFrom *config.Config) (*config.Config, bool, error) {
 	deps = deps.withDefaults()
 	cfg, err := deps.loadConfig()
 	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
+		return nil, false, fmt.Errorf("loading config: %w", err)
 	}
+	fallbackWarning := false
 	if ferr := deps.mergeFallbackForCWD(cfg, cwd); ferr != nil {
+		fallbackWarning = true
+		if preserveFallbackFrom != nil {
+			preserveFallbackBackedServers(cfg, preserveFallbackFrom, config.FailedFallbackSourcePaths(ferr))
+		}
 		fmt.Fprintf(os.Stderr, "mcpx daemon: warning: failed to load fallback MCP server config: %v\n", ferr)
 	}
 	if verr := deps.validateConfig(cfg); verr != nil {
-		return nil, fmt.Errorf("invalid config: %w", verr)
+		return nil, false, fmt.Errorf("invalid config: %w", verr)
 	}
-	return cfg, nil
+	return cfg, fallbackWarning, nil
+}
+
+func preserveFallbackBackedServers(dst, prev *config.Config, failedPaths []string) {
+	if dst == nil || prev == nil {
+		return
+	}
+	if len(prev.Servers) == 0 || len(prev.ServerOrigins) == 0 || len(failedPaths) == 0 {
+		return
+	}
+	if dst.Servers == nil {
+		dst.Servers = make(map[string]config.ServerConfig)
+	}
+	if dst.ServerOrigins == nil {
+		dst.ServerOrigins = make(map[string]config.ServerOrigin)
+	}
+
+	failedPathSet := make(map[string]struct{}, len(failedPaths))
+	for _, sourcePath := range failedPaths {
+		sourcePath = strings.TrimSpace(sourcePath)
+		if sourcePath == "" {
+			continue
+		}
+		failedPathSet[filepath.Clean(sourcePath)] = struct{}{}
+	}
+	if len(failedPathSet) == 0 {
+		return
+	}
+
+	for name, server := range prev.Servers {
+		if _, exists := dst.Servers[name]; exists {
+			continue
+		}
+		origin, ok := prev.ServerOrigins[name]
+		if !ok || !preserveFallbackBackedOrigin(origin, failedPathSet) {
+			continue
+		}
+		dst.Servers[name] = cloneRuntimeServerConfig(server)
+		dst.ServerOrigins[name] = config.NormalizeServerOrigin(origin)
+	}
+}
+
+func preserveFallbackBackedOrigin(origin config.ServerOrigin, failedPaths map[string]struct{}) bool {
+	origin = config.NormalizeServerOrigin(origin)
+	switch origin.Kind {
+	case config.ServerOriginKindMCPXConfig, config.ServerOriginKindRuntimeEphemeral:
+		return false
+	default:
+		sourcePath := strings.TrimSpace(origin.Path)
+		if sourcePath == "" {
+			return false
+		}
+		_, ok := failedPaths[filepath.Clean(sourcePath)]
+		return ok
+	}
+}
+
+func cloneRuntimeServerConfig(server config.ServerConfig) config.ServerConfig {
+	return config.ServerConfig{
+		Command:         server.Command,
+		Args:            append([]string(nil), server.Args...),
+		Env:             cloneRuntimeStringMap(server.Env),
+		URL:             server.URL,
+		Headers:         cloneRuntimeStringMap(server.Headers),
+		DefaultCacheTTL: server.DefaultCacheTTL,
+		NoCacheTools:    append([]string(nil), server.NoCacheTools...),
+		Tools:           cloneRuntimeToolConfigMap(server.Tools),
+	}
+}
+
+func cloneRuntimeStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneRuntimeToolConfigMap(src map[string]config.ToolConfig) map[string]config.ToolConfig {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]config.ToolConfig, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request) *ipc.Response {

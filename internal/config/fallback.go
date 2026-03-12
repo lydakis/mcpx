@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/lydakis/mcpx/internal/paths"
 )
 
 type mcpServersDocument struct {
@@ -82,6 +83,72 @@ type fallbackResolvedServer struct {
 	origin ServerOrigin
 }
 
+// FallbackSourceError reports a source file that failed to load.
+type FallbackSourceError struct {
+	Path string
+	Err  error
+}
+
+func (e *FallbackSourceError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	path := cleanFallbackSourcePath(e.Path)
+	switch {
+	case path == "" && e.Err == nil:
+		return "fallback source error"
+	case path == "":
+		return e.Err.Error()
+	case e.Err == nil:
+		return path
+	default:
+		return fmt.Sprintf("%s: %v", path, e.Err)
+	}
+}
+
+func (e *FallbackSourceError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// FailedFallbackSourcePaths extracts failed fallback source paths from err.
+func FailedFallbackSourcePaths(err error) []string {
+	if err == nil {
+		return nil
+	}
+
+	var paths []string
+	var visit func(error)
+	visit = func(err error) {
+		if err == nil {
+			return
+		}
+
+		switch e := err.(type) {
+		case *FallbackSourceError:
+			if path := cleanFallbackSourcePath(e.Path); path != "" {
+				paths = append(paths, path)
+			}
+			if e.Err != nil {
+				visit(e.Err)
+			}
+			return
+		case interface{ Unwrap() []error }:
+			for _, child := range e.Unwrap() {
+				visit(child)
+			}
+			return
+		case interface{ Unwrap() error }:
+			visit(e.Unwrap())
+		}
+	}
+
+	visit(err)
+	return compactPaths(paths)
+}
+
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources.
 // Managed entries already present in cfg.Servers always win over discovered ones.
 func MergeFallbackServers(cfg *Config) error {
@@ -140,7 +207,7 @@ func loadFallbackServersWithSourcesForCWD(paths []string, cwd string) (map[strin
 			if os.IsNotExist(err) {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("%s: %w", path, err))
+			errs = append(errs, &FallbackSourceError{Path: path, Err: err})
 			continue
 		}
 
@@ -193,6 +260,14 @@ func classifyFallbackOrigin(path string) ServerOrigin {
 	default:
 		return NewServerOrigin(ServerOriginKindFallbackCustom, cleanPath)
 	}
+}
+
+func cleanFallbackSourcePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }
 
 func loadFallbackSourceForCWD(path, cwd string) (map[string]ServerConfig, error) {
@@ -520,6 +595,26 @@ func nearestUpwardPath(relPath, cwd string) string {
 
 func fallbackSourcePaths(cfg *Config) []string {
 	return fallbackSourcePathsForCWD(cfg, "")
+}
+
+// RuntimeConfigSourcePathsForCWD returns the ordered file paths that can affect
+// the runtime config for the given working directory.
+func RuntimeConfigSourcePathsForCWD(cfg *Config, cwd string) []string {
+	sourcePaths := []string{paths.ConfigFile()}
+	for _, sourcePath := range fallbackSourcePathsForCWD(cfg, cwd) {
+		sourcePath = strings.TrimSpace(sourcePath)
+		if sourcePath == "" {
+			continue
+		}
+		sourcePaths = append(sourcePaths, sourcePath)
+		if strings.EqualFold(filepath.Ext(sourcePath), ".toml") {
+			authPath := codexAuthFilePath(sourcePath)
+			if authPath != "" && authPath != sourcePath {
+				sourcePaths = append(sourcePaths, authPath)
+			}
+		}
+	}
+	return compactPaths(sourcePaths)
 }
 
 func fallbackSourcePathsForCWD(cfg *Config, cwd string) []string {
