@@ -304,6 +304,9 @@ func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
 	var maxInFlight int32
 
 	deps := runtimeDefaultDeps()
+	deps.currentRuntimeConfigStamp = func(*config.Config, string) runtimeConfigStamp {
+		return runtimeConfigStamp{Digest: "stable"}
+	}
 	deps.poolToolInfoByName = func(_ context.Context, _ *mcppool.Pool, _, _ string) (*mcppool.ToolInfo, error) {
 		n := atomic.AddInt32(&inFlight, 1)
 		for {
@@ -325,7 +328,7 @@ func TestRuntimeRequestHandlerAllowsConcurrentSameCWDRequests(t *testing.T) {
 
 	handler := newRuntimeRequestHandlerWithDeps(cfg, &mcppool.Pool{}, ka, deps)
 	handler.activeCWD = "/tmp/project"
-	handler.runtimeConfigStamp = deps.currentRuntimeConfigStamp(cfg, "/tmp/project")
+	handler.runtimeConfigStamp = runtimeConfigStamp{Digest: "stable"}
 	handler.lastPolledConfigStamp = handler.runtimeConfigStamp
 
 	const workers = 4
