@@ -1469,7 +1469,7 @@ func TestRunUnknownServerHelpUsesDaemonRuntimeEphemeralWithoutResolvingSource(t 
 	}
 }
 
-func TestRunUnknownServerToolCallKeepsUsageErrorForNonExplicitResolveError(t *testing.T) {
+func TestRunUnknownServerToolCallKeepsUsageErrorForMissingBareRelativeSource(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")
 	configDir := filepath.Join(xdgConfigHome, "mcpx")
@@ -1484,7 +1484,22 @@ func TestRunUnknownServerToolCallKeepsUsageErrorForNonExplicitResolveError(t *te
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 
-	const source = "go.mod"
+	projectDir := filepath.Join(tmp, "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(projectDir): %v", err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("Chdir(projectDir): %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(oldWD)
+	}()
+
+	const source = "manifest"
 
 	oldSpawn := spawnOrConnectFn
 	oldClient := newDaemonClient
@@ -1498,14 +1513,12 @@ func TestRunUnknownServerToolCallKeepsUsageErrorForNonExplicitResolveError(t *te
 	}()
 
 	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
-	resolveSourceFn = func(_ context.Context, got string, _ bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
-		if got != source {
-			return bootstrap.ResolvedServer{}, errors.New("unexpected source")
-		}
-		return bootstrap.ResolvedServer{}, errors.New("payload is not a supported JSON or TOML server manifest")
+	resolveSourceFn = func(context.Context, string, bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
+		t.Fatal("resolveSourceFn should not be called for missing bare relative source")
+		return bootstrap.ResolvedServer{}, nil
 	}
 	checkPrereqsFn = func(config.ServerConfig) error {
-		t.Fatal("checkPrereqsFn should not be called when resolve fails")
+		t.Fatal("checkPrereqsFn should not be called when resolve is skipped")
 		return nil
 	}
 
@@ -1989,6 +2002,130 @@ func TestRunUnknownServerToolCallCanonicalizesRelativeSourceKey(t *testing.T) {
 	}
 }
 
+func TestRunUnknownServerToolCallRetriesWithBareRelativeFileSource(t *testing.T) {
+	tmp := t.TempDir()
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	configDir := filepath.Join(xdgConfigHome, "mcpx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(configDir): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(""), 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml): %v", err)
+	}
+
+	projectDir := filepath.Join(tmp, "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(projectDir): %v", err)
+	}
+	manifestPath := filepath.Join(projectDir, "manifest")
+	if err := os.WriteFile(manifestPath, []byte(`{"mcpServers":{"demo":{"command":"echo","args":["ok"]}}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(manifest): %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("Chdir(projectDir): %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(oldWD)
+	}()
+
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	oldSpawn := spawnOrConnectFn
+	oldClient := newDaemonClient
+	oldResolve := resolveSourceFn
+	oldCheck := checkPrereqsFn
+	defer func() {
+		spawnOrConnectFn = oldSpawn
+		newDaemonClient = oldClient
+		resolveSourceFn = oldResolve
+		checkPrereqsFn = oldCheck
+	}()
+
+	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
+	expectedServerKey := sourceRequestServerKey("manifest", callerWorkingDirectory())
+	resolveSourceFn = func(_ context.Context, got string, _ bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
+		if got != expectedServerKey {
+			return bootstrap.ResolvedServer{}, fmt.Errorf("unexpected source %q", got)
+		}
+		return bootstrap.ResolvedServer{
+			Server: config.ServerConfig{Command: "echo", Args: []string{"ok"}},
+		}, nil
+	}
+	checkPrereqsFn = func(config.ServerConfig) error { return nil }
+
+	var calls int
+	newDaemonClient = func(_, _ string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				calls++
+				switch calls {
+				case 1:
+					if req.Type != "call_tool" {
+						return nil, errors.New("unexpected request type")
+					}
+					if req.Server != expectedServerKey {
+						return nil, fmt.Errorf("unexpected server key: %q", req.Server)
+					}
+					if req.Ephemeral != nil {
+						return nil, errors.New("unexpected ephemeral payload on first request")
+					}
+					return &ipc.Response{
+						ExitCode:  ipc.ExitUsageErr,
+						ErrorCode: ipc.ErrorCodeUnknownServer,
+					}, nil
+				case 2:
+					if req.Type != "call_tool" {
+						return nil, errors.New("unexpected retry request type")
+					}
+					if req.Server != expectedServerKey {
+						return nil, fmt.Errorf("unexpected retry server key: %q", req.Server)
+					}
+					if req.Ephemeral == nil {
+						return nil, errors.New("missing ephemeral payload on retry")
+					}
+					if req.Ephemeral.Server.Command != "echo" {
+						return nil, errors.New("unexpected ephemeral command")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("ok\n")}, nil
+				default:
+					return nil, errors.New("unexpected extra request")
+				}
+			},
+		}
+	}
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	if code := Run([]string{"manifest", "ping", "{}"}); code != ipc.ExitOK {
+		t.Fatalf("Run([manifest ping {}]) = %d, want %d (stdout=%q stderr=%q)", code, ipc.ExitOK, out.String(), errOut.String())
+	}
+	if out.String() != "ok\n" {
+		t.Fatalf("stdout = %q, want %q", out.String(), "ok\\n")
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
+	}
+}
+
 func TestRunUnknownServerToolCallRetriesWithEphemeralSource(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")
@@ -2111,18 +2248,12 @@ func TestRunUnknownServerToolCallKeepsUsageErrorForTypoServerName(t *testing.T) 
 	}()
 
 	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
-	resolveSourceFn = func(_ context.Context, source string, _ bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
-		if source != typoServer {
-			return bootstrap.ResolvedServer{}, errors.New("unexpected source")
-		}
-		return bootstrap.Resolve(context.Background(), source, bootstrap.ResolveOptions{
-			ReadFile: func(string) ([]byte, error) {
-				return nil, os.ErrNotExist
-			},
-		})
+	resolveSourceFn = func(context.Context, string, bootstrap.ResolveOptions) (bootstrap.ResolvedServer, error) {
+		t.Fatal("resolveSourceFn should not be called for implicit unknown-server fallback")
+		return bootstrap.ResolvedServer{}, nil
 	}
 	checkPrereqsFn = func(config.ServerConfig) error {
-		t.Fatal("checkPrereqsFn should not be called when resolve fails")
+		t.Fatal("checkPrereqsFn should not be called when resolve is skipped")
 		return nil
 	}
 
