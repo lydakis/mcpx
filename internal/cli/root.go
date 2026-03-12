@@ -29,6 +29,7 @@ var (
 	}
 	resolveSourceFn = bootstrap.Resolve
 	checkPrereqsFn  = bootstrap.CheckPrerequisites
+	statSourceFn    = os.Stat
 )
 
 // Run is the main CLI entry point. Returns an exit code.
@@ -859,7 +860,12 @@ func looksLikeExplicitEphemeralSource(source string) bool {
 	if strings.Contains(lower, "?config=") {
 		return true
 	}
-	return false
+
+	info, err := statSourceFn(filepath.Clean(source))
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }
 
 func isUnknownServerResponse(resp *ipc.Response, server string) bool {
