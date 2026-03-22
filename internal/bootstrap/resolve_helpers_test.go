@@ -142,6 +142,10 @@ func TestShouldTreatSourceAsDirectMCPURL(t *testing.T) {
 		t.Fatal("shouldTreatSourceAsDirectMCPURL(400 non-jsonrpc body) = true, want false")
 	}
 
+	if !shouldTreatSourceAsDirectMCPURL("https://example.com/mcp", &httpStatusError{statusCode: http.StatusBadRequest, body: "Accept must contain 'text/event-stream' for GET requests"}) {
+		t.Fatal("shouldTreatSourceAsDirectMCPURL(400 text/event-stream body) = false, want true")
+	}
+
 	if shouldTreatSourceAsDirectMCPURL("https://example.com/mcp", errors.New("generic fetch failure")) {
 		t.Fatal("shouldTreatSourceAsDirectMCPURL(generic error) = true, want false")
 	}
