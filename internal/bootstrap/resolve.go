@@ -332,6 +332,9 @@ func shouldTreatSourceAsDirectMCPURL(source string, err error) bool {
 		if trimmed == "" {
 			return true
 		}
+		if strings.Contains(trimmed, "text/event-stream") {
+			return true
+		}
 		var raw map[string]any
 		if unmarshalErr := json.Unmarshal([]byte(trimmed), &raw); unmarshalErr == nil {
 			if _, ok := raw["jsonrpc"]; ok {

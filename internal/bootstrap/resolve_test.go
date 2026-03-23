@@ -370,6 +370,25 @@ func TestResolveHTTPURLFallsBackToDirectMCPWhenBodyIsNonManifestJSON(t *testing.
 	}
 }
 
+func TestResolveHTTPURLFallsBackToDirectMCPOn400TextEventStream(t *testing.T) {
+	source := "https://example.com/mcp"
+	resolved, err := Resolve(context.Background(), source, ResolveOptions{
+		FetchURL: func(context.Context, string) ([]byte, error) {
+			return nil, &httpStatusError{statusCode: 400, body: "Accept must contain 'text/event-stream' for GET requests"}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+
+	if resolved.Name != "example" {
+		t.Fatalf("resolved.Name = %q, want %q", resolved.Name, "example")
+	}
+	if resolved.Server.URL != source {
+		t.Fatalf("resolved.Server.URL = %q, want %q", resolved.Server.URL, source)
+	}
+}
+
 func TestResolveHTTPURLFallsBackToDirectMCPWhenBodyIsProblemDetailsJSON(t *testing.T) {
 	source := "https://example.com/mcp"
 	resolved, err := Resolve(context.Background(), source, ResolveOptions{
