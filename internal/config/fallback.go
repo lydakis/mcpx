@@ -95,6 +95,9 @@ func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 	if cfg == nil {
 		return nil
 	}
+	if len(cfg.Servers) > 0 {
+		return nil
+	}
 
 	fallback, err := loadFallbackServersWithSourcesForCWD(fallbackSourcePathsForCWD(cfg, cwd), cwd)
 	if len(fallback) > 0 {
