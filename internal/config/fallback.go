@@ -571,28 +571,6 @@ func isWithinPath(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
-func nearestUpwardPath(relPath, cwd string) string {
-	base := resolveWorkingDirectory(cwd)
-	if base == "" {
-		return ""
-	}
-
-	dir := base
-	for {
-		candidate := filepath.Join(dir, relPath)
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			return candidate
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
 func fallbackSourcePaths(cfg *Config) []string {
 	return fallbackSourcePathsForCWD(cfg, "")
 }
@@ -629,6 +607,8 @@ func defaultFallbackSourcePaths() []string {
 }
 
 func defaultFallbackSourcePathsForCWD(cwd string) []string {
+	_ = cwd
+
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		return nil
@@ -642,9 +622,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	case "linux":
 		return []string{
@@ -653,9 +631,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	default:
 		return nil
