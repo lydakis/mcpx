@@ -85,7 +85,7 @@ func TestMergeFallbackServersUsesFallbackWhenConfigEmpty(t *testing.T) {
 	}
 }
 
-func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
+func TestMergeFallbackServersKeepsManagedOnlyWhenConfigured(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -101,7 +101,7 @@ func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
 
 	raw := []byte(`{"mcpServers":{
 		"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"]},
-		"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}
+		"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem", "."]}
 	}}`)
 	if err := os.WriteFile(fallbackPath, raw, 0600); err != nil {
 		t.Fatalf("write fallback file: %v", err)
@@ -126,15 +126,10 @@ func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
 	if origin := cfg.ServerOrigins["github"]; origin.Kind != ServerOriginKindMCPXConfig {
 		t.Fatalf("managed origin kind = %q, want %q", origin.Kind, ServerOriginKindMCPXConfig)
 	}
-
-	if _, ok := cfg.Servers["filesystem"]; !ok {
-		t.Fatalf("cfg.Servers = %#v, want discovered filesystem server", cfg.Servers)
-	}
-	if origin := cfg.ServerOrigins["filesystem"]; origin.Kind == ServerOriginKindMCPXConfig {
-		t.Fatalf("filesystem origin kind = %q, want discovered source kind", origin.Kind)
+	if _, ok := cfg.Servers["filesystem"]; ok {
+		t.Fatalf("cfg.Servers = %#v, want no discovered servers when managed config exists", cfg.Servers)
 	}
 }
-
 func TestMergeFallbackServersUsesConfiguredSources(t *testing.T) {
 	customPath := filepath.Join(t.TempDir(), "custom-mcp.json")
 	raw := []byte(`{"mcpServers":{"custom":{"command":"uvx","args":["mcp-custom"]}}}`)
