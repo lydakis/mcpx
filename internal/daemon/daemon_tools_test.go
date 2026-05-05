@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,7 +170,7 @@ func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 	}
 }
 
-func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
+func TestListServersHidesCodexAppsWithoutDiscovery(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github":            {},
@@ -186,62 +185,11 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	ka := NewKeepalive(nil)
 	defer ka.Stop()
 
-	deps := runtimeDefaultDeps()
-	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
-		if server != codexAppsServerName {
-			t.Fatalf("poolListTools server = %q, want %q", server, codexAppsServerName)
-		}
-		return []mcppool.ToolInfo{
-			{Name: "linear_get_profile"},
-			{Name: "zillow_get_zestimate"},
-			{Name: "google calendar_search"},
-		}, nil
-	}
-
-	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
-	if resp.ExitCode != ipc.ExitOK {
-		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
-	}
-
-	got := decodeServerLines(resp.Content)
-	want := []string{"github", "google_calendar", "linear", "supermemory", "zillow"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("server list = %#v, want %#v", got, want)
-	}
-	entries := decodeServerEntries(resp.Content)
-	for _, entry := range entries {
-		switch entry.Name {
-		case "github", "supermemory":
-			if entry.Origin.Kind != config.ServerOriginKindMCPXConfig {
-				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
-			}
-		case "google_calendar", "linear", "zillow":
-			if entry.Origin.Kind != config.ServerOriginKindCodexApps {
-				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindCodexApps)
-			}
-		}
-	}
-	for _, name := range got {
-		if name == codexAppsServerName {
-			t.Fatalf("server list = %#v, want %q omitted", got, codexAppsServerName)
-		}
-	}
-}
-
-func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing.T) {
-	cfg := &config.Config{
-		Servers: map[string]config.ServerConfig{
-			"github":            {},
-			codexAppsServerName: {},
-			"supermemory":       {},
-		},
-	}
-	ka := NewKeepalive(nil)
-	defer ka.Stop()
-
+	calls := 0
 	deps := runtimeDefaultDeps()
 	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
-		return nil, errors.New("token expired")
+		calls++
+		return nil, nil
 	}
 
 	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
@@ -260,8 +208,55 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 			t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
 		}
 	}
-	if !strings.Contains(resp.Stderr, "failed to enumerate codex apps") {
-		t.Fatalf("listServers() stderr = %q, want codex-apps warning", resp.Stderr)
+	if calls != 0 {
+		t.Fatalf("codex list-tools calls = %d, want 0", calls)
+	}
+	for _, name := range got {
+		if name == codexAppsServerName {
+			t.Fatalf("server list = %#v, want %q omitted", got, codexAppsServerName)
+		}
+	}
+}
+
+func TestListServersKeepsConfiguredServersWhenCodexAppsConfigured(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github":            {},
+			codexAppsServerName: {},
+			"supermemory":       {},
+		},
+	}
+	ka := NewKeepalive(nil)
+	defer ka.Stop()
+
+	calls := 0
+	deps := runtimeDefaultDeps()
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		calls++
+		return nil, nil
+	}
+
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
+	if resp.ExitCode != ipc.ExitOK {
+		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
+	}
+
+	got := decodeServerLines(resp.Content)
+	want := []string{"github", "supermemory"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("server list = %#v, want %#v", got, want)
+	}
+	entries := decodeServerEntries(resp.Content)
+	for _, entry := range entries {
+		if entry.Origin.Kind != config.ServerOriginKindMCPXConfig {
+			t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
+		}
+	}
+	if resp.Stderr != "" {
+		t.Fatalf("listServers() stderr = %q, want empty", resp.Stderr)
+	}
+	if calls != 0 {
+		t.Fatalf("codex list-tools calls = %d, want 0", calls)
 	}
 }
 

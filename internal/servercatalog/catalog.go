@@ -38,6 +38,7 @@ func New(cfg *config.Config, listTools ListToolsFunc) *Catalog {
 }
 
 func (c *Catalog) ServerNames(ctx context.Context) ([]string, error) {
+	_ = ctx
 	if c == nil || c.cfg == nil {
 		return nil, nil
 	}
@@ -48,25 +49,6 @@ func (c *Catalog) ServerNames(ctx context.Context) ([]string, error) {
 			continue
 		}
 		names[name] = struct{}{}
-	}
-
-	if c.hasCodexApps() {
-		if c.listTools == nil {
-			return nil, fmt.Errorf("codex apps discovery requires list tools callback")
-		}
-		tools, err := c.listTools(ctx, CodexAppsServerName)
-		if err != nil {
-			return nil, err
-		}
-		for name := range codexVirtualServerMap(tools) {
-			if strings.TrimSpace(name) == "" {
-				continue
-			}
-			if _, exists := c.cfg.Servers[name]; exists {
-				continue
-			}
-			names[name] = struct{}{}
-		}
 	}
 
 	out := make([]string, 0, len(names))
