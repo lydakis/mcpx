@@ -31,9 +31,10 @@ type mcpServerEntry struct {
 }
 
 type codexConfigDocument struct {
-	MCPServers     map[string]codexMCPServerEntry `toml:"mcp_servers"`
-	Features       codexFeaturesDocument          `toml:"features"`
-	ChatGPTBaseURL string                         `toml:"chatgpt_base_url"`
+	MCPServers               map[string]codexMCPServerEntry `toml:"mcp_servers"`
+	Features                 codexFeaturesDocument          `toml:"features"`
+	ChatGPTBaseURL           string                         `toml:"chatgpt_base_url"`
+	MCPOAuthCredentialsStore string                         `toml:"mcp_oauth_credentials_store"`
 }
 
 type codexFeaturesDocument struct {
@@ -372,6 +373,14 @@ func loadCodexConfigFile(path string) (map[string]ServerConfig, error) {
 				headers["Authorization"] = "Bearer ${" + tokenEnv + "}"
 			}
 		}
+		if strings.TrimSpace(entry.URL) != "" && !hasHeaderKey(headers, authorizationHeader) {
+			if token, ok := codexMCPAccessToken(path, doc.MCPOAuthCredentialsStore, name, entry.URL); ok {
+				if headers == nil {
+					headers = make(map[string]string)
+				}
+				headers[authorizationHeader] = bearerAuthPrefix + token
+			}
+		}
 
 		servers[name] = expandServerEnvVars(ServerConfig{
 			Command: entry.Command,
@@ -451,21 +460,29 @@ func codexAppsURL(doc codexConfigDocument) string {
 }
 
 func codexAuthFilePath(configPath string) string {
+	return codexStateFilePath(configPath, codexAuthFileName)
+}
+
+func codexMCPCredentialsFilePath(configPath string) string {
+	return codexStateFilePath(configPath, codexMCPCredentialsFileName)
+}
+
+func codexStateFilePath(configPath, name string) string {
 	if codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME")); codexHome != "" {
-		return filepath.Join(codexHome, codexAuthFileName)
+		return filepath.Join(codexHome, name)
 	}
 
 	configDir := filepath.Dir(configPath)
 	if filepath.Base(strings.TrimSpace(configPath)) == codexConfigName &&
 		filepath.Base(configDir) == codexConfigDirName {
-		return filepath.Join(configDir, codexAuthFileName)
+		return filepath.Join(configDir, name)
 	}
 
 	home, _ := os.UserHomeDir()
 	if strings.TrimSpace(home) == "" {
 		return ""
 	}
-	return filepath.Join(home, codexConfigDirName, codexAuthFileName)
+	return filepath.Join(home, codexConfigDirName, name)
 }
 
 func readCodexAuthTokens(path string) (token string, accountID string, ok bool) {
@@ -611,6 +628,10 @@ func RuntimeConfigSourcePathsForCWD(cfg *Config, cwd string) []string {
 			authPath := codexAuthFilePath(sourcePath)
 			if authPath != "" && authPath != sourcePath {
 				sourcePaths = append(sourcePaths, authPath)
+			}
+			credentialsPath := codexMCPCredentialsFilePath(sourcePath)
+			if credentialsPath != "" && credentialsPath != sourcePath {
+				sourcePaths = append(sourcePaths, credentialsPath)
 			}
 		}
 	}
