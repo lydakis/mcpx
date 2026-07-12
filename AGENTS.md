@@ -14,6 +14,8 @@ Owner: George Lydakis (`@lydakis`)
   - `mcpx` lists servers
   - `mcpx <server>` lists tools
   - `mcpx <server> <tool>` calls tool
+- If repeated review rounds on the same subsystem keep surfacing new P1s, stop
+  patching locally and write a short reset plan before continuing.
 
 ## Quality Gates
 - Run `go test ./...` for changed scope.
@@ -30,6 +32,20 @@ Owner: George Lydakis (`@lydakis`)
 - `internal/response`: MCP result unwrapping/mapping only.
 - `internal/cache`: cache keying and TTL storage only.
 
+## Runtime And Cache Invariants
+- Preserve strict same-CWD correctness without adding synchronous config I/O to
+  the unchanged warm path.
+- Runtime source monitoring and fingerprinting must observe the same files,
+  including config, fallback, auth, OAuth credentials, and symlink targets.
+- Requested tool names control cache policy. Resolved backend tool identities
+  control cache storage and validation.
+- Check cold-daemon and keepalive-expired behavior when strengthening cache or
+  tool-validation invariants.
+- Cover unchanged and changed same-CWD requests, invalid config, cold-daemon
+  cache hits, stale tools, and symlinked source edits with regressions.
+
 ## Notes
 - Roadmap is tracked in [docs/roadmap.md](docs/roadmap.md).
+- The daemon/runtime reset plan is tracked in
+  [docs/daemon-runtime-reset.md](docs/daemon-runtime-reset.md).
 - Avoid feature creep beyond the design fundamentals unless approved.
