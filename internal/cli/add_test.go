@@ -488,3 +488,72 @@ func TestPrintAddHelpIncludesHeaderAndOverwriteGuidance(t *testing.T) {
 		t.Fatalf("help output missing overwrite guidance: %q", help)
 	}
 }
+
+func TestRunAddIgnoresFallbackServerNamedAdd(t *testing.T) {
+	tmp := t.TempDir()
+	home := tmp
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	cursorDir := filepath.Join(home, ".cursor")
+	if err := os.MkdirAll(cursorDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(cursor): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cursorDir, "mcp.json"), []byte(`{"mcpServers":{"add":{"command":"false"}}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(cursor mcp.json): %v", err)
+	}
+
+	oldSpawn := spawnOrConnectFn
+	defer func() { spawnOrConnectFn = oldSpawn }()
+	spawnOrConnectFn = func() (string, error) {
+		t.Fatal("spawnOrConnectFn should not run for mcpx add")
+		return "", errors.New("spawn should not run")
+	}
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	code := Run([]string{"add", "--help"})
+	if code != ipc.ExitOK {
+		t.Fatalf("Run([add --help]) = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("mcpx add <source>")) {
+		t.Fatalf("stdout = %q, want add command help", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestMaybeHandleAddCommandDoesNotDeferToFallbackOrigin(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"add": {Command: "false"},
+		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"add": config.NewServerOrigin(config.ServerOriginKindCursor, "/tmp/.cursor/mcp.json"),
+		},
+	}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	handled, code := maybeHandleAddCommand([]string{"add", "--help"}, cfg, &out, &errOut)
+	if !handled {
+		t.Fatal("handled = false, want true (fallback origin must not shadow add)")
+	}
+	if code != ipc.ExitOK {
+		t.Fatalf("code = %d, want %d", code, ipc.ExitOK)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("mcpx add <source>")) {
+		t.Fatalf("stdout = %q, want add help", out.String())
+	}
+}

@@ -40,6 +40,7 @@ type shimListArgs struct {
 }
 
 var shimKnownServersFn = listShimKnownServers
+var shimResolveServerFn = resolveShimServerViaListTools
 var installServerSkillFn = installServerSkill
 
 func maybeHandleShimCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -47,10 +48,8 @@ func maybeHandleShimCommand(args []string, cfg *config.Config, stdout, stderr io
 		return false, 0
 	}
 
-	if cfg != nil {
-		if _, ok := cfg.Servers["shim"]; ok {
-			return false, 0
-		}
+	if utilityCommandDeferredToServer(cfg, "shim") {
+		return false, 0
 	}
 
 	return true, runShimCommandWithConfig(args[1:], cfg, stdout, stderr)
@@ -468,7 +467,43 @@ func shimServerKnown(server string, cfg *config.Config) (bool, error) {
 		// as a pure pass-through wrapper.
 		return true, nil
 	}
-	return containsServerName(known, server), nil
+	if containsServerName(known, server) {
+		return true, nil
+	}
+
+	// list_servers is config-only and omits Codex virtual servers. Explicit
+	// install targets still resolve via list_tools rather than ServerNames.
+	resolved, err := shimResolveServerFn(server)
+	if err != nil {
+		return true, nil
+	}
+	return resolved, nil
+}
+
+func resolveShimServerViaListTools(server string) (bool, error) {
+	nonce, err := spawnOrConnectFn()
+	if err != nil {
+		return false, err
+	}
+	client := newDaemonClient(ipc.SocketPath(), nonce)
+	resp, err := client.Send(&ipc.Request{
+		Type:   "list_tools",
+		Server: server,
+		CWD:    callerWorkingDirectory(),
+	})
+	if err != nil {
+		return false, err
+	}
+	if isUnknownServerResponse(resp, server) {
+		return false, nil
+	}
+	if resp.ExitCode != ipc.ExitOK {
+		if resp.Stderr != "" {
+			return false, errors.New(resp.Stderr)
+		}
+		return false, fmt.Errorf("resolving server %q failed (exit %d)", server, resp.ExitCode)
+	}
+	return true, nil
 }
 
 func listShimKnownServers() ([]string, error) {

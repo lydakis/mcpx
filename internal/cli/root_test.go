@@ -36,6 +36,14 @@ func (w errWriter) Write(p []byte) (int, error) {
 	return 0, w.err
 }
 
+func unknownServerIPCResponse(server string) *ipc.Response {
+	return &ipc.Response{
+		ExitCode:  ipc.ExitUsageErr,
+		Stderr:    fmt.Sprintf("unknown server: %s", server),
+		ErrorCode: ipc.ErrorCodeUnknownServer,
+	}
+}
+
 func TestHandleRootFlagsVersion(t *testing.T) {
 	oldVersion := buildVersion
 	oldOut := rootStdout
@@ -985,13 +993,18 @@ args = ["ok"]
 		return stubDaemonClient{
 			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 				calls++
-				if req.Type != "list_servers" {
+				switch req.Type {
+				case "list_servers":
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
+
+				case "list_tools":
+					return unknownServerIPCResponse(req.Server), nil
+				default:
 					return nil, errors.New("unexpected request type")
 				}
-				if !req.IncludeHidden {
-					return nil, errors.New("expected include_hidden list_servers request")
-				}
-				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
 			},
 		}
 	}
@@ -1022,12 +1035,12 @@ args = ["ok"]
 	if !bytes.Contains(errOut.Bytes(), []byte("  github")) {
 		t.Fatalf("stderr = %q, want configured server listing", errOut.String())
 	}
-	if calls != 1 {
-		t.Fatalf("daemon requests = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
 	}
 }
 
-func TestRunUnknownServerHelpDoesNotProbeDaemonListTools(t *testing.T) {
+func TestRunUnknownServerHelpResolvesUnknownViaListTools(t *testing.T) {
 	tmp := t.TempDir()
 	xdgConfigHome := filepath.Join(tmp, "xdg-config")
 	configDir := filepath.Join(xdgConfigHome, "mcpx")
@@ -1070,7 +1083,7 @@ args = ["ok"]
 					}
 					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
 				case "list_tools":
-					return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: "runtime bootstrap failed"}, nil
+					return unknownServerIPCResponse(req.Server), nil
 				default:
 					return nil, errors.New("unexpected request type")
 				}
@@ -1109,8 +1122,8 @@ args = ["ok"]
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
-	if calls != 1 {
-		t.Fatalf("daemon requests = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
 	}
 }
 
@@ -1164,13 +1177,17 @@ args = ["ok"]
 		return stubDaemonClient{
 			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 				calls++
-				if req.Type != "list_servers" {
+				switch req.Type {
+				case "list_servers":
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: listPayload}, nil
+				case "list_tools":
+					return unknownServerIPCResponse(req.Server), nil
+				default:
 					return nil, errors.New("unexpected request type")
 				}
-				if !req.IncludeHidden {
-					return nil, errors.New("expected include_hidden list_servers request")
-				}
-				return &ipc.Response{ExitCode: ipc.ExitOK, Content: listPayload}, nil
 			},
 		}
 	}
@@ -1212,8 +1229,8 @@ args = ["ok"]
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
-	if calls != 1 {
-		t.Fatalf("daemon requests = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
 	}
 }
 
@@ -1252,13 +1269,18 @@ func TestRunUnknownServerHelpSurfacesResolveErrorForExplicitSource(t *testing.T)
 		return stubDaemonClient{
 			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 				calls++
-				if req.Type != "list_servers" {
+				switch req.Type {
+				case "list_servers":
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
+
+				case "list_tools":
+					return unknownServerIPCResponse(req.Server), nil
+				default:
 					return nil, errors.New("unexpected request type")
 				}
-				if !req.IncludeHidden {
-					return nil, errors.New("expected include_hidden list_servers request")
-				}
-				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
 			},
 		}
 	}
@@ -1296,8 +1318,8 @@ func TestRunUnknownServerHelpSurfacesResolveErrorForExplicitSource(t *testing.T)
 	if bytes.Contains(errOut.Bytes(), []byte("unknown server:")) {
 		t.Fatalf("stderr = %q, did not want unknown-server error", errOut.String())
 	}
-	if calls != 1 {
-		t.Fatalf("daemon requests = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
 	}
 }
 
@@ -1339,13 +1361,18 @@ args = ["ok"]
 		return stubDaemonClient{
 			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 				calls++
-				if req.Type != "list_servers" {
+				switch req.Type {
+				case "list_servers":
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
+
+				case "list_tools":
+					return unknownServerIPCResponse(req.Server), nil
+				default:
 					return nil, errors.New("unexpected request type")
 				}
-				if !req.IncludeHidden {
-					return nil, errors.New("expected include_hidden list_servers request")
-				}
-				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
 			},
 		}
 	}
@@ -1386,8 +1413,8 @@ args = ["ok"]
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
-	if calls != 1 {
-		t.Fatalf("daemon requests = %d, want 1", calls)
+	if calls != 2 {
+		t.Fatalf("daemon requests = %d, want 2", calls)
 	}
 }
 
@@ -1844,14 +1871,18 @@ func TestRunUnknownServerHelpReResolvesWhenDaemonHasRelativeRuntimeEntry(t *test
 	newDaemonClient = func(_, _ string) daemonRequester {
 		return stubDaemonClient{
 			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
-				if req.Type != "list_servers" {
+				switch req.Type {
+				case "list_servers":
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					// Simulate stale relative runtime-ephemeral entry in daemon memory.
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(source + "\n")}, nil
+				case "list_tools":
+					return unknownServerIPCResponse(req.Server), nil
+				default:
 					return nil, errors.New("unexpected request type")
 				}
-				if !req.IncludeHidden {
-					return nil, errors.New("expected include_hidden list_servers request")
-				}
-				// Simulate stale relative runtime-ephemeral entry in daemon memory.
-				return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(source + "\n")}, nil
 			},
 		}
 	}
@@ -2577,5 +2608,82 @@ func TestWriteCallResponseUsageErrorPrintsStderrWithoutVerbose(t *testing.T) {
 	}
 	if !bytes.Contains(errOut.Bytes(), []byte("invalid params")) {
 		t.Fatalf("stderr = %q, want invalid params diagnostics", errOut.String())
+	}
+}
+
+func TestRunVirtualServerHelpResolvesViaListToolsWithoutListMembership(t *testing.T) {
+	tmp := t.TempDir()
+	xdgConfigHome := filepath.Join(tmp, "xdg-config")
+	configDir := filepath.Join(xdgConfigHome, "mcpx")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(configDir): %v", err)
+	}
+	configToml := []byte(`[servers.github]
+command = "echo"
+args = ["ok"]
+`)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), configToml, 0o600); err != nil {
+		t.Fatalf("WriteFile(config.toml): %v", err)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	oldSpawn := spawnOrConnectFn
+	oldClient := newDaemonClient
+	defer func() {
+		spawnOrConnectFn = oldSpawn
+		newDaemonClient = oldClient
+	}()
+
+	spawnOrConnectFn = func() (string, error) { return "nonce", nil }
+	var listServersCalls int
+	var listToolsCalls int
+	newDaemonClient = func(_, _ string) daemonRequester {
+		return stubDaemonClient{
+			sendFn: func(req *ipc.Request) (*ipc.Response, error) {
+				switch req.Type {
+				case "list_servers":
+					listServersCalls++
+					if !req.IncludeHidden {
+						return nil, errors.New("expected include_hidden list_servers request")
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte("github\n")}, nil
+				case "list_tools":
+					listToolsCalls++
+					if req.Server != "linear" {
+						return nil, fmt.Errorf("unexpected list_tools server %q", req.Server)
+					}
+					return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`[{"name":"linear_get_profile"}]`)}, nil
+				default:
+					return nil, errors.New("unexpected request type")
+				}
+			},
+		}
+	}
+
+	oldOut := rootStdout
+	oldErr := rootStderr
+	defer func() {
+		rootStdout = oldOut
+		rootStderr = oldErr
+	}()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	rootStdout = &out
+	rootStderr = &errOut
+
+	if code := Run([]string{"linear", "--help"}); code != ipc.ExitOK {
+		t.Fatalf("Run([linear --help]) = %d, want %d (stderr=%q)", code, ipc.ExitOK, errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Usage: mcpx linear [FLAGS]")) {
+		t.Fatalf("stdout = %q, want linear help usage", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+	if listServersCalls != 1 || listToolsCalls != 1 {
+		t.Fatalf("daemon calls list_servers=%d list_tools=%d, want 1/1", listServersCalls, listToolsCalls)
 	}
 }

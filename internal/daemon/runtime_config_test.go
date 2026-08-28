@@ -2418,3 +2418,45 @@ func TestRememberRuntimeEphemeralServerDoesNotClosePersistentNameCollision(t *te
 		t.Fatalf("poolClose called for persistent collision entry: %#v", closed)
 	}
 }
+
+func TestCurrentRuntimeConfigStampIgnoresFallbackEditsWhenManagedServersExist(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg-config"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+
+	fallbackPath := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0700); err != nil {
+		t.Fatalf("mkdir fallback dir: %v", err)
+	}
+	if err := os.WriteFile(fallbackPath, []byte(`{"mcpServers":{"cursor":{"command":"one"}}}`), 0600); err != nil {
+		t.Fatalf("write fallback file: %v", err)
+	}
+
+	managed := &config.Config{
+		Servers: map[string]config.ServerConfig{
+			"github": {Command: "echo"},
+		},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"github": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, paths.ConfigFile()),
+		},
+	}
+	before := currentRuntimeConfigStamp(managed, home)
+	if err := os.WriteFile(fallbackPath, []byte(`{"mcpServers":{"cursor":{"command":"two"}}}`), 0600); err != nil {
+		t.Fatalf("rewrite fallback file: %v", err)
+	}
+	after := currentRuntimeConfigStamp(managed, home)
+	if before != after {
+		t.Fatalf("stamp changed after fallback edit with managed servers: %q -> %q", before.Digest, after.Digest)
+	}
+
+	empty := &config.Config{Servers: map[string]config.ServerConfig{}}
+	beforeEmpty := currentRuntimeConfigStamp(empty, home)
+	if err := os.WriteFile(fallbackPath, []byte(`{"mcpServers":{"cursor":{"command":"three"}}}`), 0600); err != nil {
+		t.Fatalf("rewrite fallback file: %v", err)
+	}
+	afterEmpty := currentRuntimeConfigStamp(empty, home)
+	if beforeEmpty == afterEmpty {
+		t.Fatal("stamp did not change after fallback edit with empty config.toml")
+	}
+}

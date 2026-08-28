@@ -36,10 +36,8 @@ func maybeHandleSkillCommand(args []string, cfg *config.Config, stdout, stderr i
 		return false, 0
 	}
 
-	if cfg != nil {
-		if _, ok := cfg.Servers["skill"]; ok {
-			return false, 0
-		}
+	if utilityCommandDeferredToServer(cfg, "skill") {
+		return false, 0
 	}
 
 	return true, runSkillCommand(args[1:], stdout, stderr)

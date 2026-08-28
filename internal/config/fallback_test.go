@@ -843,3 +843,132 @@ func TestReadCodexAuthTokensParsesAndValidatesDocument(t *testing.T) {
 		t.Fatalf("readCodexAuthTokens(valid) accountID = %q, want %q", accountID, "acct-9")
 	}
 }
+
+func TestHasManagedConfigServersRequiresMCPXConfigOrigin(t *testing.T) {
+	if hasManagedConfigServers(nil) {
+		t.Fatal("hasManagedConfigServers(nil) = true, want false")
+	}
+	if hasManagedConfigServers(&Config{Servers: map[string]ServerConfig{"github": {}}}) {
+		t.Fatal("hasManagedConfigServers(servers without origins) = true, want false")
+	}
+
+	fallbackOnly := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {Command: "npx"},
+		},
+		ServerOrigins: map[string]ServerOrigin{
+			"github": NewServerOrigin(ServerOriginKindCursor, "/tmp/.cursor/mcp.json"),
+		},
+	}
+	if hasManagedConfigServers(fallbackOnly) {
+		t.Fatal("hasManagedConfigServers(cursor origin) = true, want false")
+	}
+
+	managed := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {Command: "echo"},
+		},
+		ServerOrigins: map[string]ServerOrigin{
+			"github": NewServerOrigin(ServerOriginKindMCPXConfig, "/tmp/config.toml"),
+		},
+	}
+	if !hasManagedConfigServers(managed) {
+		t.Fatal("hasManagedConfigServers(mcpx_config origin) = false, want true")
+	}
+}
+
+func TestRuntimeConfigSourcePathsOmitFallbacksWhenManagedServersExist(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	xdg := filepath.Join(home, "xdg-config")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	fallbackPath := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0700); err != nil {
+		t.Fatalf("mkdir fallback dir: %v", err)
+	}
+	if err := os.WriteFile(fallbackPath, []byte(`{"mcpServers":{"cursor":{"command":"npx"}}}`), 0600); err != nil {
+		t.Fatalf("write fallback file: %v", err)
+	}
+
+	managed := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {Command: "echo"},
+		},
+		ServerOrigins: map[string]ServerOrigin{
+			"github": NewServerOrigin(ServerOriginKindMCPXConfig, "/tmp/config.toml"),
+		},
+		FallbackSources: []string{fallbackPath},
+	}
+	got := RuntimeConfigSourcePathsForCWD(managed, home)
+	for _, path := range got {
+		if path == fallbackPath {
+			t.Fatalf("RuntimeConfigSourcePathsForCWD(managed) = %#v, did not want fallback path", got)
+		}
+	}
+
+	empty := &Config{Servers: map[string]ServerConfig{}, FallbackSources: []string{fallbackPath}}
+	got = RuntimeConfigSourcePathsForCWD(empty, home)
+	found := false
+	for _, path := range got {
+		if path == fallbackPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("RuntimeConfigSourcePathsForCWD(empty) = %#v, want fallback path %q", got, fallbackPath)
+	}
+
+	afterMerge := &Config{
+		Servers: map[string]ServerConfig{
+			"cursor": {Command: "npx"},
+		},
+		ServerOrigins: map[string]ServerOrigin{
+			"cursor": NewServerOrigin(ServerOriginKindCursor, fallbackPath),
+		},
+		FallbackSources: []string{fallbackPath},
+	}
+	got = RuntimeConfigSourcePathsForCWD(afterMerge, home)
+	found = false
+	for _, path := range got {
+		if path == fallbackPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("RuntimeConfigSourcePathsForCWD(fallback-only) = %#v, want fallback path still watched", got)
+	}
+}
+
+func TestMergeFallbackServersOmitsReservedUtilityNames(t *testing.T) {
+	customPath := filepath.Join(t.TempDir(), "custom-mcp.json")
+	raw := []byte(`{"mcpServers":{
+		"add":{"command":"false"},
+		"shim":{"command":"false"},
+		"skill":{"command":"false"},
+		"completion":{"command":"false"},
+		"__complete":{"command":"false"},
+		"github":{"command":"npx"}
+	}}`)
+	if err := os.WriteFile(customPath, raw, 0600); err != nil {
+		t.Fatalf("write fallback file: %v", err)
+	}
+
+	cfg := &Config{
+		Servers:         map[string]ServerConfig{},
+		FallbackSources: []string{customPath},
+	}
+	if err := MergeFallbackServers(cfg); err != nil {
+		t.Fatalf("MergeFallbackServers() error = %v", err)
+	}
+	if _, ok := cfg.Servers["github"]; !ok {
+		t.Fatalf("cfg.Servers = %#v, want github", cfg.Servers)
+	}
+	for _, name := range []string{"add", "shim", "skill", "completion", "__complete"} {
+		if _, ok := cfg.Servers[name]; ok {
+			t.Fatalf("cfg.Servers unexpectedly contains reserved name %q: %#v", name, cfg.Servers)
+		}
+	}
+}

@@ -151,9 +151,11 @@ func FailedFallbackSourcePaths(err error) []string {
 }
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources.
-// If cfg already has managed servers, fallback sources are not merged.
+// If cfg already has managed servers loaded from the mcpx config file
+// (origin kind MCPXConfig), fallback sources are not merged.
 // When merging, managed entries already present in cfg.Servers always win
-// over discovered ones of the same name.
+// over discovered ones of the same name. Reserved utility command names
+// are omitted from discovered servers so they cannot shadow CLI commands.
 func MergeFallbackServers(cfg *Config) error {
 	return MergeFallbackServersForCWD(cfg, "")
 }
@@ -161,12 +163,14 @@ func MergeFallbackServers(cfg *Config) error {
 // MergeFallbackServersForCWD is like MergeFallbackServers but resolves
 // Claude Code project entries in home-level configs against cwd.
 // When cwd is empty, it falls back to the process working directory.
-// Fallback discovery is skipped entirely when managed servers already exist.
+// Fallback discovery is skipped entirely when managed mcpx-config servers
+// already exist. Non-empty cfg.Servers from a previous fallback merge is
+// not enough to skip; those discovered servers must still be refreshable.
 func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 	if cfg == nil {
 		return nil
 	}
-	if len(cfg.Servers) > 0 {
+	if hasManagedConfigServers(cfg) {
 		return nil
 	}
 
@@ -179,6 +183,9 @@ func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 			cfg.ServerOrigins = make(map[string]ServerOrigin)
 		}
 		for name, resolved := range fallback {
+			if isReservedFallbackServerName(name) {
+				continue
+			}
 			if _, exists := cfg.Servers[name]; exists {
 				continue
 			}
@@ -219,6 +226,9 @@ func loadFallbackServersWithSourcesForCWD(paths []string, cwd string) (map[strin
 		}
 
 		for name, srv := range found {
+			if isReservedFallbackServerName(name) {
+				continue
+			}
 			if _, exists := servers[name]; exists {
 				continue
 			}
@@ -594,14 +604,47 @@ func isWithinPath(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
+// hasManagedConfigServers reports whether cfg already contains servers loaded
+// from the mcpx config file. After a fallback merge, cfg.Servers is non-empty
+// from discovered servers; those must still be watched and are not "managed".
+func hasManagedConfigServers(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	for name := range cfg.Servers {
+		origin, ok := cfg.ServerOrigins[name]
+		if !ok {
+			continue
+		}
+		if NormalizeServerOrigin(origin).Kind == ServerOriginKindMCPXConfig {
+			return true
+		}
+	}
+	return false
+}
+
+func isReservedFallbackServerName(name string) bool {
+	switch name {
+	case "add", "shim", "skill", "completion", "__complete":
+		return true
+	default:
+		return false
+	}
+}
+
 func fallbackSourcePaths(cfg *Config) []string {
 	return fallbackSourcePathsForCWD(cfg, "")
 }
 
 // RuntimeConfigSourcePathsForCWD returns the ordered file paths that can affect
 // the runtime config for the given working directory.
+// Fallback, auth, and OAuth files are omitted when managed mcpx-config servers
+// already exist, matching MergeFallbackServersForCWD's skip-merge predicate.
 func RuntimeConfigSourcePathsForCWD(cfg *Config, cwd string) []string {
 	sourcePaths := []string{paths.ConfigFile()}
+	if hasManagedConfigServers(cfg) {
+		return compactPaths(sourcePaths)
+	}
 	for _, sourcePath := range fallbackSourcePathsForCWD(cfg, cwd) {
 		sourcePath = strings.TrimSpace(sourcePath)
 		if sourcePath == "" {
