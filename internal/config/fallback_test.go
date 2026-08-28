@@ -85,7 +85,7 @@ func TestMergeFallbackServersUsesFallbackWhenConfigEmpty(t *testing.T) {
 	}
 }
 
-func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
+func TestMergeFallbackServersKeepsManagedOnlyWhenConfigured(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -127,11 +127,8 @@ func TestMergeFallbackServersKeepsManagedAndAddsDiscovered(t *testing.T) {
 		t.Fatalf("managed origin kind = %q, want %q", origin.Kind, ServerOriginKindMCPXConfig)
 	}
 
-	if _, ok := cfg.Servers["filesystem"]; !ok {
-		t.Fatalf("cfg.Servers = %#v, want discovered filesystem server", cfg.Servers)
-	}
-	if origin := cfg.ServerOrigins["filesystem"]; origin.Kind == ServerOriginKindMCPXConfig {
-		t.Fatalf("filesystem origin kind = %q, want discovered source kind", origin.Kind)
+	if _, ok := cfg.Servers["filesystem"]; ok {
+		t.Fatalf("cfg.Servers = %#v, want no discovered servers when managed config exists", cfg.Servers)
 	}
 }
 
@@ -449,6 +446,7 @@ bearer_token_env_var = "REMOTE_TOKEN"
 }
 
 func TestLoadCodexConfigFileAddsCodexAppsServerFromAuthFile(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -492,6 +490,7 @@ apps = true
 }
 
 func TestLoadCodexConfigFileCodexAppsUsesConnectorsTokenEnv(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv(codexConnectorsTokenEnvVar, "connectors-999")
@@ -730,43 +729,6 @@ func TestLoadMCPServersFileReadsClaudeCodeProjectServers(t *testing.T) {
 	}
 }
 
-func TestNearestUpwardPathFindsNearestParent(t *testing.T) {
-	root := t.TempDir()
-	parent := filepath.Join(root, "parent")
-	child := filepath.Join(parent, "child")
-	grandChild := filepath.Join(child, "grandchild")
-	if err := os.MkdirAll(grandChild, 0700); err != nil {
-		t.Fatalf("mkdir grandchild: %v", err)
-	}
-
-	nearest := filepath.Join(child, ".mcp.json")
-	farther := filepath.Join(parent, ".mcp.json")
-	for _, path := range []string{nearest, farther} {
-		if err := os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0600); err != nil {
-			t.Fatalf("write %s: %v", path, err)
-		}
-	}
-
-	prevWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
-	if err := os.Chdir(grandChild); err != nil {
-		t.Fatalf("chdir grandchild: %v", err)
-	}
-
-	if got := nearestUpwardPath(".mcp.json", ""); got != nearest {
-		gotResolved, gotErr := filepath.EvalSymlinks(got)
-		wantResolved, wantErr := filepath.EvalSymlinks(nearest)
-		if gotErr != nil || wantErr != nil || gotResolved != wantResolved {
-			t.Fatalf("nearestUpwardPath(.mcp.json) = %q, want %q", got, nearest)
-		}
-	}
-}
-
 func TestMergeFallbackServersForCWDUsesProvidedWorkingDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -791,17 +753,6 @@ func TestMergeFallbackServersForCWDUsesProvidedWorkingDirectory(t *testing.T) {
 		t.Fatalf("write project-b config: %v", err)
 	}
 
-	prevWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
-	if err := os.Chdir(projectASubdir); err != nil {
-		t.Fatalf("chdir project-a subdir: %v", err)
-	}
-
 	paths := fallbackSourcePathsForCWD(nil, projectBSubdir)
 	if len(paths) == 0 {
 		t.Skip("no fallback source paths for this platform")
@@ -811,11 +762,11 @@ func TestMergeFallbackServersForCWDUsesProvidedWorkingDirectory(t *testing.T) {
 	if err := MergeFallbackServersForCWD(cfg, projectBSubdir); err != nil {
 		t.Fatalf("MergeFallbackServersForCWD() error = %v", err)
 	}
-	if _, ok := cfg.Servers["server-b"]; !ok {
-		t.Fatalf("cfg.Servers = %#v, want server-b from provided cwd", cfg.Servers)
+	if _, ok := cfg.Servers["server-b"]; ok {
+		t.Fatalf("cfg.Servers = %#v, want project-local server excluded", cfg.Servers)
 	}
 	if _, ok := cfg.Servers["server-a"]; ok {
-		t.Fatalf("cfg.Servers = %#v, want server-a excluded", cfg.Servers)
+		t.Fatalf("cfg.Servers = %#v, want project-local server excluded", cfg.Servers)
 	}
 }
 

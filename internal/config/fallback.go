@@ -151,16 +151,22 @@ func FailedFallbackSourcePaths(err error) []string {
 }
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources.
-// Managed entries already present in cfg.Servers always win over discovered ones.
+// If cfg already has managed servers, fallback sources are not merged.
+// When merging, managed entries already present in cfg.Servers always win
+// over discovered ones of the same name.
 func MergeFallbackServers(cfg *Config) error {
 	return MergeFallbackServersForCWD(cfg, "")
 }
 
 // MergeFallbackServersForCWD is like MergeFallbackServers but resolves
-// project-scoped fallback files against the provided working directory.
+// Claude Code project entries in home-level configs against cwd.
 // When cwd is empty, it falls back to the process working directory.
+// Fallback discovery is skipped entirely when managed servers already exist.
 func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 	if cfg == nil {
+		return nil
+	}
+	if len(cfg.Servers) > 0 {
 		return nil
 	}
 
@@ -588,28 +594,6 @@ func isWithinPath(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
-func nearestUpwardPath(relPath, cwd string) string {
-	base := resolveWorkingDirectory(cwd)
-	if base == "" {
-		return ""
-	}
-
-	dir := base
-	for {
-		candidate := filepath.Join(dir, relPath)
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			return candidate
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
 func fallbackSourcePaths(cfg *Config) []string {
 	return fallbackSourcePathsForCWD(cfg, "")
 }
@@ -649,7 +633,7 @@ func defaultFallbackSourcePaths() []string {
 	return defaultFallbackSourcePathsForCWD("")
 }
 
-func defaultFallbackSourcePathsForCWD(cwd string) []string {
+func defaultFallbackSourcePathsForCWD(_ string) []string {
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		return nil
@@ -663,9 +647,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	case "linux":
 		return []string{
@@ -674,9 +656,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	default:
 		return nil

@@ -1220,7 +1220,10 @@ func TestRuntimeRequestHandlerReloadsSameCWDWhenFallbackSourceChanges(t *testing
 		t.Fatalf("WriteFile(config): %v", err)
 	}
 
-	fallbackPath := filepath.Join(projectDir, ".mcp.json")
+	fallbackPath := filepath.Join(tmp, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(fallback dir): %v", err)
+	}
 	writeFallback := func(serverName string) {
 		t.Helper()
 		content := fmt.Sprintf(`{"mcpServers":{"%s":{"command":"echo"}}}`, serverName)
