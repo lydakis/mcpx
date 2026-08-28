@@ -119,23 +119,48 @@ func Run(args []string) int {
 
 		knownServerEntries := decodeServerListEntries(resp.Content)
 		knownServers := serverNamesFromEntries(knownServerEntries)
-		if !containsServerName(knownServers, requestServer) {
-			ephemeral, resolveResp := resolveEphemeralSource(requestServer)
-			if resolveResp != nil {
+		if containsServerName(knownServers, requestServer) {
+			printToolListHelp(rootStdout, server)
+			return ipc.ExitOK
+		}
+
+		// Resolve file and URL sources before probing named virtual servers. This
+		// keeps explicit-source help from connecting to unrelated backends.
+		if canonicalizeSource {
+			if handled, code := resolveEphemeralToolListHelp(requestServer, server); handled {
+				return code
+			}
+			printUnknownServer(server, visibleServerNamesFromEntries(knownServerEntries))
+			return ipc.ExitUsageErr
+		}
+
+		// list_servers is config-only. An explicitly named Codex virtual server
+		// resolves lazily through list_tools.
+		resolveResp, err := client.Send(&ipc.Request{
+			Type:   "list_tools",
+			Server: requestServer,
+			CWD:    cwd,
+		})
+		if err != nil {
+			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+			return ipc.ExitInternal
+		}
+		if !isUnknownServerResponse(resolveResp, requestServer) {
+			if resolveResp.ExitCode != ipc.ExitOK {
 				if resolveResp.Stderr != "" {
 					fmt.Fprintln(rootStderr, resolveResp.Stderr)
 				}
 				return resolveResp.ExitCode
 			}
-			if ephemeral != nil {
-				printToolListHelp(rootStdout, server)
-				return ipc.ExitOK
-			}
-			printUnknownServer(server, visibleServerNamesFromEntries(knownServerEntries))
-			return ipc.ExitUsageErr
+			printToolListHelp(rootStdout, server)
+			return ipc.ExitOK
 		}
-		printToolListHelp(rootStdout, server)
-		return ipc.ExitOK
+
+		if handled, code := resolveEphemeralToolListHelp(requestServer, server); handled {
+			return code
+		}
+		printUnknownServer(server, visibleServerNamesFromEntries(knownServerEntries))
+		return ipc.ExitUsageErr
 	}
 
 	// Connect to daemon
@@ -154,6 +179,21 @@ func Run(args []string) int {
 	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd, canonicalizeSource)
 }
 
+func resolveEphemeralToolListHelp(requestServer, displayServer string) (bool, int) {
+	ephemeral, resp := resolveEphemeralSource(requestServer)
+	if resp != nil {
+		if resp.Stderr != "" {
+			fmt.Fprintln(rootStderr, resp.Stderr)
+		}
+		return true, resp.ExitCode
+	}
+	if ephemeral == nil {
+		return false, 0
+	}
+	printToolListHelp(rootStdout, displayServer)
+	return true, ipc.ExitOK
+}
+
 func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
 	if len(args) == 0 {
 		return false, 0
@@ -161,22 +201,35 @@ func maybeHandleCompletionCommand(args []string, cfg *config.Config, stdout, std
 
 	switch args[0] {
 	case "completion":
-		if cfg != nil {
-			if _, ok := cfg.Servers["completion"]; ok {
-				return false, 0
-			}
+		if utilityCommandDeferredToServer(cfg, "completion") {
+			return false, 0
 		}
 		return true, runCompletionCommand(args[1:], stdout, stderr)
 	case "__complete":
-		if cfg != nil {
-			if _, ok := cfg.Servers["__complete"]; ok {
-				return false, 0
-			}
+		if utilityCommandDeferredToServer(cfg, "__complete") {
+			return false, 0
 		}
 		return true, runInternalCompletion(args[1:], stdout, stderr)
 	default:
 		return false, 0
 	}
+}
+
+// utilityCommandDeferredToServer reports whether a reserved CLI command should
+// yield to a same-named server explicitly loaded from mcpx config. Entries with
+// no origin metadata retain the historical behavior for in-process callers.
+func utilityCommandDeferredToServer(cfg *config.Config, name string) bool {
+	if cfg == nil {
+		return false
+	}
+	if _, ok := cfg.Servers[name]; !ok {
+		return false
+	}
+	origin, ok := cfg.ServerOrigins[name]
+	if !ok {
+		return true
+	}
+	return config.NormalizeServerOrigin(origin).Kind == config.ServerOriginKindMCPXConfig
 }
 
 type rootServerListArgs struct {

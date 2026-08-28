@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,7 +170,7 @@ func TestToolSchemaPayloadUsesNativeToolName(t *testing.T) {
 	}
 }
 
-func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
+func TestListServersHidesCodexAppsWithoutDiscovery(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github":            {},
@@ -187,15 +186,9 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	defer ka.Stop()
 
 	deps := runtimeDefaultDeps()
-	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, server string) ([]mcppool.ToolInfo, error) {
-		if server != codexAppsServerName {
-			t.Fatalf("poolListTools server = %q, want %q", server, codexAppsServerName)
-		}
-		return []mcppool.ToolInfo{
-			{Name: "linear_get_profile"},
-			{Name: "zillow_get_zestimate"},
-			{Name: "google calendar_search"},
-		}, nil
+	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
+		t.Fatal("list_servers must not call poolListTools")
+		return nil, nil
 	}
 
 	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
@@ -204,7 +197,7 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	}
 
 	got := decodeServerLines(resp.Content)
-	want := []string{"github", "google_calendar", "linear", "supermemory", "zillow"}
+	want := []string{"github", "supermemory"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("server list = %#v, want %#v", got, want)
 	}
@@ -215,10 +208,6 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 			if entry.Origin.Kind != config.ServerOriginKindMCPXConfig {
 				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
 			}
-		case "google_calendar", "linear", "zillow":
-			if entry.Origin.Kind != config.ServerOriginKindCodexApps {
-				t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindCodexApps)
-			}
 		}
 	}
 	for _, name := range got {
@@ -228,7 +217,7 @@ func TestListServersHidesCodexAppsAndShowsVirtualServers(t *testing.T) {
 	}
 }
 
-func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing.T) {
+func TestListServersDoesNotExposeCodexBackendWhenIncludingHidden(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"github":            {},
@@ -241,10 +230,11 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 
 	deps := runtimeDefaultDeps()
 	deps.poolListTools = func(_ context.Context, _ *mcppool.Pool, _ string) ([]mcppool.ToolInfo, error) {
-		return nil, errors.New("token expired")
+		t.Fatal("list_servers must not call poolListTools")
+		return nil, nil
 	}
 
-	resp := listServersWithDeps(context.Background(), cfg, nil, ka, false, deps)
+	resp := listServersWithDeps(context.Background(), cfg, nil, ka, true, deps)
 	if resp.ExitCode != ipc.ExitOK {
 		t.Fatalf("listServers() exit = %d, want %d", resp.ExitCode, ipc.ExitOK)
 	}
@@ -260,8 +250,8 @@ func TestListServersKeepsConfiguredServersWhenCodexAppsDiscoveryFails(t *testing
 			t.Fatalf("server %q origin kind = %q, want %q", entry.Name, entry.Origin.Kind, config.ServerOriginKindMCPXConfig)
 		}
 	}
-	if !strings.Contains(resp.Stderr, "failed to enumerate codex apps") {
-		t.Fatalf("listServers() stderr = %q, want codex-apps warning", resp.Stderr)
+	if resp.Stderr != "" {
+		t.Fatalf("listServers() stderr = %q, want empty", resp.Stderr)
 	}
 }
 

@@ -151,7 +151,9 @@ func FailedFallbackSourcePaths(err error) []string {
 }
 
 // MergeFallbackServers fills cfg.Servers from external MCP fallback sources.
-// Managed entries already present in cfg.Servers always win over discovered ones.
+// Fallback discovery is skipped when cfg already has servers loaded from the
+// managed mcpx config. When discovery runs, reserved utility command names are
+// omitted so fallback input cannot shadow the CLI surface.
 func MergeFallbackServers(cfg *Config) error {
 	return MergeFallbackServersForCWD(cfg, "")
 }
@@ -161,6 +163,9 @@ func MergeFallbackServers(cfg *Config) error {
 // When cwd is empty, it falls back to the process working directory.
 func MergeFallbackServersForCWD(cfg *Config, cwd string) error {
 	if cfg == nil {
+		return nil
+	}
+	if hasManagedConfigServers(cfg) {
 		return nil
 	}
 
@@ -213,6 +218,9 @@ func loadFallbackServersWithSourcesForCWD(paths []string, cwd string) (map[strin
 		}
 
 		for name, srv := range found {
+			if isReservedFallbackServerName(name) {
+				continue
+			}
 			if _, exists := servers[name]; exists {
 				continue
 			}
@@ -588,25 +596,28 @@ func isWithinPath(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
-func nearestUpwardPath(relPath, cwd string) string {
-	base := resolveWorkingDirectory(cwd)
-	if base == "" {
-		return ""
+func hasManagedConfigServers(cfg *Config) bool {
+	if cfg == nil {
+		return false
 	}
-
-	dir := base
-	for {
-		candidate := filepath.Join(dir, relPath)
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			return candidate
+	for name := range cfg.Servers {
+		origin, ok := cfg.ServerOrigins[name]
+		if !ok {
+			continue
 		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
+		if NormalizeServerOrigin(origin).Kind == ServerOriginKindMCPXConfig {
+			return true
 		}
-		dir = parent
+	}
+	return false
+}
+
+func isReservedFallbackServerName(name string) bool {
+	switch name {
+	case "add", "shim", "skill", "completion", "__complete":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -618,6 +629,9 @@ func fallbackSourcePaths(cfg *Config) []string {
 // the runtime config for the given working directory.
 func RuntimeConfigSourcePathsForCWD(cfg *Config, cwd string) []string {
 	sourcePaths := []string{paths.ConfigFile()}
+	if hasManagedConfigServers(cfg) {
+		return compactPaths(sourcePaths)
+	}
 	for _, sourcePath := range fallbackSourcePathsForCWD(cfg, cwd) {
 		sourcePath = strings.TrimSpace(sourcePath)
 		if sourcePath == "" {
@@ -649,7 +663,7 @@ func defaultFallbackSourcePaths() []string {
 	return defaultFallbackSourcePathsForCWD("")
 }
 
-func defaultFallbackSourcePathsForCWD(cwd string) []string {
+func defaultFallbackSourcePathsForCWD(_ string) []string {
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		return nil
@@ -663,9 +677,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	case "linux":
 		return []string{
@@ -674,9 +686,7 @@ func defaultFallbackSourcePathsForCWD(cwd string) []string {
 			filepath.Join(home, ".config", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
 			filepath.Join(home, ".claude.json"),
 			filepath.Join(home, ".codex", "config.toml"),
-			nearestUpwardPath(".mcp.json", cwd),
 			filepath.Join(home, ".kiro", "settings", "mcp.json"),
-			nearestUpwardPath(filepath.Join(".kiro", "settings", "mcp.json"), cwd),
 		}
 	default:
 		return nil

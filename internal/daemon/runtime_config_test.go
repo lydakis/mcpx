@@ -1220,7 +1220,10 @@ func TestRuntimeRequestHandlerReloadsSameCWDWhenFallbackSourceChanges(t *testing
 		t.Fatalf("WriteFile(config): %v", err)
 	}
 
-	fallbackPath := filepath.Join(projectDir, ".mcp.json")
+	fallbackPath := filepath.Join(tmp, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(fallback dir): %v", err)
+	}
 	writeFallback := func(serverName string) {
 		t.Helper()
 		content := fmt.Sprintf(`{"mcpServers":{"%s":{"command":"echo"}}}`, serverName)
@@ -2413,5 +2416,46 @@ func TestRememberRuntimeEphemeralServerDoesNotClosePersistentNameCollision(t *te
 	}
 	if len(closed) != 0 {
 		t.Fatalf("poolClose called for persistent collision entry: %#v", closed)
+	}
+}
+
+func TestCurrentRuntimeConfigStampIgnoresFallbackEditsWhenManagedServersExist(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg-config"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+
+	fallbackPath := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0o700); err != nil {
+		t.Fatalf("mkdir fallback dir: %v", err)
+	}
+	writeFallback := func(command string) {
+		t.Helper()
+		content := fmt.Sprintf(`{"mcpServers":{"cursor":{"command":%q}}}`, command)
+		if err := os.WriteFile(fallbackPath, []byte(content), 0o600); err != nil {
+			t.Fatalf("write fallback file: %v", err)
+		}
+	}
+	writeFallback("one")
+
+	managed := &config.Config{
+		Servers: map[string]config.ServerConfig{"github": {Command: "echo"}},
+		ServerOrigins: map[string]config.ServerOrigin{
+			"github": config.NewServerOrigin(config.ServerOriginKindMCPXConfig, paths.ConfigFile()),
+		},
+	}
+	before := currentRuntimeConfigStamp(managed, home)
+	writeFallback("two")
+	after := currentRuntimeConfigStamp(managed, home)
+	if before != after {
+		t.Fatalf("stamp changed after irrelevant fallback edit: %q -> %q", before.Digest, after.Digest)
+	}
+
+	empty := &config.Config{Servers: map[string]config.ServerConfig{}}
+	before = currentRuntimeConfigStamp(empty, home)
+	writeFallback("three")
+	after = currentRuntimeConfigStamp(empty, home)
+	if before == after {
+		t.Fatal("stamp did not change after relevant fallback edit")
 	}
 }

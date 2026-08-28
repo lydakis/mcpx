@@ -234,8 +234,8 @@ man mcpx
     - Claude Desktop config
     - Cline MCP settings
     - Claude Code user/local config (`~/.claude.json`)
-    - Codex config (`~/.codex/config.toml`, `mcp_servers.*`; when `[features].apps = true`, `mcpx` adds virtual per-app servers like `linear`/`zillow`, backed by Codex connector auth from `CODEX_CONNECTORS_TOKEN` or `~/.codex/auth.json`)
-    - Claude Code project config (`.mcp.json`, nearest parent)
+    - Codex config (`~/.codex/config.toml`, `mcp_servers.*`; when `[features].apps = true`, explicitly named virtual servers like `linear`/`zillow` resolve through Codex connector auth from `CODEX_CONNECTORS_TOKEN` or `~/.codex/auth.json`)
     - Kiro user config (`~/.kiro/settings/mcp.json`)
-    - Kiro project config (`.kiro/settings/mcp.json`, nearest parent)
+  - Project-local `.mcp.json` and `.kiro/settings/mcp.json` are not auto-discovered from the working directory.
+  - Bare listing and shell completion omit Codex virtual servers because discovering them would connect to the Codex apps backend. Named calls such as `mcpx linear` still resolve them lazily.
   - Check fallback files exist and expose either `mcpServers` (JSON sources) or `mcp_servers` (Codex TOML). Claude Code local scope uses `projects[<path>].mcpServers`.

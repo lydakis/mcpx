@@ -54,10 +54,15 @@ func TestMaybeHandleShimCommandInstallRejectsUnknownServer(t *testing.T) {
 	t.Setenv("PATH", tmp)
 
 	oldKnownServersFn := shimKnownServersFn
-	defer func() { shimKnownServersFn = oldKnownServersFn }()
+	oldResolveFn := shimResolveServerFn
+	defer func() {
+		shimKnownServersFn = oldKnownServersFn
+		shimResolveServerFn = oldResolveFn
+	}()
 	shimKnownServersFn = func() ([]string, error) {
 		return []string{"known-server"}, nil
 	}
+	shimResolveServerFn = func(string) (bool, error) { return false, nil }
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{}}
 	var out bytes.Buffer
@@ -82,15 +87,60 @@ func TestMaybeHandleShimCommandInstallRejectsUnknownServer(t *testing.T) {
 	}
 }
 
-func TestMaybeHandleShimCommandInstallAllowsDiscoveredVirtualServer(t *testing.T) {
+func TestMaybeHandleShimCommandInstallStopsOnVirtualResolverError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("PATH", tmp)
 
 	oldKnownServersFn := shimKnownServersFn
-	defer func() { shimKnownServersFn = oldKnownServersFn }()
+	oldResolveFn := shimResolveServerFn
+	defer func() {
+		shimKnownServersFn = oldKnownServersFn
+		shimResolveServerFn = oldResolveFn
+	}()
 	shimKnownServersFn = func() ([]string, error) {
-		return []string{"gmail", "linear"}, nil
+		return []string{"github"}, nil
 	}
+	shimResolveServerFn = func(string) (bool, error) {
+		return false, errors.New("codex apps unavailable")
+	}
+
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"codex_apps": {}}}
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	handled, code := maybeHandleShimCommand([]string{"shim", "install", "linear", "--dir", tmp}, cfg, &out, &errOut)
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if code != ipc.ExitInternal {
+		t.Fatalf("code = %d, want %d", code, ipc.ExitInternal)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+	if !strings.Contains(errOut.String(), `resolving server "linear": codex apps unavailable`) {
+		t.Fatalf("stderr = %q, want resolver error", errOut.String())
+	}
+	shimPath := filepath.Join(tmp, "linear")
+	if _, err := os.Stat(shimPath); !os.IsNotExist(err) {
+		t.Fatalf("shim file %q should not exist, stat err=%v", shimPath, err)
+	}
+}
+
+func TestMaybeHandleShimCommandInstallAllowsResolvedVirtualServer(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp)
+
+	oldKnownServersFn := shimKnownServersFn
+	oldResolveFn := shimResolveServerFn
+	defer func() {
+		shimKnownServersFn = oldKnownServersFn
+		shimResolveServerFn = oldResolveFn
+	}()
+	shimKnownServersFn = func() ([]string, error) {
+		return []string{"github"}, nil
+	}
+	shimResolveServerFn = func(server string) (bool, error) { return server == "gmail", nil }
 
 	cfg := &config.Config{Servers: map[string]config.ServerConfig{"codex_apps": {}}}
 	var out bytes.Buffer
@@ -108,6 +158,27 @@ func TestMaybeHandleShimCommandInstallAllowsDiscoveredVirtualServer(t *testing.T
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", errOut.String())
+	}
+}
+
+func TestShimServerKnownResolvesVirtualServerWhenListIsConfigOnly(t *testing.T) {
+	oldKnownServersFn := shimKnownServersFn
+	oldResolveFn := shimResolveServerFn
+	defer func() {
+		shimKnownServersFn = oldKnownServersFn
+		shimResolveServerFn = oldResolveFn
+	}()
+
+	shimKnownServersFn = func() ([]string, error) { return []string{"github"}, nil }
+	shimResolveServerFn = func(server string) (bool, error) { return server == "linear", nil }
+
+	cfg := &config.Config{Servers: map[string]config.ServerConfig{"codex_apps": {}}}
+	known, err := shimServerKnown("linear", cfg)
+	if err != nil {
+		t.Fatalf("shimServerKnown(linear) error = %v", err)
+	}
+	if !known {
+		t.Fatal("shimServerKnown(linear) = false, want true")
 	}
 }
 
@@ -350,7 +421,12 @@ func TestPrintShimRemoveAndListHelpIncludeHelpFlag(t *testing.T) {
 
 func TestShimServerKnownHandlesConfiguredDiscoveredAndDiscoveryError(t *testing.T) {
 	oldKnownServersFn := shimKnownServersFn
-	defer func() { shimKnownServersFn = oldKnownServersFn }()
+	oldResolveFn := shimResolveServerFn
+	defer func() {
+		shimKnownServersFn = oldKnownServersFn
+		shimResolveServerFn = oldResolveFn
+	}()
+	shimResolveServerFn = func(string) (bool, error) { return false, nil }
 
 	known, err := shimServerKnown("github", nil)
 	if err != nil {

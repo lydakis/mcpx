@@ -31,10 +31,8 @@ func maybeHandleAddCommand(args []string, cfg *config.Config, stdout, stderr io.
 		return false, 0
 	}
 
-	if cfg != nil {
-		if _, ok := cfg.Servers["add"]; ok {
-			return false, 0
-		}
+	if utilityCommandDeferredToServer(cfg, "add") {
+		return false, 0
 	}
 
 	return true, runAddCommand(args[1:], stdout, stderr)

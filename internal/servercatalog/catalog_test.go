@@ -9,7 +9,7 @@ import (
 	"github.com/lydakis/mcpx/internal/mcppool"
 )
 
-func TestServerNamesHidesCodexAppsAndAddsVirtualApps(t *testing.T) {
+func TestServerNamesHidesCodexAppsWithoutDiscovery(t *testing.T) {
 	cfg := &config.Config{
 		Servers: map[string]config.ServerConfig{
 			"playwright":        {},
@@ -18,15 +18,9 @@ func TestServerNamesHidesCodexAppsAndAddsVirtualApps(t *testing.T) {
 		},
 	}
 
-	catalog := New(cfg, func(_ context.Context, server string) ([]mcppool.ToolInfo, error) {
-		if server != CodexAppsServerName {
-			t.Fatalf("listTools server = %q, want %q", server, CodexAppsServerName)
-		}
-		return []mcppool.ToolInfo{
-			{Name: "linear_get_profile"},
-			{Name: "zillow_get_zestimate"},
-			{Name: "google calendar_search"},
-		}, nil
+	catalog := New(cfg, func(_ context.Context, _ string) ([]mcppool.ToolInfo, error) {
+		t.Fatal("ServerNames must not call listTools")
+		return nil, nil
 	})
 
 	names, err := catalog.ServerNames(context.Background())
@@ -34,7 +28,7 @@ func TestServerNamesHidesCodexAppsAndAddsVirtualApps(t *testing.T) {
 		t.Fatalf("ServerNames() error = %v", err)
 	}
 
-	want := []string{"google_calendar", "linear", "playwright", "supermemory", "zillow"}
+	want := []string{"playwright", "supermemory"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("ServerNames() = %#v, want %#v", names, want)
 	}
