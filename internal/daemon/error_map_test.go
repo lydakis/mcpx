@@ -6,17 +6,18 @@ import (
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/ipc"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/lydakis/mcpx/internal/mcppool"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
 func TestClassifyCallToolErrorUsageInvalidParams(t *testing.T) {
-	if got := classifyCallToolError(mcp.ErrInvalidParams); got != ipc.ExitUsageErr {
+	if got := classifyCallToolError(mcppool.ErrInvalidParams); got != ipc.ExitUsageErr {
 		t.Fatalf("classifyCallToolError(invalid params) = %d, want %d", got, ipc.ExitUsageErr)
 	}
 }
 
 func TestClassifyCallToolErrorUsageMethodNotFound(t *testing.T) {
-	err := fmt.Errorf("rpc failed: %w", mcp.ErrMethodNotFound)
+	err := fmt.Errorf("rpc failed: %w", &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound})
 	if got := classifyCallToolError(err); got != ipc.ExitUsageErr {
 		t.Fatalf("classifyCallToolError(method not found) = %d, want %d", got, ipc.ExitUsageErr)
 	}
@@ -44,7 +45,7 @@ func TestClassifyCallToolErrorTransportDefault(t *testing.T) {
 }
 
 func TestClassifyCallToolErrorParseErrorRemainsInternal(t *testing.T) {
-	if got := classifyCallToolError(mcp.ErrParseError); got != ipc.ExitInternal {
+	if got := classifyCallToolError(&jsonrpc.Error{Code: jsonrpc.CodeParseError}); got != ipc.ExitInternal {
 		t.Fatalf("classifyCallToolError(parse error) = %d, want %d", got, ipc.ExitInternal)
 	}
 }

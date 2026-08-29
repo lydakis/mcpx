@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime/debug"
+
+	"github.com/lydakis/mcpx/internal/buildinfo"
 )
 
 var (
 	rootStdout   io.Writer = os.Stdout
 	rootStderr   io.Writer = os.Stderr
-	buildVersion           = "dev"
+	buildVersion           = buildinfo.Version()
 )
-
-func init() {
-	buildVersion = resolveBuildVersion(buildVersion)
-}
 
 func handleRootFlags(args []string) (bool, int) {
 	if len(args) == 0 {
@@ -39,18 +36,7 @@ func handleRootFlags(args []string) (bool, int) {
 }
 
 func resolveBuildVersion(defaultVersion string) string {
-	if defaultVersion != "" && defaultVersion != "dev" {
-		return defaultVersion
-	}
-
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return defaultVersion
-	}
-	if info.Main.Version == "" || info.Main.Version == "(devel)" {
-		return defaultVersion
-	}
-	return info.Main.Version
+	return buildinfo.Resolve(defaultVersion)
 }
 
 func printRootHelp(out io.Writer) {
@@ -59,7 +45,9 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "  mcpx --json")
 	fmt.Fprintln(out, "  mcpx <server> [FLAGS]")
 	fmt.Fprintln(out, "  mcpx <server> <tool> [FLAGS]")
-	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--overwrite]")
+	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--oauth] [--oauth-client-metadata-url URL] [--overwrite]")
+	fmt.Fprintln(out, "  mcpx auth <login|status|logout> <server>")
+	fmt.Fprintln(out, "  mcpx doctor [server] [--json]")
 	fmt.Fprintln(out, "  mcpx shim <install|remove|list> ...")
 	fmt.Fprintln(out, "  mcpx completion <bash|zsh|fish>")
 	fmt.Fprintln(out, "  mcpx skill install [<server>] [FLAGS]")
@@ -76,6 +64,13 @@ func printRootHelp(out io.Writer) {
 	fmt.Fprintln(out, "Tool listing flags (for `mcpx <server>`):")
 	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
 	fmt.Fprintln(out, "  --json           Emit tool list as JSON")
+	fmt.Fprintln(out, "  --catalog        Emit a deterministic JSON catalog with schemas")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Tool call control flags:")
+	fmt.Fprintln(out, "  --interactive                 Prompt for MCP elicitation on a TTY")
+	fmt.Fprintln(out, "  --request-state VALUE         Resume an input-required request")
+	fmt.Fprintln(out, "  --input-responses JSON        Typed responses keyed by request ID")
+	fmt.Fprintln(out, "  --tool-<name>                 Escape a colliding tool argument")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Man page:")
 	fmt.Fprintln(out, "  man mcpx")

@@ -37,6 +37,26 @@ _mcpx_has_shim_server() {
   return 1
 }
 
+_mcpx_has_auth_server() {
+  local server
+  while IFS= read -r server; do
+    if [[ "$server" == "auth" ]]; then
+      return 0
+    fi
+  done < <(mcpx __complete servers 2>/dev/null)
+  return 1
+}
+
+_mcpx_has_doctor_server() {
+  local server
+  while IFS= read -r server; do
+    if [[ "$server" == "doctor" ]]; then
+      return 0
+    fi
+  done < <(mcpx __complete servers 2>/dev/null)
+  return 1
+}
+
 _mcpx_completion() {
   local cur first tool
   COMPREPLY=()
@@ -55,6 +75,12 @@ _mcpx_completion() {
     if ! _mcpx_has_shim_server; then
       words="$words"$'\n'"shim"
     fi
+    if ! _mcpx_has_auth_server; then
+      words="$words"$'\n'"auth"
+    fi
+    if ! _mcpx_has_doctor_server; then
+      words="$words"$'\n'"doctor"
+    fi
     COMPREPLY=( $(compgen -W "$words" -- "$cur") )
     return 0
   fi
@@ -66,7 +92,21 @@ _mcpx_completion() {
   fi
 
   if [[ "$first" == "add" ]] && ! _mcpx_has_add_server; then
-    COMPREPLY=( $(compgen -W "--name --header --overwrite --help -h" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--name --header --oauth --oauth-client-metadata-url --overwrite --help -h" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "$first" == "auth" ]] && ! _mcpx_has_auth_server; then
+    if [[ ${COMP_CWORD} -eq 2 ]]; then
+      COMPREPLY=( $(compgen -W "login status logout" -- "$cur") )
+    else
+      COMPREPLY=( $(compgen -W "$(mcpx __complete servers 2>/dev/null) --help -h" -- "$cur") )
+    fi
+    return 0
+  fi
+
+  if [[ "$first" == "doctor" ]] && ! _mcpx_has_doctor_server; then
+    COMPREPLY=( $(compgen -W "$(mcpx __complete servers 2>/dev/null) --json --help -h" -- "$cur") )
     return 0
   fi
 
@@ -168,6 +208,26 @@ _mcpx_has_shim_server() {
   return 1
 }
 
+_mcpx_has_auth_server() {
+  local server
+  for server in ${(f)"$(mcpx __complete servers 2>/dev/null)"}; do
+    if [[ "$server" == "auth" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+_mcpx_has_doctor_server() {
+  local server
+  for server in ${(f)"$(mcpx __complete servers 2>/dev/null)"}; do
+    if [[ "$server" == "doctor" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 _mcpx_completion() {
   local -a servers tools flags
 
@@ -183,6 +243,12 @@ _mcpx_completion() {
     if ! _mcpx_has_shim_server; then
       servers+=(shim)
     fi
+    if ! _mcpx_has_auth_server; then
+      servers+=(auth)
+    fi
+    if ! _mcpx_has_doctor_server; then
+      servers+=(doctor)
+    fi
     _describe 'mcpx entry' servers
     return
   fi
@@ -193,8 +259,26 @@ _mcpx_completion() {
   fi
 
   if [[ "${words[2]}" == "add" ]] && ! _mcpx_has_add_server; then
-    flags=(--name --header --overwrite --help -h)
+    flags=(--name --header --oauth --oauth-client-metadata-url --overwrite --help -h)
     _describe 'add flag' flags
+    return
+  fi
+
+  if [[ "${words[2]}" == "auth" ]] && ! _mcpx_has_auth_server; then
+    if (( CURRENT == 3 )); then
+      _values 'auth command' login status logout
+    else
+      servers=(${(f)"$(mcpx __complete servers 2>/dev/null)"})
+      servers+=(--help -h)
+      _describe 'auth server' servers
+    fi
+    return
+  fi
+
+  if [[ "${words[2]}" == "doctor" ]] && ! _mcpx_has_doctor_server; then
+    servers=(${(f)"$(mcpx __complete servers 2>/dev/null)"})
+    servers+=(--json --help -h)
+    _describe 'doctor target' servers
     return
   fi
 
@@ -302,12 +386,35 @@ function __mcpx_has_shim_server
     return 1
 end
 
+function __mcpx_has_auth_server
+    for s in (mcpx __complete servers 2>/dev/null)
+        if test "$s" = auth
+            return 0
+        end
+    end
+    return 1
+end
+
+function __mcpx_has_doctor_server
+    for s in (mcpx __complete servers 2>/dev/null)
+        if test "$s" = doctor
+            return 0
+        end
+    end
+    return 1
+end
+
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1' -a "completion --help -h --version -V --json (mcpx __complete servers 2>/dev/null)"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_add_server' -a "add"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_skill_server' -a "skill"
 complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_shim_server' -a "shim"
+complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_auth_server' -a "auth"
+complete -c mcpx -n 'test (count (__mcpx_words)) -eq 1; and not __mcpx_has_doctor_server' -a "doctor"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = completion' -a "bash zsh fish"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --header --overwrite --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = add; and not __mcpx_has_add_server' -a "--name --header --oauth --oauth-client-metadata-url --overwrite --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = auth; and not __mcpx_has_auth_server' -a "login status logout"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" = auth; and not __mcpx_has_auth_server' -a "(mcpx __complete servers 2>/dev/null) --help -h"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 2; and test "$w[2]" = doctor; and not __mcpx_has_doctor_server' -a "(mcpx __complete servers 2>/dev/null) --json --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" = skill; and not __mcpx_has_skill_server' -a "install"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 4; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install' -a "(mcpx __complete servers 2>/dev/null) --help -h --data-agent-dir --claude-dir --claude-link --kiro-dir --kiro-link --openclaw-dir --openclaw-link --guidance --guidance-file --guidance-text"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 5; and test "$w[2]" = skill; and not __mcpx_has_skill_server; and test "$w[3]" = install' -a "--data-agent-dir --claude-dir --claude-link --kiro-dir --kiro-link --openclaw-dir --openclaw-link --guidance --guidance-file --guidance-text --help -h"
@@ -319,6 +426,6 @@ complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 3; and test "$
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = install' -a "--dir --skill --skill-strict --data-agent-dir --claude-dir --claude-link --kiro-dir --kiro-link --openclaw-dir --openclaw-link --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = remove' -a "--dir --help -h"
 complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 4; and test "$w[2]" = shim; and not __mcpx_has_shim_server; and test "$w[3]" = list' -a "--dir --help -h"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
-complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -eq 2; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != auth; or __mcpx_has_auth_server; end; and begin; test "$w[2]" != doctor; or __mcpx_has_doctor_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete tools (__mcpx_server) 2>/dev/null)"
+complete -c mcpx -n 'set -l w (__mcpx_words); test (count $w) -ge 3; and test "$w[2]" != completion; and begin; test "$w[2]" != add; or __mcpx_has_add_server; end; and begin; test "$w[2]" != auth; or __mcpx_has_auth_server; end; and begin; test "$w[2]" != doctor; or __mcpx_has_doctor_server; end; and begin; test "$w[2]" != skill; or __mcpx_has_skill_server; end; and begin; test "$w[2]" != shim; or __mcpx_has_shim_server; end' -a "(mcpx __complete flags (__mcpx_server) (__mcpx_tool) 2>/dev/null)"
 `

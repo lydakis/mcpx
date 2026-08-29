@@ -9,6 +9,7 @@
 
 - Run `make check` (or `go test ./...`, `go vet ./...`, `go build ./...`).
 - Run `make qa` for smoke + integration matrix checks.
+- Run `make conformance-core` for the pinned MCP 2026-07-28 tools gate.
 - Optionally run `RUN_DIST=1 make qa` to include artifact generation in one pass.
 - Run `goreleaser release --snapshot --clean` to validate release packaging.
 

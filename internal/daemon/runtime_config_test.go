@@ -17,7 +17,7 @@ import (
 	"github.com/lydakis/mcpx/internal/ipc"
 	"github.com/lydakis/mcpx/internal/mcppool"
 	"github.com/lydakis/mcpx/internal/paths"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func fallbackSourceError(path string) error {
@@ -259,6 +259,8 @@ func TestRequestNeedsRuntimeConfig(t *testing.T) {
 		{req: &ipc.Request{Type: "list_tools"}, want: true},
 		{req: &ipc.Request{Type: "tool_schema"}, want: true},
 		{req: &ipc.Request{Type: "call_tool"}, want: true},
+		{req: &ipc.Request{Type: "diagnose_server"}, want: true},
+		{req: &ipc.Request{Type: "reload_server"}, want: true},
 	}
 
 	for _, tc := range cases {

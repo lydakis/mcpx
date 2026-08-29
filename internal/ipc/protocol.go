@@ -9,14 +9,26 @@ import (
 
 // Request is sent from the CLI to the daemon over the Unix socket.
 type Request struct {
-	Nonce   string          `json:"nonce"`            // daemon nonce for auth
-	Type    string          `json:"type"`             // "ping", "list_servers", "list_tools", "call_tool", "tool_schema", "shutdown"
-	CWD     string          `json:"cwd,omitempty"`    // caller working directory
-	Server  string          `json:"server,omitempty"` // target server name
-	Tool    string          `json:"tool,omitempty"`   // target tool name
-	Args    json.RawMessage `json:"args,omitempty"`   // tool arguments
-	Cache   *time.Duration  `json:"cache,omitempty"`  // cache TTL override
-	Verbose bool            `json:"verbose,omitempty"`
+	Nonce  string `json:"nonce"`            // daemon nonce for auth
+	Type   string `json:"type"`             // "ping", "list_servers", "list_tools", "call_tool", "tool_schema", "diagnose_server", "prepare_credential_transition", "reload_server", "shutdown"
+	CWD    string `json:"cwd,omitempty"`    // caller working directory
+	Server string `json:"server,omitempty"` // target server name
+	// Transition identifies a fail-closed OAuth credential lifecycle operation.
+	Transition string          `json:"transition,omitempty"`
+	Tool       string          `json:"tool,omitempty"` // target tool name
+	Args       json.RawMessage `json:"args,omitempty"` // tool arguments
+	// ArgsFromJSON distinguishes lossless positional/stdin JSON from shell
+	// flags, which cannot represent every valid JSON Schema composition.
+	ArgsFromJSON bool `json:"args_from_json,omitempty"`
+	// InputResponses and RequestState resume a 2026-07-28 multi-round-trip
+	// request. RequestState is opaque and must be echoed without interpretation.
+	InputResponses json.RawMessage `json:"input_responses,omitempty"`
+	RequestState   string          `json:"request_state,omitempty"`
+	Cache          *time.Duration  `json:"cache,omitempty"` // cache TTL override
+	Verbose        bool            `json:"verbose,omitempty"`
+	// IncludeSchemas asks list_tools for a deterministic full catalog rather
+	// than the compact discovery view.
+	IncludeSchemas bool `json:"include_schemas,omitempty"`
 	// IncludeHidden asks daemon responses (currently list_servers) to include
 	// otherwise hidden runtime-only servers.
 	IncludeHidden bool             `json:"include_hidden,omitempty"`
@@ -39,6 +51,7 @@ type Response struct {
 
 const (
 	ErrorCodeUnknownServer = "unknown_server"
+	ErrorCodeInputRequired = "input_required"
 )
 
 // Exit codes.

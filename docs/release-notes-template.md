@@ -24,6 +24,16 @@ Release date: YYYY-MM-DD
 
 - None.
 
+## MCP Compatibility
+
+| Surface | Version / status | Evidence |
+| --- | --- | --- |
+| Protocol, modern | 2026-07-28 | conformance result or smoke test |
+| Protocol, legacy | 2025-11-25 | fallback smoke test |
+| Go SDK | vX.Y.Z | module lock |
+| Official conformance | pinned revision | scenarios and pass count |
+| Tasks extension | supported / gated | SDK and extension version |
+
 ## Install / Update
 
 Manual binary:

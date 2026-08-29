@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lydakis/mcpx/internal/ipc"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -72,24 +72,14 @@ func Unwrap(result *mcp.CallToolResult) ([]byte, int) {
 
 func renderContent(content mcp.Content) (string, bool) {
 	switch c := content.(type) {
-	case mcp.TextContent:
-		return c.Text, true
 	case *mcp.TextContent:
 		return c.Text, true
-	case mcp.ImageContent:
-		path, err := writeTempBase64("mcpx-image", c.MIMEType, c.Data)
-		if err != nil {
-			return "", false
-		}
-		return path, true
 	case *mcp.ImageContent:
-		path, err := writeTempBase64("mcpx-image", c.MIMEType, c.Data)
+		path, err := writeTempFile("mcpx-image", c.MIMEType, c.Data)
 		if err != nil {
 			return "", false
 		}
 		return path, true
-	case mcp.EmbeddedResource:
-		return renderResourceContent(c.Resource)
 	case *mcp.EmbeddedResource:
 		return renderResourceContent(c.Resource)
 	default:
@@ -121,58 +111,53 @@ func renderContent(content mcp.Content) (string, bool) {
 	}
 }
 
-func renderResourceContent(resource mcp.ResourceContents) (string, bool) {
-	switch r := resource.(type) {
-	case mcp.TextResourceContents:
-		path, err := writeTempFile("mcpx-resource", r.MIMEType, []byte(r.Text))
-		if err != nil {
-			return "", false
-		}
-		return path, true
-	case *mcp.TextResourceContents:
-		path, err := writeTempFile("mcpx-resource", r.MIMEType, []byte(r.Text))
-		if err != nil {
-			return "", false
-		}
-		return path, true
-	case mcp.BlobResourceContents:
-		path, err := writeTempBase64("mcpx-resource", r.MIMEType, r.Blob)
-		if err != nil {
-			return "", false
-		}
-		return path, true
-	case *mcp.BlobResourceContents:
-		path, err := writeTempBase64("mcpx-resource", r.MIMEType, r.Blob)
-		if err != nil {
-			return "", false
-		}
-		return path, true
-	default:
+func renderResourceContent(resource *mcp.ResourceContents) (string, bool) {
+	if resource == nil {
 		return "", false
 	}
+	if resource.Blob != nil {
+		path, err := writeTempFile("mcpx-resource", resource.MIMEType, resource.Blob)
+		if err != nil {
+			return "", false
+		}
+		return path, true
+	}
+	path, err := writeTempFile("mcpx-resource", resource.MIMEType, []byte(resource.Text))
+	if err != nil {
+		return "", false
+	}
+	return path, true
 }
 
 func renderResourceJSON(raw json.RawMessage) (string, bool) {
 	if len(raw) == 0 {
 		return "", false
 	}
-	var textRes struct {
-		Text     string `json:"text"`
-		MIMEType string `json:"mimeType"`
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return "", false
 	}
-	if json.Unmarshal(raw, &textRes) == nil && textRes.Text != "" {
-		path, err := writeTempFile("mcpx-resource", textRes.MIMEType, []byte(textRes.Text))
+	var mimeType string
+	if mimeRaw, ok := fields["mimeType"]; ok {
+		_ = json.Unmarshal(mimeRaw, &mimeType)
+	}
+	if textRaw, ok := fields["text"]; ok {
+		var text string
+		if json.Unmarshal(textRaw, &text) != nil {
+			return "", false
+		}
+		path, err := writeTempFile("mcpx-resource", mimeType, []byte(text))
 		if err != nil {
 			return "", false
 		}
 		return path, true
 	}
-	var blobRes struct {
-		Blob     string `json:"blob"`
-		MIMEType string `json:"mimeType"`
-	}
-	if json.Unmarshal(raw, &blobRes) == nil && blobRes.Blob != "" {
-		path, err := writeTempBase64("mcpx-resource", blobRes.MIMEType, blobRes.Blob)
+	if blobRaw, ok := fields["blob"]; ok {
+		var blob string
+		if json.Unmarshal(blobRaw, &blob) != nil {
+			return "", false
+		}
+		path, err := writeTempBase64("mcpx-resource", mimeType, blob)
 		if err != nil {
 			return "", false
 		}

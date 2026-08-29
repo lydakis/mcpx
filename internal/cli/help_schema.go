@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/lydakis/mcpx/internal/toolschema"
 )
 
 type schemaLine struct {
@@ -253,12 +255,6 @@ func toolExamples(server, tool string, inputSchema map[string]any) []string {
 	command := fmt.Sprintf("mcpx %s %s", server, tool)
 	args := sampleExampleArgs(inputSchema)
 
-	flagTokens := sampleFlagTokens(inputSchema, args)
-	flagExample := command
-	if len(flagTokens) > 0 {
-		flagExample += " " + strings.Join(flagTokens, " ")
-	}
-
 	rawJSON, err := json.Marshal(args)
 	if err != nil || len(rawJSON) == 0 {
 		rawJSON = []byte("{}")
@@ -266,11 +262,18 @@ func toolExamples(server, tool string, inputSchema map[string]any) []string {
 	jsonLiteral := string(rawJSON)
 	quotedJSON := shellSingleQuote(jsonLiteral)
 
-	return []string{
-		flagExample,
+	examples := make([]string, 0, 3)
+	if toolschema.Analyze(inputSchema).FlagSafe {
+		flagExample := command
+		if flagTokens := sampleFlagTokens(inputSchema, args); len(flagTokens) > 0 {
+			flagExample += " " + strings.Join(flagTokens, " ")
+		}
+		examples = append(examples, flagExample)
+	}
+	return append(examples,
 		fmt.Sprintf("%s %s", command, quotedJSON),
 		fmt.Sprintf("printf '%%s\\n' %s | %s", quotedJSON, command),
-	}
+	)
 }
 
 func sampleExampleArgs(schema map[string]any) map[string]any {

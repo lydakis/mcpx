@@ -843,6 +843,8 @@ func TestMergeFallbackServersOmitsReservedUtilityNames(t *testing.T) {
 	customPath := filepath.Join(t.TempDir(), "custom-mcp.json")
 	raw := []byte(`{"mcpServers":{
 		"add":{"command":"false"},
+		"auth":{"command":"false"},
+		"doctor":{"command":"false"},
 		"shim":{"command":"false"},
 		"skill":{"command":"false"},
 		"completion":{"command":"false"},
@@ -860,7 +862,7 @@ func TestMergeFallbackServersOmitsReservedUtilityNames(t *testing.T) {
 	if _, ok := cfg.Servers["github"]; !ok {
 		t.Fatalf("cfg.Servers = %#v, want github", cfg.Servers)
 	}
-	for _, name := range []string{"add", "shim", "skill", "completion", "__complete"} {
+	for _, name := range []string{"add", "auth", "doctor", "shim", "skill", "completion", "__complete"} {
 		if _, ok := cfg.Servers[name]; ok {
 			t.Fatalf("cfg.Servers unexpectedly contains reserved name %q: %#v", name, cfg.Servers)
 		}

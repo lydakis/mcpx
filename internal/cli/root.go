@@ -60,6 +60,14 @@ func Run(args []string) int {
 		return code
 	}
 
+	if handled, code := maybeHandleAuthCommand(args, cfg, rootStdout, rootStderr); handled {
+		return code
+	}
+
+	if handled, code := maybeHandleDoctorCommand(args, cfg, rootStdout, rootStderr); handled {
+		return code
+	}
+
 	if handled, code := maybeHandleShimCommand(args, cfg, rootStdout, rootStderr); handled {
 		return code
 	}
@@ -173,7 +181,7 @@ func Run(args []string) int {
 	cwd := callerWorkingDirectory()
 
 	if cmd.list {
-		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.output, canonicalizeSource)
+		return listTools(client, server, cwd, cmd.listOpts.verbose, cmd.listOpts.catalog, cmd.listOpts.output, canonicalizeSource)
 	}
 
 	return callTool(client, server, cmd.tool, cmd.toolArgs, cwd, canonicalizeSource)
@@ -410,6 +418,7 @@ func listServersFromDaemon(client daemonRequester, cwd string, output outputMode
 type toolListArgs struct {
 	verbose bool
 	help    bool
+	catalog bool
 	output  outputMode
 }
 
@@ -468,6 +477,9 @@ func parseToolListArgs(args []string) (toolListArgs, error) {
 			parsed.help = true
 		case "--json":
 			parsed.output = outputModeJSON
+		case "--catalog":
+			parsed.catalog = true
+			parsed.output = outputModeJSON
 		default:
 			return toolListArgs{}, fmt.Errorf("unsupported flag for tool listing: %s", arg)
 		}
@@ -477,7 +489,7 @@ func parseToolListArgs(args []string) (toolListArgs, error) {
 
 func isToolListFlag(arg string) bool {
 	switch arg {
-	case "-v", "--verbose", "-h", "--help", "--json":
+	case "-v", "--verbose", "-h", "--help", "--json", "--catalog":
 		return true
 	default:
 		return false
@@ -492,15 +504,17 @@ func printToolListHelp(out io.Writer, server string) {
 	fmt.Fprintln(out, "Flags:")
 	fmt.Fprintln(out, "  --verbose, -v    Show full tool descriptions")
 	fmt.Fprintln(out, "  --json           Emit mcpx list output as JSON")
+	fmt.Fprintln(out, "  --catalog        Emit a deterministic JSON catalog with schemas")
 	fmt.Fprintln(out, "  --help, -h       Show this help output")
 }
 
-func listTools(client daemonRequester, server, cwd string, verbose bool, output outputMode, canonicalizeSource bool) int {
+func listTools(client daemonRequester, server, cwd string, verbose, catalog bool, output outputMode, canonicalizeSource bool) int {
 	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
-		Type:    "list_tools",
-		Server:  server,
-		Verbose: verbose,
-		CWD:     cwd,
+		Type:           "list_tools",
+		Server:         server,
+		Verbose:        verbose || catalog,
+		IncludeSchemas: catalog,
+		CWD:            cwd,
 	}, canonicalizeSource)
 	if err != nil {
 		fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
@@ -716,6 +730,10 @@ func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd
 	if parsed.help {
 		return showHelp(client, server, tool, cwd, parsed.output, canonicalizeSource)
 	}
+	if parsed.interactive && !stdinIsTTY(os.Stdin) {
+		fmt.Fprintln(rootStderr, "mcpx: --interactive requires a terminal on stdin")
+		return ipc.ExitUsageErr
+	}
 
 	argsJSON, err := json.Marshal(parsed.toolArgs)
 	if err != nil {
@@ -725,20 +743,46 @@ func callTool(client daemonRequester, server, tool string, rawArgs []string, cwd
 		return ipc.ExitUsageErr
 	}
 
-	resp, err := sendServerRequestWithEphemeralFallback(client, &ipc.Request{
-		Type:    "call_tool",
-		Server:  server,
-		Tool:    tool,
-		Args:    argsJSON,
-		Cache:   parsed.cacheTTL,
-		Verbose: parsed.verbose,
-		CWD:     cwd,
-	}, canonicalizeSource)
+	req := &ipc.Request{
+		Type:           "call_tool",
+		Server:         server,
+		Tool:           tool,
+		Args:           argsJSON,
+		ArgsFromJSON:   parsed.jsonInput,
+		InputResponses: parsed.inputResponses,
+		RequestState:   parsed.requestState,
+		Cache:          parsed.cacheTTL,
+		Verbose:        parsed.verbose,
+		CWD:            cwd,
+	}
+	resp, err := sendServerRequestWithEphemeralFallback(client, req, canonicalizeSource)
 	if err != nil {
 		if !parsed.quiet {
 			fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
 		}
 		return ipc.ExitInternal
+	}
+	if parsed.interactive {
+		for rounds := 0; resp != nil && resp.ErrorCode == ipc.ErrorCodeInputRequired; rounds++ {
+			if rounds >= maxInteractiveRounds {
+				fmt.Fprintf(rootStderr, "mcpx: exceeded %d interactive rounds\n", maxInteractiveRounds)
+				writeToolResponse(resp, parsed.quiet, rootStdout, rootStderr)
+				return ipc.ExitToolErr
+			}
+			responses, requestState, promptErr := promptForInput(resp.Content, os.Stdin, rootStderr)
+			if promptErr != nil {
+				fmt.Fprintf(rootStderr, "mcpx: %v\n", promptErr)
+				writeToolResponse(resp, parsed.quiet, rootStdout, rootStderr)
+				return ipc.ExitToolErr
+			}
+			req.InputResponses = responses
+			req.RequestState = requestState
+			resp, err = sendServerRequestWithEphemeralFallback(client, req, canonicalizeSource)
+			if err != nil {
+				fmt.Fprintf(rootStderr, "mcpx: %v\n", err)
+				return ipc.ExitInternal
+			}
+		}
 	}
 	writeCallResponse(resp, parsed.quiet, rootStdout, rootStderr)
 	return resp.ExitCode

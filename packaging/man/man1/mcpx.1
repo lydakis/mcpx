@@ -7,7 +7,9 @@ mcpx \- MCP tools as Unix commands
 \fBmcpx --json\fR
 \fBmcpx --json -v\fR
 \fBmcpx completion\fR \fIbash|zsh|fish\fR
-\fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--overwrite\fR]
+\fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--oauth\fR] [\fB--oauth-client-metadata-url\fR \fIURL\fR] [\fB--overwrite\fR]
+\fBmcpx auth\fR \fIlogin|status|logout\fR \fIserver\fR
+\fBmcpx doctor\fR [\fIserver\fR] [\fB--json\fR]
 \fBmcpx skill install\fR [\fIFLAGS\fR]
 \fBmcpx skill install\fR [\fIserver\fR] [\fIFLAGS\fR]
 \fBmcpx shim install\fR \fIserver\fR [\fB--dir\fR \fIpath\fR] [\fB--skill\fR] [\fB--skill-strict\fR] [\fIFLAGS\fR]
@@ -35,6 +37,16 @@ Set or override HTTP headers for URL-based servers (repeatable).
 .TP
 \fB--overwrite\fR
 Replace an existing server entry in mcpx config.
+.TP
+\fB--oauth\fR
+Enable first-class OAuth for an HTTP server. Credentials are stored in the operating system credential store.
+.TP
+\fB--oauth-client-metadata-url\fR \fIURL\fR
+Prefer registration with a public Client ID Metadata Document. The URL must be a non-root HTTPS URL and implies \fB--oauth\fR.
+.SH AUTH
+\fBmcpx auth login/status/logout\fR manages the OS-stored OAuth session for a configured HTTP server. Login prints the authorization URL for the user to open; mcpx does not launch remote authorization URLs automatically.
+.SH DOCTOR
+\fBmcpx doctor\fR checks configuration, prerequisites, transport health, protocol negotiation, capabilities, tool count, and a redacted auth source. Use \fB--json\fR for machine-readable output.
 .SH SKILL
 \fBmcpx skill\fR installs agent skill files and links.
 .TP
@@ -93,6 +105,10 @@ Fail shim install command if generated skill installation fails (requires \fB--s
 Also create OpenClaw skill links for generated server skills.
 .SH COMPLETION
 \fBmcpx completion\fR prints shell completion scripts for \fBbash\fR, \fBzsh\fR, and \fBfish\fR.
+.SH TOOL LISTING
+\fBmcpx <server> --catalog\fR emits a deterministic JSON catalog with complete tool input/output schemas and annotations.
+.SH INTERACTIVE CALLS
+Modern Multi Round-Trip Requests return an input-required result by default. Use \fB--request-state\fR and \fB--input-responses\fR for machine-driven retries, or \fB--interactive\fR for bounded TTY elicitation.
 .SH EXIT STATUS
 0 success
 1 tool error (tool returned isError)
@@ -106,6 +122,9 @@ mcpx --json
 mcpx --json -v
 mcpx add https://example.com/mcp-manifest.json
 mcpx add https://mcp.deepwiki.com/mcp
+mcpx add https://example.com/mcp --name example --oauth
+mcpx auth login example
+mcpx doctor example --json
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"
 mcpx skill install
 mcpx skill install github
@@ -121,6 +140,7 @@ mcpx shim list
 mcpx shim remove github
 mcpx <server>
 mcpx <server> --json
+mcpx <server> --catalog
 mcpx <server> <tool> --help
 mcpx <server> <tool> --help --json
 .fi

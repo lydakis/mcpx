@@ -2,12 +2,16 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lydakis/mcpx/internal/config"
 )
@@ -85,6 +89,325 @@ func TestFetchSourceURLSuccessAndHTTPErrorStatus(t *testing.T) {
 	}
 }
 
+func TestProbeDirectMCPURLRecognizesInitializeResponseAndCleansUpSession(t *testing.T) {
+	deleteCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			method := probeRequestMethod(t, r)
+			if method == "server/discover" {
+				http.Error(w, "Unsupported protocol version", http.StatusBadRequest)
+				return
+			}
+			if method != "initialize" {
+				t.Errorf("probe method = %q, want initialize", method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Mcp-Session-Id", "probe-session")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"mcpx-resolver-probe","result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"test","version":"1"}}}`))
+		case http.MethodDelete:
+			deleteCalls++
+			if got := r.Header.Get("Mcp-Session-Id"); got != "probe-session" {
+				t.Fatalf("delete session ID = %q, want probe-session", got)
+			}
+			if got := r.Header.Get("MCP-Protocol-Version"); got != "2025-03-26" {
+				t.Errorf("delete protocol version = %q, want negotiated 2025-03-26", got)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+	if deleteCalls != 1 {
+		t.Fatalf("delete calls = %d, want 1", deleteCalls)
+	}
+}
+
+func TestProbeDirectMCPURLRejectsCrossOriginPostRedirect(t *testing.T) {
+	var destinationHits atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		destinationHits.Add(1)
+	}))
+	defer destination.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	_, err := probeDirectMCPURL(context.Background(), source.URL+"/mcp")
+	if err == nil || !strings.Contains(err.Error(), "cross-origin") {
+		t.Fatalf("probeDirectMCPURL() error = %v, want cross-origin rejection", err)
+	}
+	if destinationHits.Load() != 0 {
+		t.Fatalf("redirect destination hits = %d, want 0", destinationHits.Load())
+	}
+}
+
+func TestProbeDirectMCPURLRejectsCrossOriginCleanupRedirect(t *testing.T) {
+	var destinationHits atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		destinationHits.Add(1)
+	}))
+	defer destination.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			if probeRequestMethod(t, r) == "server/discover" {
+				http.Error(w, "unsupported", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Mcp-Session-Id", "probe-session")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"mcpx-resolver-probe","result":{"protocolVersion":"2025-11-25"}}`))
+		case http.MethodDelete:
+			w.Header().Set("Location", destination.URL)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		default:
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer source.Close()
+
+	direct, err := probeDirectMCPURL(context.Background(), source.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+	if destinationHits.Load() != 0 {
+		t.Fatalf("cleanup redirect destination hits = %d, want 0", destinationHits.Load())
+	}
+}
+
+func TestProbeDirectMCPURLUsesModernServerDiscover(t *testing.T) {
+	discoverCalls := 0
+	initializeCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+			return
+		}
+		switch method := probeRequestMethod(t, r); method {
+		case "server/discover":
+			discoverCalls++
+			if got := r.Header.Get("MCP-Protocol-Version"); got != "2026-07-28" {
+				t.Errorf("discover protocol header = %q, want 2026-07-28", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"mcpx-resolver-probe","result":{"supportedVersions":["2026-07-28"],"capabilities":{}}}`))
+		case "initialize":
+			initializeCalls++
+			http.Error(w, "legacy initialize not supported", http.StatusBadRequest)
+		default:
+			t.Errorf("probe method = %q, want server/discover", method)
+			http.Error(w, "unexpected JSON-RPC method", http.StatusBadRequest)
+		}
+	}))
+	defer srv.Close()
+
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+	if discoverCalls != 1 || initializeCalls != 0 {
+		t.Fatalf("discover calls=%d initialize calls=%d, want 1/0", discoverCalls, initializeCalls)
+	}
+}
+
+func TestProbeDirectMCPURLRejectsOrdinary404(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if direct {
+		t.Fatal("probeDirectMCPURL() = true, want false")
+	}
+}
+
+func TestProbeDirectMCPURLRejectsGenericForbiddenRoute(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "CSRF rejected", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if direct {
+		t.Fatal("probeDirectMCPURL() = true, want false")
+	}
+}
+
+func TestProbeDirectMCPURLAcceptsMCPAuthorizationChallenge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"`)
+		http.Error(w, "authorization required", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+}
+
+func TestProbeDirectMCPURLAcceptsLegacyBareBearerChallenge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, "authorization required", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+}
+
+func TestProbeDirectMCPURLAcceptsScopedBearerChallenge(t *testing.T) {
+	for _, challenge := range []string{
+		`Bearer scope="read"`,
+		`Bearer realm="login"`,
+		`Bearer error="insufficient_scope", scope="write"`,
+	} {
+		t.Run(challenge, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("WWW-Authenticate", challenge)
+				http.Error(w, "authorization required", http.StatusUnauthorized)
+			}))
+			defer srv.Close()
+
+			direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+			if err != nil {
+				t.Fatalf("probeDirectMCPURL() error = %v", err)
+			}
+			if !direct {
+				t.Fatal("probeDirectMCPURL() = false, want true")
+			}
+		})
+	}
+}
+
+func TestProbeDirectMCPURLAcceptsEventStreamInitializeResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if probeRequestMethod(t, r) == "server/discover" {
+			http.Error(w, "Unsupported protocol version", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"mcpx-resolver-probe\",\"result\":{\"protocolVersion\":\"2025-11-25\"}}\n\n"))
+	}))
+	defer srv.Close()
+
+	direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+}
+
+func TestProbeDirectMCPURLAcceptsLongLivedEventStreamAndCleansUpSession(t *testing.T) {
+	var deleteCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			if probeRequestMethod(t, r) == "server/discover" {
+				http.Error(w, "Unsupported protocol version", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Mcp-Session-Id", "stream-session")
+			_, _ = w.Write([]byte("data: {\"jsonrpc\":\"2.0\",\"id\":\"mcpx-resolver-probe\",\"result\":{\"protocolVersion\":\"2025-11-25\"}}\n\n"))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			<-r.Context().Done()
+		case http.MethodDelete:
+			deleteCalls.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	direct, err := probeDirectMCPURL(ctx, srv.URL+"/mcp")
+	if err != nil {
+		t.Fatalf("probeDirectMCPURL() error = %v", err)
+	}
+	if !direct {
+		t.Fatal("probeDirectMCPURL() = false, want true")
+	}
+	if got := deleteCalls.Load(); got != 1 {
+		t.Fatalf("delete calls = %d, want 1", got)
+	}
+}
+
+func probeRequestMethod(t *testing.T, r *http.Request) string {
+	t.Helper()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Errorf("ReadAll() error = %v", err)
+		return ""
+	}
+	var request struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Errorf("unmarshal probe request %q: %v", body, err)
+		return ""
+	}
+	return request.Method
+}
+
+func TestProbeDirectMCPURLRejectsSpoofedMCPChallengeParameters(t *testing.T) {
+	for _, challenge := range []string{
+		`Basic realm="bearer resource_metadata=login"`,
+	} {
+		t.Run(challenge, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("WWW-Authenticate", challenge)
+				http.Error(w, "authorization required", http.StatusUnauthorized)
+			}))
+			defer srv.Close()
+			direct, err := probeDirectMCPURL(context.Background(), srv.URL+"/mcp")
+			if err != nil {
+				t.Fatalf("probeDirectMCPURL() error = %v", err)
+			}
+			if direct {
+				t.Fatal("probeDirectMCPURL() = true, want false")
+			}
+		})
+	}
+}
+
 func TestSortedNamesReturnsSortedOrder(t *testing.T) {
 	got := sortedNames(map[string]config.ServerConfig{
 		"zeta":  {},
@@ -128,6 +451,9 @@ func TestShouldTreatSourceAsDirectMCPURL(t *testing.T) {
 
 	if !shouldTreatSourceAsDirectMCPURL("https://example.com/mcp", &httpStatusError{statusCode: http.StatusUnauthorized}) {
 		t.Fatal("shouldTreatSourceAsDirectMCPURL(401) = false, want true")
+	}
+	if shouldTreatSourceAsDirectMCPURL("https://example.com/mcp", &httpStatusError{statusCode: http.StatusNotFound}) {
+		t.Fatal("shouldTreatSourceAsDirectMCPURL(404 GET) = true, want false for ambiguous missing URL")
 	}
 
 	if !shouldTreatSourceAsDirectMCPURL("https://example.com/mcp", &httpStatusError{statusCode: http.StatusBadRequest}) {

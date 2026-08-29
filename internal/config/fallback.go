@@ -614,7 +614,7 @@ func hasManagedConfigServers(cfg *Config) bool {
 
 func isReservedFallbackServerName(name string) bool {
 	switch name {
-	case "add", "shim", "skill", "completion", "__complete":
+	case "add", "auth", "doctor", "shim", "skill", "completion", "__complete":
 		return true
 	default:
 		return false

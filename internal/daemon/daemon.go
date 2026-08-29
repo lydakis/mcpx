@@ -23,7 +23,8 @@ import (
 	"github.com/lydakis/mcpx/internal/paths"
 	"github.com/lydakis/mcpx/internal/response"
 	"github.com/lydakis/mcpx/internal/servercatalog"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/lydakis/mcpx/internal/toolschema"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -31,30 +32,99 @@ const (
 	runtimeEphemeralMaxServer = 64
 	runtimeConfigPollInterval = 250 * time.Millisecond
 	runtimeConfigPollMaxRetry = 8
+	diagnosticServerTimeout   = 10 * time.Second
 )
 
 var (
-	signalNotifyFn = signal.Notify
-	signalStopFn   = signal.Stop
+	signalNotifyFn                 = signal.Notify
+	signalStopFn                   = signal.Stop
+	responseCache                  = responseCacheGuard{enabled: true}
+	credentialTransitionRecoveryMu sync.Mutex
 )
 
+type responseCacheGuard struct {
+	mu         sync.RWMutex
+	generation uint64
+	enabled    bool
+}
+
+func (g *responseCacheGuard) clear(clear func() error) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.enabled = false
+	if err := clear(); err != nil {
+		return err
+	}
+	g.generation++
+	g.enabled = true
+	return nil
+}
+
+func (g *responseCacheGuard) snapshot() uint64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.generation
+}
+
+func (g *responseCacheGuard) readIfCurrent(generation uint64, read func() ([]byte, int, bool)) ([]byte, int, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if !g.enabled || generation != g.generation {
+		return nil, 0, false
+	}
+	return read()
+}
+
+func (g *responseCacheGuard) writeIfCurrent(generation uint64, write func() error) (bool, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if !g.enabled || generation != g.generation {
+		return false, nil
+	}
+	return true, write()
+}
+
+func clearResponseCache() error {
+	return responseCache.clear(cache.Clear)
+}
+
+func responseCacheGeneration() uint64 {
+	return responseCache.snapshot()
+}
+
+func readResponseCacheIfCurrent(generation uint64, read func() ([]byte, int, bool)) ([]byte, int, bool) {
+	return responseCache.readIfCurrent(generation, read)
+}
+
+func writeResponseCacheIfCurrent(generation uint64, write func() error) (bool, error) {
+	return responseCache.writeIfCurrent(generation, write)
+}
+
 type runtimeDeps struct {
-	poolListTools             func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
-	poolToolInfoByName        func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
-	poolCallToolWithInfo      func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error)
-	cacheGet                  func(server, tool string, args json.RawMessage) ([]byte, int, bool)
-	cacheGetMetadata          func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
-	cachePut                  func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
-	poolReset                 func(pool *mcppool.Pool, cfg *config.Config)
-	poolSetConfig             func(pool *mcppool.Pool, cfg *config.Config)
-	poolClose                 func(pool *mcppool.Pool, server string)
-	keepaliveStop             func(ka *Keepalive)
-	loadConfig                func() (*config.Config, error)
-	mergeFallbackForCWD       func(cfg *config.Config, cwd string) error
-	validateConfig            func(cfg *config.Config) error
-	currentRuntimeConfigStamp func(cfg *config.Config, cwd string) runtimeConfigStamp
-	now                       func() time.Time
-	signalShutdownProcess     func()
+	poolListTools                      func(ctx context.Context, pool *mcppool.Pool, server string) ([]mcppool.ToolInfo, error)
+	poolToolInfoByName                 func(ctx context.Context, pool *mcppool.Pool, server, tool string) (*mcppool.ToolInfo, error)
+	poolCallToolWithInfo               func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error)
+	poolCallToolWithInput              func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args, inputResponses json.RawMessage, requestState string) (*mcp.CallToolResult, error)
+	poolDiagnose                       func(ctx context.Context, pool *mcppool.Pool, server string) (mcppool.Diagnostics, error)
+	cacheGet                           func(server, tool string, args json.RawMessage) ([]byte, int, bool)
+	cacheGetMetadata                   func(server, tool string, args json.RawMessage) (time.Duration, time.Duration, bool)
+	cachePut                           func(server, tool string, args json.RawMessage, content []byte, exitCode int, ttl time.Duration) error
+	cacheClear                         func() error
+	cacheRemoveCredentialTransition    func(token string) error
+	cacheOrphanedCredentialTransitions func() ([]string, error)
+	cacheCredentialTransitionPending   func() bool
+	poolReset                          func(pool *mcppool.Pool, cfg *config.Config)
+	poolSetConfig                      func(pool *mcppool.Pool, cfg *config.Config)
+	poolClose                          func(pool *mcppool.Pool, server string)
+	poolBeginCredentialTransition      func(pool *mcppool.Pool, servers []string, token string) error
+	poolEndCredentialTransition        func(pool *mcppool.Pool, token string)
+	keepaliveStop                      func(ka *Keepalive)
+	loadConfig                         func() (*config.Config, error)
+	mergeFallbackForCWD                func(cfg *config.Config, cwd string) error
+	validateConfig                     func(cfg *config.Config) error
+	currentRuntimeConfigStamp          func(cfg *config.Config, cwd string) runtimeConfigStamp
+	now                                func() time.Time
+	signalShutdownProcess              func()
 }
 
 func runtimeDefaultDeps() runtimeDeps {
@@ -68,9 +138,19 @@ func runtimeDefaultDeps() runtimeDeps {
 		poolCallToolWithInfo: func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args json.RawMessage) (*mcp.CallToolResult, error) {
 			return pool.CallToolWithInfo(ctx, server, info, args)
 		},
-		cacheGet:         cache.Get,
-		cacheGetMetadata: cache.GetMetadata,
-		cachePut:         cache.Put,
+		poolCallToolWithInput: func(ctx context.Context, pool *mcppool.Pool, server string, info *mcppool.ToolInfo, args, inputResponses json.RawMessage, requestState string) (*mcp.CallToolResult, error) {
+			return pool.CallToolWithInfoAndInput(ctx, server, info, args, inputResponses, requestState)
+		},
+		poolDiagnose: func(ctx context.Context, pool *mcppool.Pool, server string) (mcppool.Diagnostics, error) {
+			return pool.Diagnose(ctx, server)
+		},
+		cacheGet:                           cache.Get,
+		cacheGetMetadata:                   cache.GetMetadata,
+		cachePut:                           cache.Put,
+		cacheClear:                         clearResponseCache,
+		cacheRemoveCredentialTransition:    cache.RemoveCredentialTransition,
+		cacheOrphanedCredentialTransitions: cache.OrphanedCredentialTransitions,
+		cacheCredentialTransitionPending:   cache.CredentialTransitionPending,
 		poolReset: func(pool *mcppool.Pool, cfg *config.Config) {
 			if pool != nil {
 				pool.Reset(cfg)
@@ -84,6 +164,17 @@ func runtimeDefaultDeps() runtimeDeps {
 		poolClose: func(pool *mcppool.Pool, server string) {
 			if pool != nil {
 				pool.Close(server)
+			}
+		},
+		poolBeginCredentialTransition: func(pool *mcppool.Pool, servers []string, token string) error {
+			if pool == nil {
+				return nil
+			}
+			return pool.BeginCredentialTransition(servers, token)
+		},
+		poolEndCredentialTransition: func(pool *mcppool.Pool, token string) {
+			if pool != nil {
+				pool.EndCredentialTransition(token)
 			}
 		},
 		keepaliveStop: func(ka *Keepalive) {
@@ -114,6 +205,12 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	if d.poolCallToolWithInfo == nil {
 		d.poolCallToolWithInfo = def.poolCallToolWithInfo
 	}
+	if d.poolCallToolWithInput == nil {
+		d.poolCallToolWithInput = def.poolCallToolWithInput
+	}
+	if d.poolDiagnose == nil {
+		d.poolDiagnose = def.poolDiagnose
+	}
 	if d.cacheGet == nil {
 		d.cacheGet = def.cacheGet
 	}
@@ -123,6 +220,18 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	if d.cachePut == nil {
 		d.cachePut = def.cachePut
 	}
+	if d.cacheClear == nil {
+		d.cacheClear = def.cacheClear
+	}
+	if d.cacheRemoveCredentialTransition == nil {
+		d.cacheRemoveCredentialTransition = def.cacheRemoveCredentialTransition
+	}
+	if d.cacheOrphanedCredentialTransitions == nil {
+		d.cacheOrphanedCredentialTransitions = def.cacheOrphanedCredentialTransitions
+	}
+	if d.cacheCredentialTransitionPending == nil {
+		d.cacheCredentialTransitionPending = def.cacheCredentialTransitionPending
+	}
 	if d.poolReset == nil {
 		d.poolReset = def.poolReset
 	}
@@ -131,6 +240,12 @@ func (d runtimeDeps) withDefaults() runtimeDeps {
 	}
 	if d.poolClose == nil {
 		d.poolClose = def.poolClose
+	}
+	if d.poolBeginCredentialTransition == nil {
+		d.poolBeginCredentialTransition = def.poolBeginCredentialTransition
+	}
+	if d.poolEndCredentialTransition == nil {
+		d.poolEndCredentialTransition = def.poolEndCredentialTransition
 	}
 	if d.keepaliveStop == nil {
 		d.keepaliveStop = def.keepaliveStop
@@ -162,6 +277,9 @@ func Run() error {
 
 	if err := paths.EnsureDir(paths.RuntimeDir()); err != nil {
 		return fmt.Errorf("creating runtime dir: %w", err)
+	}
+	if err := cache.RecoverCredentialTransition(); err != nil {
+		return fmt.Errorf("recovering response-cache credential transition: %w", err)
 	}
 
 	cfg, _, err := loadValidatedConfigForCWDWithDeps("", deps, nil)
@@ -671,7 +789,7 @@ func requestNeedsRuntimeConfig(req *ipc.Request) bool {
 		return false
 	}
 	switch req.Type {
-	case "list_servers", "list_tools", "tool_schema", "call_tool":
+	case "list_servers", "list_tools", "tool_schema", "call_tool", "diagnose_server", "prepare_credential_transition", "reload_server":
 		return true
 	default:
 		return false
@@ -903,14 +1021,17 @@ func preserveFallbackBackedOrigin(origin config.ServerOrigin, failedPaths map[st
 
 func cloneRuntimeServerConfig(server config.ServerConfig) config.ServerConfig {
 	return config.ServerConfig{
-		Command:         server.Command,
-		Args:            append([]string(nil), server.Args...),
-		Env:             cloneRuntimeStringMap(server.Env),
-		URL:             server.URL,
-		Headers:         cloneRuntimeStringMap(server.Headers),
-		DefaultCacheTTL: server.DefaultCacheTTL,
-		NoCacheTools:    append([]string(nil), server.NoCacheTools...),
-		Tools:           cloneRuntimeToolConfigMap(server.Tools),
+		Command:                server.Command,
+		Args:                   append([]string(nil), server.Args...),
+		Env:                    cloneRuntimeStringMap(server.Env),
+		URL:                    server.URL,
+		Headers:                cloneRuntimeStringMap(server.Headers),
+		OAuth:                  server.OAuth,
+		OAuthScopes:            append([]string(nil), server.OAuthScopes...),
+		OAuthClientMetadataURL: server.OAuthClientMetadataURL,
+		DefaultCacheTTL:        server.DefaultCacheTTL,
+		NoCacheTools:           append([]string(nil), server.NoCacheTools...),
+		Tools:                  cloneRuntimeToolConfigMap(server.Tools),
 	}
 }
 
@@ -942,23 +1063,162 @@ func dispatch(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 
 func dispatchWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, req *ipc.Request, deps runtimeDeps) *ipc.Response {
 	deps = deps.withDefaults()
+	transitionPending := deps.cacheCredentialTransitionPending()
+	if transitionPending {
+		if err := recoverOrphanedCredentialTransitions(pool, deps); err != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("recovering OAuth credential transition: %v", err)}
+		}
+		transitionPending = deps.cacheCredentialTransitionPending()
+	}
+	if transitionPending && credentialTransitionBlocksRequest(pool, req) {
+		return &ipc.Response{ExitCode: ipc.ExitToolErr, Stderr: "OAuth credential transition in progress"}
+	}
 	switch req.Type {
 	case "ping":
 		return &ipc.Response{ExitCode: ipc.ExitOK}
 	case "list_servers":
 		return listServersWithDeps(ctx, cfg, pool, ka, req.IncludeHidden, deps)
 	case "list_tools":
-		return listToolsWithDeps(ctx, cfg, pool, ka, req.Server, req.Verbose, deps)
+		return listToolsResponseWithDeps(ctx, cfg, pool, ka, req.Server, req.Verbose, req.IncludeSchemas, deps)
 	case "tool_schema":
 		return toolSchemaWithDeps(ctx, cfg, pool, ka, req.Server, req.Tool, deps)
 	case "call_tool":
-		return callToolWithDeps(ctx, cfg, pool, ka, req.Server, req.Tool, req.Args, req.Cache, req.Verbose, deps)
+		return callToolRoundTripWithInputModeWithDeps(ctx, cfg, pool, ka, req.Server, req.Tool, req.Args, req.ArgsFromJSON, req.InputResponses, req.RequestState, req.Cache, req.Verbose, deps)
+	case "diagnose_server":
+		return diagnoseServerWithDeps(ctx, cfg, pool, ka, req.Server, deps)
 	case "shutdown":
 		go deps.signalShutdownProcess()
 		return &ipc.Response{Content: []byte("shutting down\n")}
+	case "reload_server":
+		return reloadServerTransitionWithDeps(cfg, pool, req.Server, req.Transition, deps)
+	case "prepare_credential_transition":
+		return prepareCredentialTransitionWithDeps(cfg, pool, req.Server, req.Transition, deps)
 	default:
 		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: fmt.Sprintf("unknown request type: %s", req.Type)}
 	}
+}
+
+func recoverOrphanedCredentialTransitions(pool *mcppool.Pool, deps runtimeDeps) error {
+	credentialTransitionRecoveryMu.Lock()
+	defer credentialTransitionRecoveryMu.Unlock()
+
+	orphaned, err := deps.cacheOrphanedCredentialTransitions()
+	if err != nil {
+		return err
+	}
+	if len(orphaned) == 0 {
+		return nil
+	}
+	if err := deps.cacheClear(); err != nil {
+		return err
+	}
+	for _, token := range orphaned {
+		if err := deps.cacheRemoveCredentialTransition(token); err != nil {
+			return err
+		}
+		deps.poolEndCredentialTransition(pool, token)
+	}
+	return nil
+}
+
+func credentialTransitionBlocksRequest(pool *mcppool.Pool, req *ipc.Request) bool {
+	if req == nil {
+		return true
+	}
+	switch req.Type {
+	case "ping", "list_servers", "prepare_credential_transition", "reload_server", "shutdown":
+		return false
+	}
+	if pool == nil || !pool.HasCredentialTransitions() {
+		// A live marker without an in-memory owner means this daemon started in
+		// the middle of a transition. Keep credential-bound work fail-closed.
+		return true
+	}
+	return pool.CredentialTransitionPending(req.Server)
+}
+
+func diagnoseServerWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, deps runtimeDeps) *ipc.Response {
+	if _, ok := cfg.Servers[server]; !ok {
+		return unknownServerResponse(server)
+	}
+	if ka != nil {
+		ka.Begin(server)
+		defer ka.End(server)
+	}
+	diagnosticCtx, cancel := context.WithTimeout(ctx, diagnosticServerTimeout)
+	defer cancel()
+	diagnostics, err := deps.poolDiagnose(diagnosticCtx, pool, server)
+	if err != nil {
+		// Pool errors may contain server-controlled JSON-RPC text. Do not move
+		// arbitrary remote strings across the credential-safe doctor boundary.
+		return &ipc.Response{ExitCode: ipc.ExitToolErr, Stderr: "server diagnostics failed"}
+	}
+	content, err := json.Marshal(diagnostics)
+	if err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("encoding diagnostics: %v", err)}
+	}
+	return &ipc.Response{ExitCode: ipc.ExitOK, Content: content}
+}
+
+func reloadServerWithDeps(cfg *config.Config, pool *mcppool.Pool, server string, deps runtimeDeps) *ipc.Response {
+	return reloadServerTransitionWithDeps(cfg, pool, server, "", deps)
+}
+
+func credentialBoundServerNames(cfg *config.Config, server string) ([]string, bool) {
+	target, ok := cfg.Servers[server]
+	if !ok {
+		return nil, false
+	}
+
+	names := []string{server}
+	if target.IsHTTP() && target.OAuth && !target.HasAuthorizationHeader() {
+		names = names[:0]
+		for name, candidate := range cfg.Servers {
+			if candidate.IsHTTP() && candidate.OAuth && !candidate.HasAuthorizationHeader() && candidate.URL == target.URL {
+				names = append(names, name)
+			}
+		}
+		sort.Strings(names)
+	}
+	return names, true
+}
+
+func prepareCredentialTransitionWithDeps(cfg *config.Config, pool *mcppool.Pool, server, transition string, deps runtimeDeps) *ipc.Response {
+	names, ok := credentialBoundServerNames(cfg, server)
+	if !ok {
+		return unknownServerResponse(server)
+	}
+	if strings.TrimSpace(transition) == "" {
+		return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "credential transition token is required"}
+	}
+	if err := deps.poolBeginCredentialTransition(pool, names, transition); err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("preparing credential transition: %v", err)}
+	}
+	return &ipc.Response{ExitCode: ipc.ExitOK}
+}
+
+func reloadServerTransitionWithDeps(cfg *config.Config, pool *mcppool.Pool, server, transition string, deps runtimeDeps) *ipc.Response {
+	if transition != "" {
+		if err := deps.cacheClear(); err != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("clearing response cache: %v", err)}
+		}
+		if err := deps.cacheRemoveCredentialTransition(transition); err != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("completing credential transition: %v", err)}
+		}
+		deps.poolEndCredentialTransition(pool, transition)
+		return &ipc.Response{ExitCode: ipc.ExitOK}
+	}
+	names, ok := credentialBoundServerNames(cfg, server)
+	if !ok {
+		return unknownServerResponse(server)
+	}
+	for _, name := range names {
+		deps.poolClose(pool, name)
+	}
+	if err := deps.cacheClear(); err != nil {
+		return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("clearing response cache: %v", err)}
+	}
+	return &ipc.Response{ExitCode: ipc.ExitOK}
 }
 
 func listServers(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive) *ipc.Response {
@@ -1088,8 +1348,12 @@ func listServerToolsWithDeps(ctx context.Context, pool *mcppool.Pool, ka *Keepal
 }
 
 type toolListEntry struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name         string          `json:"name"`
+	Title        string          `json:"title,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+	Annotations  json.RawMessage `json:"annotations,omitempty"`
 }
 
 func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool) *ipc.Response {
@@ -1097,6 +1361,10 @@ func listTools(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *
 }
 
 func listToolsWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose bool, deps runtimeDeps) *ipc.Response {
+	return listToolsResponseWithDeps(ctx, cfg, pool, ka, server, verbose, false, deps)
+}
+
+func listToolsResponseWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server string, verbose, includeSchemas bool, deps runtimeDeps) *ipc.Response {
 	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	route, routeTools, found, err := catalog.Resolve(ctx, server)
 	if err != nil {
@@ -1116,34 +1384,43 @@ func listToolsWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Po
 		tools = catalog.FilterTools(route, routeTools)
 	}
 
-	displayNames := make(map[string]string, len(tools))
+	toolByName := make(map[string]mcppool.ToolInfo, len(tools))
 	for _, t := range tools {
 		name := strings.TrimSpace(t.Name)
 		if name == "" {
 			continue
 		}
-		if _, exists := displayNames[name]; exists {
+		if _, exists := toolByName[name]; exists {
 			continue
 		}
 		desc := strings.TrimSpace(t.Description)
 		if !verbose {
 			desc = summarizeToolDescription(desc)
 		}
-		displayNames[name] = desc
+		t.Description = desc
+		toolByName[name] = t
 	}
 
-	names := make([]string, 0, len(displayNames))
-	for name := range displayNames {
+	names := make([]string, 0, len(toolByName))
+	for name := range toolByName {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
 	entries := make([]toolListEntry, 0, len(names))
 	for _, name := range names {
-		entries = append(entries, toolListEntry{
+		tool := toolByName[name]
+		entry := toolListEntry{
 			Name:        name,
-			Description: strings.TrimSpace(displayNames[name]),
-		})
+			Title:       strings.TrimSpace(tool.Title),
+			Description: strings.TrimSpace(tool.Description),
+		}
+		if includeSchemas {
+			entry.InputSchema = tool.InputSchema
+			entry.OutputSchema = tool.OutputSchema
+			entry.Annotations = tool.Annotations
+		}
+		entries = append(entries, entry)
 	}
 	data, err := json.Marshal(entries)
 	if err != nil {
@@ -1220,6 +1497,15 @@ func toolSchemaWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.P
 		"name":        info.Name,
 		"description": info.Description,
 	}
+	if info.Title != "" {
+		payload["title"] = info.Title
+	}
+	if len(info.Annotations) > 0 {
+		var annotations any
+		if err := json.Unmarshal(info.Annotations, &annotations); err == nil {
+			payload["annotations"] = annotations
+		}
+	}
 
 	if len(info.InputSchema) > 0 {
 		var in any
@@ -1244,7 +1530,16 @@ func callTool(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *K
 }
 
 func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, reqCache *time.Duration, verbose bool, deps runtimeDeps) *ipc.Response {
+	return callToolWithInputModeWithDeps(ctx, cfg, pool, ka, server, tool, args, true, reqCache, verbose, deps)
+}
+
+func callToolWithInputModeWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, argsFromJSON bool, reqCache *time.Duration, verbose bool, deps runtimeDeps) *ipc.Response {
+	return callToolRoundTripWithInputModeWithDeps(ctx, cfg, pool, ka, server, tool, args, argsFromJSON, nil, "", reqCache, verbose, deps)
+}
+
+func callToolRoundTripWithInputModeWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Pool, ka *Keepalive, server, tool string, args json.RawMessage, argsFromJSON bool, inputResponses json.RawMessage, requestState string, reqCache *time.Duration, verbose bool, deps runtimeDeps) *ipc.Response {
 	deps = deps.withDefaults()
+	cacheEpoch := responseCacheGeneration()
 	catalog := newServerCatalogWithDeps(cfg, pool, ka, deps)
 	route, found, err := catalog.ResolveForTool(ctx, server, tool)
 	if err != nil {
@@ -1269,8 +1564,17 @@ func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 		}
 	}
 	var logs []string
-	if shouldCache {
-		if out, exitCode, ok := deps.cacheGet(server, tool, args); ok {
+	if len(inputResponses) > 0 || requestState != "" {
+		shouldCache = false
+		if verbose {
+			logs = append(logs, "mcpx: cache bypass (multi-round-trip retry)")
+		}
+	}
+	readCache := func() *ipc.Response {
+		out, exitCode, ok := readResponseCacheIfCurrent(cacheEpoch, func() ([]byte, int, bool) {
+			return deps.cacheGet(server, tool, args)
+		})
+		if ok {
 			if verbose {
 				if age, ttl, ok := deps.cacheGetMetadata(server, tool, args); ok {
 					logs = append(logs, fmt.Sprintf("mcpx: cache hit (age=%s ttl=%s)", age, ttl))
@@ -1282,6 +1586,12 @@ func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 		}
 		if verbose {
 			logs = append(logs, "mcpx: cache miss")
+		}
+		return nil
+	}
+	if shouldCache && argsFromJSON {
+		if cached := readCache(); cached != nil {
+			return cached
 		}
 	}
 
@@ -1314,19 +1624,53 @@ func callToolWithDeps(ctx context.Context, cfg *config.Config, pool *mcppool.Poo
 	if info.Name != "" {
 		cacheTool = info.Name
 	}
+	if analysis := toolschema.AnalyzeRaw(info.InputSchema); !analysis.FlagSafe && !argsFromJSON {
+		return &ipc.Response{
+			ExitCode: ipc.ExitUsageErr,
+			Stderr: fmt.Sprintf(
+				"calling tool: input schema cannot be represented safely as flags (%s); pass an object as positional or stdin JSON",
+				analysis.Reason,
+			),
+		}
+	}
+	if shouldCache && !argsFromJSON {
+		if cached := readCache(); cached != nil {
+			return cached
+		}
+	}
 
-	result, err := deps.poolCallToolWithInfo(ctx, pool, route.Backend, info, args)
+	var result *mcp.CallToolResult
+	if len(inputResponses) > 0 || requestState != "" {
+		result, err = deps.poolCallToolWithInput(ctx, pool, route.Backend, info, args, inputResponses, requestState)
+	} else {
+		result, err = deps.poolCallToolWithInfo(ctx, pool, route.Backend, info, args)
+	}
 	if err != nil {
 		return &ipc.Response{
 			ExitCode: classifyCallToolError(err),
 			Stderr:   fmt.Sprintf("calling tool: %v", err),
 		}
 	}
+	if result != nil && result.NeedsInput() {
+		out, marshalErr := json.Marshal(result)
+		if marshalErr != nil {
+			return &ipc.Response{ExitCode: ipc.ExitInternal, Stderr: fmt.Sprintf("encoding input-required result: %v", marshalErr)}
+		}
+		out = append(out, '\n')
+		return &ipc.Response{
+			Content:   out,
+			ExitCode:  ipc.ExitToolErr,
+			ErrorCode: ipc.ErrorCodeInputRequired,
+			Stderr:    joinLogs(logs),
+		}
+	}
 
 	out, exitCode := response.Unwrap(result)
 	if shouldCache && exitCode == ipc.ExitOK {
-		_ = deps.cachePut(server, cacheTool, args, out, exitCode, cacheTTL)
-		if verbose {
+		stored, _ := writeResponseCacheIfCurrent(cacheEpoch, func() error {
+			return deps.cachePut(server, cacheTool, args, out, exitCode, cacheTTL)
+		})
+		if verbose && stored {
 			logs = append(logs, fmt.Sprintf("mcpx: cache store (ttl=%s)", cacheTTL))
 		}
 	}

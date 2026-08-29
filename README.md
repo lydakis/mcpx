@@ -81,6 +81,22 @@ env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
 default_cache_ttl = "30s"
 ```
 
+For a protected HTTP server, let mcpx keep OAuth tokens in the OS credential
+store instead of config or shell history:
+
+```bash
+mcpx add https://example.com/mcp --name example --oauth
+mcpx auth login example
+mcpx auth status example
+mcpx doctor example
+```
+
+Login prints the authorization URL for you to open in your browser. mcpx does
+not launch remote authorization URLs automatically.
+
+Servers with a published OAuth Client ID Metadata Document can opt into it
+with `--oauth-client-metadata-url https://client.example.com/mcpx.json`.
+
 ### Ephemeral Sources
 
 Any source you pass directly (without `mcpx add`) runs ephemerally for the daemon's lifetime: no config written, nothing to clean up.
@@ -138,7 +154,8 @@ mcpx linear <tool> --help
 mcpx linear <tool> ...
 ```
 
-Auth stays with Codex. `mcpx` does not run OAuth flows or store third-party credentials.
+Imported Codex Apps auth stays with Codex. For mcpx-managed remote servers,
+first-class OAuth is explicit per server and stored in the OS credential store.
 
 ## Reference
 
@@ -170,17 +187,27 @@ Windows: use WSL2 and run install commands inside your Linux distro shell.
 | Command | Purpose |
 |---------|---------|
 | `mcpx add <source>` | Bootstrap a server config from a source |
+| `mcpx auth login/status/logout <server>` | Manage first-class remote OAuth |
+| `mcpx doctor [server] [--json]` | Diagnose config, protocol, transport, and redacted auth |
 | `mcpx shim install <server>` | Install a local passthrough shim |
 | `mcpx shim remove <server>` | Remove a shim |
 | `mcpx shim list` | List installed shims |
 | `mcpx completion <shell>` | Print shell completions (bash/zsh/fish) |
 | `mcpx skill install [<server>]` | Install built-in or server-specific skill |
 
-`mcpx add` accepts `--name`, `--header KEY=VALUE`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`. `mcpx skill install` accepts `--guidance`, `--guidance-file`, and `--guidance-text` (`--guidance` follows a single `--claude-link`/`--kiro-link`/`--openclaw-link` target when provided).
+`mcpx add` accepts `--name`, `--header KEY=VALUE`, `--oauth`, `--oauth-client-metadata-url URL`, and `--overwrite`. `mcpx shim install` accepts `--skill` and `--skill-strict`. `mcpx skill install` accepts `--guidance`, `--guidance-file`, and `--guidance-text` (`--guidance` follows a single `--claude-link`/`--kiro-link`/`--openclaw-link` target when provided).
 
 ### Output Modes
 
 `--json` applies to mcpx-owned surfaces only (`mcpx`, `mcpx <server>`, `mcpx <server> <tool> --help`). Tool-call output passes through unmodified.
+
+Use `mcpx <server> --catalog` for deterministic full tool descriptors,
+including input/output schemas and annotations. Complex JSON Schema inputs that
+cannot map truthfully to flags must be supplied as positional or stdin JSON.
+
+MCP 2026-07-28 multi-round-trip calls return an `input_required` JSON result
+with exit code 1 by default. Resume with `--request-state` and
+`--input-responses`, or opt into TTY elicitation with `--interactive`.
 
 Use `-v` to include per-server origin metadata. Combine with `--json` for machine-readable output including config paths.
 
@@ -240,6 +267,7 @@ make check        # test + vet + build
 make qa-core      # Go gates + core smoke/integration matrix
 make qa-extended  # CLI contract + wrapper packaging checks
 make qa           # full QA matrix (core + extended)
+make conformance-core # pinned official MCP 2026-07-28 tools_call scenario
 ```
 
 ### Benchmarks

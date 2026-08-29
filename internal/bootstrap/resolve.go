@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -17,12 +19,15 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/lydakis/mcpx/internal/config"
 	"github.com/lydakis/mcpx/internal/httpheaders"
+	"github.com/lydakis/mcpx/internal/safehttp"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
 type ResolveOptions struct {
-	Name     string
-	FetchURL func(ctx context.Context, source string) ([]byte, error)
-	ReadFile func(path string) ([]byte, error)
+	Name        string
+	FetchURL    func(ctx context.Context, source string) ([]byte, error)
+	ProbeMCPURL func(ctx context.Context, source string) (bool, error)
+	ReadFile    func(path string) ([]byte, error)
 }
 
 type ResolvedServer struct {
@@ -127,6 +132,23 @@ func Resolve(ctx context.Context, source string, opts ResolveOptions) (ResolvedS
 				}
 				return resolved, nil
 			}
+			if shouldProbeSourceAsDirectMCPURL(source, err) {
+				probe := opts.ProbeMCPURL
+				if probe == nil {
+					probe = probeDirectMCPURL
+				}
+				direct, probeErr := probe(ctx, source)
+				if probeErr != nil {
+					return ResolvedServer{}, wrapResolveSourceAccessError(fmt.Errorf("probing %q as MCP: %w", source, probeErr))
+				}
+				if direct {
+					resolved, directErr := resolveDirectMCPURLSource(source, opts.Name)
+					if directErr != nil {
+						return ResolvedServer{}, directErr
+					}
+					return resolved, nil
+				}
+			}
 			return ResolvedServer{}, wrapResolveSourceAccessError(fmt.Errorf("fetching %q: %w", source, err))
 		}
 	} else {
@@ -161,6 +183,205 @@ func Resolve(ctx context.Context, source string, opts ResolveOptions) (ResolvedS
 	}
 
 	return ResolvedServer{Name: name, Server: server}, nil
+}
+
+func shouldProbeSourceAsDirectMCPURL(source string, err error) bool {
+	if !looksLikeDirectMCPURL(source) {
+		return false
+	}
+	var statusErr *httpStatusError
+	return errors.As(err, &statusErr) && statusErr.statusCode == http.StatusNotFound
+}
+
+func probeDirectMCPURL(ctx context.Context, source string) (bool, error) {
+	const (
+		modernVersion     = "2026-07-28"
+		legacyVersion     = "2025-11-25"
+		discoverPayload   = `{"jsonrpc":"2.0","id":"mcpx-resolver-probe","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"mcpx-resolver","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+		initializePayload = `{"jsonrpc":"2.0","id":"mcpx-resolver-probe","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"mcpx-resolver","version":"0"}}}`
+	)
+	policy, err := safehttp.NewPolicy(source)
+	if err != nil {
+		return false, err
+	}
+	client := policy.Client(15*time.Second, safehttp.SameOriginRedirects)
+
+	discover, err := sendMCPProbeRequest(ctx, client, source, discoverPayload, modernVersion)
+	if err != nil {
+		return false, err
+	}
+	if discover.authChallenge {
+		return true, nil
+	}
+	if discover.statusCode == http.StatusUnauthorized || discover.statusCode == http.StatusForbidden {
+		return false, nil
+	}
+	if discoverSupportsVersion(discover.payload, modernVersion) {
+		return true, nil
+	}
+
+	initialize, err := sendMCPProbeRequest(ctx, client, source, initializePayload, legacyVersion)
+	if err != nil {
+		return false, err
+	}
+	if initialize.authChallenge {
+		return true, nil
+	}
+	if initialize.statusCode == http.StatusUnauthorized || initialize.statusCode == http.StatusForbidden {
+		return false, nil
+	}
+	return initializedProtocolVersion(initialize.payload) != "", nil
+}
+
+type mcpProbeReply struct {
+	statusCode    int
+	authChallenge bool
+	payload       json.RawMessage
+}
+
+func sendMCPProbeRequest(ctx context.Context, client *http.Client, source, payload, protocolVersion string) (mcpProbeReply, error) {
+	var reply mcpProbeReply
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, source, strings.NewReader(payload))
+	if err != nil {
+		return reply, err
+	}
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("MCP-Protocol-Version", protocolVersion)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return reply, err
+	}
+	reply.statusCode = resp.StatusCode
+	sessionID := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id"))
+	cleanupVersion := protocolVersion
+	defer func() {
+		_ = resp.Body.Close()
+		if sessionID != "" {
+			terminateMCPProbeSession(client, resp.Request.URL.String(), sessionID, cleanupVersion)
+		}
+	}()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		challenges, err := oauthex.ParseWWWAuthenticate(resp.Header.Values("WWW-Authenticate"))
+		if err != nil {
+			return reply, nil
+		}
+		for _, challenge := range challenges {
+			if strings.EqualFold(challenge.Scheme, "bearer") {
+				reply.authChallenge = true
+				return reply, nil
+			}
+		}
+		return reply, nil
+	}
+	reply.payload, _, err = readProbeJSONRPC(resp)
+	if err != nil {
+		return reply, err
+	}
+	if negotiated := initializedProtocolVersion(reply.payload); negotiated != "" {
+		cleanupVersion = negotiated
+	}
+	return reply, nil
+}
+
+func readProbeJSONRPC(resp *http.Response) (json.RawMessage, bool, error) {
+	const maxProbeBytes = 64 << 10
+	mediaType := strings.TrimSpace(strings.SplitN(resp.Header.Get("Content-Type"), ";", 2)[0])
+	if !strings.EqualFold(mediaType, "text/event-stream") {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxProbeBytes))
+		if err != nil {
+			return nil, false, err
+		}
+		body = bytes.TrimSpace(body)
+		if !jsonRPCObjectLooksValid(string(body)) {
+			return nil, false, nil
+		}
+		return json.RawMessage(body), true, nil
+	}
+
+	scanner := bufio.NewScanner(io.LimitReader(resp.Body, maxProbeBytes+1))
+	scanner.Buffer(make([]byte, 4096), maxProbeBytes)
+	var data []string
+	flush := func() (json.RawMessage, bool) {
+		payload := strings.Join(data, "\n")
+		if len(data) == 0 || !jsonRPCObjectLooksValid(payload) {
+			return nil, false
+		}
+		return json.RawMessage(payload), true
+	}
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if line == "" {
+			if payload, ok := flush(); ok {
+				return payload, true, nil
+			}
+			data = nil
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, found := strings.Cut(line, ":")
+		if !found {
+			value = ""
+		}
+		if strings.HasPrefix(value, " ") {
+			value = value[1:]
+		}
+		if field == "data" {
+			data = append(data, value)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, false, err
+	}
+	payload, ok := flush()
+	return payload, ok, nil
+}
+
+func discoverSupportsVersion(payload json.RawMessage, version string) bool {
+	var response struct {
+		Result *struct {
+			SupportedVersions []string `json:"supportedVersions"`
+		} `json:"result"`
+	}
+	if len(payload) == 0 || json.Unmarshal(payload, &response) != nil || response.Result == nil {
+		return false
+	}
+	for _, supported := range response.Result.SupportedVersions {
+		if supported == version {
+			return true
+		}
+	}
+	return false
+}
+
+func initializedProtocolVersion(payload json.RawMessage) string {
+	var response struct {
+		Result *struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"result"`
+	}
+	if len(payload) == 0 || json.Unmarshal(payload, &response) != nil || response.Result == nil {
+		return ""
+	}
+	return strings.TrimSpace(response.Result.ProtocolVersion)
+}
+
+func terminateMCPProbeSession(client *http.Client, endpoint, sessionID, protocolVersion string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	req.Header.Set("MCP-Protocol-Version", protocolVersion)
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
 }
 
 func resolveInstallLink(source, overrideName string) (ResolvedServer, error) {
@@ -289,7 +510,11 @@ func fetchSourceURL(ctx context.Context, source string) ([]byte, error) {
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	policy, err := safehttp.NewPolicy(source)
+	if err != nil {
+		return nil, err
+	}
+	client := policy.Client(15*time.Second, safehttp.PublicRedirects)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -422,9 +647,15 @@ func payloadLooksLikeJSONRPC(payload []byte) bool {
 	if trimmed == "" {
 		return false
 	}
+	if jsonRPCObjectLooksValid(trimmed) {
+		return true
+	}
+	return eventStreamLooksLikeJSONRPC(trimmed)
+}
 
+func jsonRPCObjectLooksValid(payload string) bool {
 	var decoded any
-	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		return false
 	}
 	root, ok := decoded.(map[string]any)
@@ -433,6 +664,37 @@ func payloadLooksLikeJSONRPC(payload []byte) bool {
 	}
 	_, ok = root["jsonrpc"]
 	return ok
+}
+
+func eventStreamLooksLikeJSONRPC(payload string) bool {
+	payload = strings.ReplaceAll(payload, "\r\n", "\n")
+	var data []string
+	flush := func() bool {
+		return len(data) > 0 && jsonRPCObjectLooksValid(strings.Join(data, "\n"))
+	}
+	for _, line := range strings.Split(payload, "\n") {
+		if line == "" {
+			if flush() {
+				return true
+			}
+			data = nil
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, found := strings.Cut(line, ":")
+		if !found {
+			value = ""
+		}
+		if strings.HasPrefix(value, " ") {
+			value = value[1:]
+		}
+		if field == "data" {
+			data = append(data, value)
+		}
+	}
+	return flush()
 }
 
 func looksLikeManifestPath(urlPath string) bool {

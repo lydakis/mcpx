@@ -7,17 +7,17 @@ import (
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func benchmarkTools(count int) []mcp.Tool {
-	tools := make([]mcp.Tool, 0, count)
+func benchmarkTools(count int) []*mcp.Tool {
+	tools := make([]*mcp.Tool, 0, count)
 	for i := 0; i < count; i++ {
 		name := "tool_" + strconv.Itoa(i)
-		tools = append(tools, mcp.Tool{
+		tools = append(tools, &mcp.Tool{
 			Name:        name,
 			Description: "Benchmark tool " + name,
-			InputSchema: mcp.ToolInputSchema{
+			InputSchema: testToolSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"query": map[string]any{"type": "string"},
@@ -30,9 +30,9 @@ func benchmarkTools(count int) []mcp.Tool {
 	return tools
 }
 
-func benchmarkPoolWithTools(tools []mcp.Tool) *Pool {
+func benchmarkPoolWithTools(tools []*mcp.Tool) *Pool {
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
 			return tools, nil
 		},
 		callTool: func(context.Context, string, map[string]any) (*mcp.CallToolResult, error) {

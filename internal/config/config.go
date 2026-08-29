@@ -91,6 +91,7 @@ func expandConfigEnvVars(cfg *Config) {
 func expandServerEnvVars(srv ServerConfig) ServerConfig {
 	srv.Command = expandEnvVars(srv.Command)
 	srv.URL = expandEnvVars(srv.URL)
+	srv.OAuthClientMetadataURL = expandEnvVars(srv.OAuthClientMetadataURL)
 	srv.DefaultCacheTTL = expandEnvVars(srv.DefaultCacheTTL)
 
 	for i := range srv.Args {
@@ -98,6 +99,9 @@ func expandServerEnvVars(srv ServerConfig) ServerConfig {
 	}
 	for i := range srv.NoCacheTools {
 		srv.NoCacheTools[i] = expandEnvVars(srv.NoCacheTools[i])
+	}
+	for i := range srv.OAuthScopes {
+		srv.OAuthScopes[i] = expandEnvVars(srv.OAuthScopes[i])
 	}
 	for k, v := range srv.Env {
 		srv.Env[k] = expandEnvVars(v)

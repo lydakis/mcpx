@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Config is the top-level mcpx configuration.
 type Config struct {
 	Servers         map[string]ServerConfig `toml:"servers"`
@@ -60,6 +62,12 @@ type ServerConfig struct {
 	// HTTP transport
 	URL     string            `toml:"url"`
 	Headers map[string]string `toml:"headers"`
+	OAuth   bool              `toml:"oauth,omitempty"`
+	// OAuthScopes optionally narrows scopes requested during first-class login.
+	OAuthScopes []string `toml:"oauth_scopes,omitempty"`
+	// OAuthClientMetadataURL enables Client ID Metadata Document registration.
+	// DCR remains the fallback when the authorization server supports it.
+	OAuthClientMetadataURL string `toml:"oauth_client_metadata_url,omitempty"`
 
 	// Caching
 	DefaultCacheTTL string                `toml:"default_cache_ttl"`
@@ -80,4 +88,15 @@ func (s ServerConfig) IsStdio() bool {
 // IsHTTP returns true if the server uses HTTP transport.
 func (s ServerConfig) IsHTTP() bool {
 	return s.URL != ""
+}
+
+// HasAuthorizationHeader reports whether an explicit Authorization value wins
+// over first-class OAuth for this server.
+func (s ServerConfig) HasAuthorizationHeader() bool {
+	for name, value := range s.Headers {
+		if strings.EqualFold(strings.TrimSpace(name), "Authorization") && strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
 }

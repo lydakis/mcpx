@@ -19,11 +19,13 @@ type headerArg struct {
 }
 
 type addArgs struct {
-	source    string
-	name      string
-	headers   []headerArg
-	overwrite bool
-	help      bool
+	source                 string
+	name                   string
+	headers                []headerArg
+	overwrite              bool
+	oauth                  bool
+	oauthClientMetadataURL string
+	help                   bool
 }
 
 func maybeHandleAddCommand(args []string, cfg *config.Config, stdout, stderr io.Writer) (bool, int) {
@@ -65,6 +67,14 @@ func runAddCommand(args []string, stdout, stderr io.Writer) int {
 		for _, header := range parsed.headers {
 			resolved.Server.Headers = httpheaders.Set(resolved.Server.Headers, header.name, header.value)
 		}
+	}
+	if parsed.oauth {
+		if strings.TrimSpace(resolved.Server.URL) == "" {
+			fmt.Fprintln(stderr, "mcpx: add: --oauth can only be used with URL-based servers")
+			return ipc.ExitUsageErr
+		}
+		resolved.Server.OAuth = true
+		resolved.Server.OAuthClientMetadataURL = parsed.oauthClientMetadataURL
 	}
 
 	cfgPath := paths.ConfigFile()
@@ -123,6 +133,24 @@ func parseAddArgs(args []string) (*addArgs, error) {
 			parsed.help = true
 		case arg == "--overwrite":
 			parsed.overwrite = true
+		case arg == "--oauth":
+			parsed.oauth = true
+		case strings.HasPrefix(arg, "--oauth-client-metadata-url="):
+			parsed.oauth = true
+			parsed.oauthClientMetadataURL = strings.TrimSpace(strings.TrimPrefix(arg, "--oauth-client-metadata-url="))
+			if parsed.oauthClientMetadataURL == "" {
+				return nil, fmt.Errorf("missing value for --oauth-client-metadata-url")
+			}
+		case arg == "--oauth-client-metadata-url":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("missing value for --oauth-client-metadata-url")
+			}
+			i++
+			parsed.oauth = true
+			parsed.oauthClientMetadataURL = strings.TrimSpace(args[i])
+			if parsed.oauthClientMetadataURL == "" {
+				return nil, fmt.Errorf("missing value for --oauth-client-metadata-url")
+			}
 		case strings.HasPrefix(arg, "--header="):
 			if err := parsed.addHeader(strings.TrimSpace(strings.TrimPrefix(arg, "--header="))); err != nil {
 				return nil, err
@@ -201,7 +229,7 @@ func parseHeader(raw string) (string, string, error) {
 
 func printAddHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--overwrite]")
+	fmt.Fprintln(out, "  mcpx add <source> [--name <server>] [--header KEY=VALUE]... [--oauth] [--oauth-client-metadata-url URL] [--overwrite]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Sources:")
 	fmt.Fprintln(out, "  - install-link URL (for example cursor://.../mcp/install?... )")
@@ -214,5 +242,8 @@ func printAddHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --header KEY=VALUE")
 	fmt.Fprintln(out, "                    Set or override HTTP headers on URL-based servers.")
 	fmt.Fprintln(out, "  --overwrite       Replace existing server entry in mcpx config.")
+	fmt.Fprintln(out, "  --oauth           Enable first-class OAuth for an HTTP server.")
+	fmt.Fprintln(out, "  --oauth-client-metadata-url URL")
+	fmt.Fprintln(out, "                    Prefer Client ID Metadata Document registration.")
 	fmt.Fprintln(out, "  --help, -h        Show this help output.")
 }

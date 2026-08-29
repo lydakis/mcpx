@@ -1,4 +1,4 @@
-.PHONY: build test vet check qa qa-core qa-extended perf perf-loop dist release-snapshot clean
+.PHONY: build test vet check qa qa-core qa-extended conformance-core perf perf-loop dist release-snapshot clean
 
 BINARY ?= mcpx
 CMD ?= ./cmd/mcpx
@@ -24,6 +24,12 @@ qa-core:
 
 qa-extended:
 	QA_SCOPE=extended ./scripts/qa_matrix.sh
+
+# Pinned to the current 2026-07-28 conformance prerelease.
+# This gate exercises the shipping CLI's core tools_call path. Broader OAuth
+# scenarios remain tracked in docs/roadmap.md.
+conformance-core: build
+	npx -y @modelcontextprotocol/conformance@0.2.0-alpha.11 client --command ./scripts/conformance_client.sh --scenario tools_call --spec-version 2026-07-28
 
 perf:
 	./scripts/perf_bench.sh

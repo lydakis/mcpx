@@ -11,8 +11,12 @@ import (
 )
 
 type toolListEntry struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name         string          `json:"name"`
+	Title        string          `json:"title,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+	Annotations  json.RawMessage `json:"annotations,omitempty"`
 }
 
 func decodeToolListPayload(raw []byte) ([]toolListEntry, error) {

@@ -77,6 +77,7 @@ func cloneServerConfig(srv ServerConfig) ServerConfig {
 	cloned := srv
 	cloned.Args = append([]string(nil), srv.Args...)
 	cloned.NoCacheTools = append([]string(nil), srv.NoCacheTools...)
+	cloned.OAuthScopes = append([]string(nil), srv.OAuthScopes...)
 	cloned.Env = cloneStringMap(srv.Env)
 	cloned.Headers = cloneStringMap(srv.Headers)
 	cloned.Tools = cloneToolMap(srv.Tools)
@@ -127,6 +128,18 @@ func validateServer(name string, srv ServerConfig) []error {
 	if hasURL {
 		if _, err := url.ParseRequestURI(srv.URL); err != nil {
 			errs = append(errs, fmt.Errorf("servers.%s.url: invalid URL %q: %w", name, srv.URL, err))
+		}
+	}
+	if srv.OAuth && !hasURL {
+		errs = append(errs, fmt.Errorf("servers.%s.oauth: OAuth is only supported for HTTP servers", name))
+	}
+	if raw := strings.TrimSpace(srv.OAuthClientMetadataURL); raw != "" {
+		parsed, err := url.ParseRequestURI(raw)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || strings.Trim(parsed.Path, "/") == "" {
+			errs = append(errs, fmt.Errorf("servers.%s.oauth_client_metadata_url: must be a non-root HTTPS URL", name))
+		}
+		if !srv.OAuth {
+			errs = append(errs, fmt.Errorf("servers.%s.oauth_client_metadata_url: requires oauth = true", name))
 		}
 	}
 

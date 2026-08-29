@@ -166,8 +166,11 @@ mcpx github search-repositories --query="mcp" | jq .
 - **No output formatting.** That's what `jq`, `grep`, `awk` are for.
 - **No truncation.** That's what `head`, `tail`, `jq '[:5]'` are for.
 - **No built-in LLM parsing.** The agent calling `mcpx` is the LLM.
-- **No interactive shell mode.** Agents use single commands.
-- **No OAuth/auth management.** Configure credentials in the server config.
+- **No interactive shell mode.** `--interactive` is a bounded elicitation retry,
+  not a persistent shell.
+- **No general identity platform.** OAuth is a narrow remote-server provider
+  boundary with OS credential storage; imported and explicit auth stay owned by
+  their source.
 - **No agent identity/coordination.** Out of scope for mcpx; it is a tool, not a platform.
 - **No invented behavior.** If Unix already does it, mcpx doesn't reinvent it.
 
@@ -291,7 +294,10 @@ MCP tool parameters map to GNU-style `--long-flags`. Required params are require
 
 **Daemon security:** The socket is created with mode `0600` (owner-only). On every connection, the daemon verifies the peer's UID matches its own — refuses to talk otherwise. On startup, the daemon writes a random nonce to a state file (`mcpx.state` alongside the socket); the CLI reads this nonce and includes it in the handshake. If the nonce doesn't match, the CLI assumes a stale or hijacked socket, removes it, and spawns a fresh daemon. This prevents a rogue process from impersonating the daemon on a shared system.
 
-**Flag translation:** MCP `inputSchema` properties become GNU-style `--long-flags`. Types map naturally: `string` → takes a value, `boolean` → `--flag` sends `true`, `--no-flag` sends `false` (GNU convention), `number` → takes a value with validation, `array` → repeatable flag `--tag=a --tag=b`, `object` → accepts JSON string. Required properties become required flags.
+**Flag translation:** Simple MCP `inputSchema` object properties become
+GNU-style `--long-flags`. JSON Schema composition, references, conditionals,
+and otherwise ambiguous shapes require lossless positional or stdin JSON.
+Schema inspection is bounded and never fetches external references.
 
 **Stdin handling:** Stdin is only consumed as JSON args when passed as a positional argument (`echo '{}' | mcpx server tool`). If the tool has flags provided, stdin is not consumed. This avoids ambiguity with tools that legitimately expect stdin data (e.g. file uploads). When in doubt, use a positional JSON arg instead: `mcpx server tool '{}'`.
 

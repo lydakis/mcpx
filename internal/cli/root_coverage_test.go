@@ -221,7 +221,7 @@ func TestListToolsCanonicalizesExplicitSourceBeforeRequest(t *testing.T) {
 			}
 			return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`[]`)}, nil
 		},
-	}, source, cwd, true, outputModeText, true)
+	}, source, cwd, true, false, outputModeText, true)
 
 	if code != ipc.ExitOK {
 		t.Fatalf("listTools(canonicalized source) = %d, want %d", code, ipc.ExitOK)
@@ -251,7 +251,7 @@ func TestListToolsReturnsInternalOnInvalidPayload(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`not-json`)}, nil
 		},
-	}, "github", "/tmp", false, outputModeText, false)
+	}, "github", "/tmp", false, false, outputModeText, false)
 
 	if code != ipc.ExitInternal {
 		t.Fatalf("listTools(invalid payload) = %d, want %d", code, ipc.ExitInternal)
@@ -280,7 +280,7 @@ func TestListToolsJSONWriteErrorReturnsInternal(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitOK, Content: []byte(`[{"name":"ping"}]`)}, nil
 		},
-	}, "github", "/tmp", false, outputModeJSON, false)
+	}, "github", "/tmp", false, false, outputModeJSON, false)
 
 	if code != ipc.ExitInternal {
 		t.Fatalf("listTools(json write error) = %d, want %d", code, ipc.ExitInternal)
@@ -307,7 +307,7 @@ func TestListToolsPropagatesDaemonExitAndStderr(t *testing.T) {
 		sendFn: func(req *ipc.Request) (*ipc.Response, error) {
 			return &ipc.Response{ExitCode: ipc.ExitUsageErr, Stderr: "tool listing failed"}, nil
 		},
-	}, "github", "/tmp", false, outputModeText, false)
+	}, "github", "/tmp", false, false, outputModeText, false)
 
 	if code != ipc.ExitUsageErr {
 		t.Fatalf("listTools(daemon error) = %d, want %d", code, ipc.ExitUsageErr)

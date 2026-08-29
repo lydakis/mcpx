@@ -3,10 +3,12 @@ package mcppool
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 
+	"github.com/lydakis/mcpx/internal/buildinfo"
 	"github.com/lydakis/mcpx/internal/config"
-	mcpclient "github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func connectStdio(ctx context.Context, scfg config.ServerConfig) (*connection, error) {
@@ -15,43 +17,56 @@ func connectStdio(ctx context.Context, scfg config.ServerConfig) (*connection, e
 		env = append(env, k+"="+v)
 	}
 
-	c, err := mcpclient.NewStdioMCPClient(scfg.Command, env, scfg.Args...)
-	if err != nil {
-		return nil, fmt.Errorf("creating stdio client: %w", err)
-	}
+	cmd := exec.Command(scfg.Command, scfg.Args...)
+	cmd.Env = append(os.Environ(), env...)
 
-	if _, err := c.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: "2025-11-25",
-			ClientInfo: mcp.Implementation{
-				Name:    "mcpx",
-				Version: "0.1.0",
-			},
-			Capabilities: mcp.ClientCapabilities{},
-		},
-	}); err != nil {
-		c.Close()
+	conn := &connection{}
+	client := mcp.NewClient(&mcp.Implementation{Name: "mcpx", Version: buildinfo.Version()}, &mcp.ClientOptions{
+		Capabilities:   &mcp.ClientCapabilities{},
+		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
+	})
+	transport := &capturingTransport{Transport: &mcp.CommandTransport{Command: cmd}}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		_ = transport.Close()
 		return nil, fmt.Errorf("initializing: %w", err)
 	}
+	conn.diagnostics = sessionDiagnostics(session, "stdio", "none")
 
-	return &connection{
-		listTools: func(ctx context.Context) ([]mcp.Tool, error) {
-			result, err := c.ListTools(ctx, mcp.ListToolsRequest{})
-			if err != nil {
-				return nil, err
-			}
-			return result.Tools, nil
-		},
-		callTool: func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
-			return c.CallTool(ctx, mcp.CallToolRequest{
-				Params: mcp.CallToolParams{
-					Name:      name,
-					Arguments: args,
-				},
-			})
-		},
-		close: func() error {
-			return c.Close()
-		},
-	}, nil
+	conn.listTools = func(ctx context.Context) ([]*mcp.Tool, error) {
+		tools, cachePolicy, err := listAllToolPages(ctx, session.ListTools)
+		if err != nil {
+			return nil, err
+		}
+		setToolCacheDeadline(conn, cachePolicy.deadline, cachePolicy.cacheable, session.InitializeResult().ProtocolVersion >= modernProtocolVersion)
+		return tools, nil
+	}
+	conn.callTool = func(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+		return session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	}
+	conn.callToolWithInput = func(ctx context.Context, name string, args map[string]any, inputResponses mcp.InputResponseMap, requestState string) (*mcp.CallToolResult, error) {
+		return session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args, InputResponses: inputResponses, RequestState: requestState})
+	}
+	conn.close = session.Close
+	return conn, nil
+}
+
+type capturingTransport struct {
+	mcp.Transport
+	connection mcp.Connection
+}
+
+func (t *capturingTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	conn, err := t.Transport.Connect(ctx)
+	if err == nil {
+		t.connection = conn
+	}
+	return conn, err
+}
+
+func (t *capturingTransport) Close() error {
+	if t.connection == nil {
+		return nil
+	}
+	return t.connection.Close()
 }

@@ -2,13 +2,16 @@ package mcppool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
-
-	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// ErrInvalidParams marks client-side argument validation failures so callers
+// can preserve mcpx's usage-error exit contract independently of the MCP SDK.
+var ErrInvalidParams = errors.New("invalid params")
 
 func compileToolArgs(raw map[string]any, schemaRaw json.RawMessage) (map[string]any, error) {
 	if raw == nil {
@@ -371,7 +374,7 @@ func invalidParamsType(path, want string, got any) error {
 
 func invalidParamsError(format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%w: %s", mcp.ErrInvalidParams, msg)
+	return fmt.Errorf("%w: %s", ErrInvalidParams, msg)
 }
 
 func dottedPath(prefix, key string) string {

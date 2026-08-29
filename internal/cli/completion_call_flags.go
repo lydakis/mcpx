@@ -1,6 +1,10 @@
 package cli
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/lydakis/mcpx/internal/toolschema"
+)
 
 var (
 	globalCallFlags = []string{
@@ -11,22 +15,31 @@ var (
 		"--quiet",
 		"-q",
 		"--json",
+		"--interactive",
+		"--request-state",
+		"--input-responses",
 		"--help",
 		"-h",
 	}
 	reservedToolFlagNames = map[string]struct{}{
-		"cache":    {},
-		"no-cache": {},
-		"verbose":  {},
-		"quiet":    {},
-		"json":     {},
-		"help":     {},
-		"version":  {},
+		"cache":           {},
+		"no-cache":        {},
+		"verbose":         {},
+		"quiet":           {},
+		"json":            {},
+		"interactive":     {},
+		"request-state":   {},
+		"input-responses": {},
+		"help":            {},
+		"version":         {},
 	}
 )
 
 func toolFlagCompletions(inputSchema map[string]any) []string {
 	flags := append([]string{}, globalCallFlags...)
+	if !toolschema.Analyze(inputSchema).FlagSafe {
+		return uniqueSorted(flags)
+	}
 
 	props, _ := inputSchema["properties"].(map[string]any)
 	names := make([]string, 0, len(props))

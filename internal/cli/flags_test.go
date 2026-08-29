@@ -34,6 +34,9 @@ func TestParseToolCallArgsExtractsCacheTTL(t *testing.T) {
 	if parsed.toolArgs["query"] != "mcp" {
 		t.Fatalf("query = %v, want mcp", parsed.toolArgs["query"])
 	}
+	if parsed.jsonInput {
+		t.Fatal("jsonInput = true for flag arguments")
+	}
 }
 
 func TestParseToolCallArgsNoCacheWithSeparator(t *testing.T) {
@@ -132,6 +135,45 @@ func TestParseToolCallArgsReadsJSONFromStdinWhenNoFlags(t *testing.T) {
 	page, ok := parsed.toolArgs["page"].(float64)
 	if !ok || page != 3 {
 		t.Fatalf("page = %#v, want 3", parsed.toolArgs["page"])
+	}
+	if !parsed.jsonInput {
+		t.Fatal("jsonInput = false for stdin JSON")
+	}
+}
+
+func TestParseToolCallArgsMarksPositionalJSON(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{`{"query":"mcp"}`}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if !parsed.jsonInput {
+		t.Fatal("jsonInput = false for positional JSON")
+	}
+}
+
+func TestParseToolCallArgsParsesMultiRoundTripRetry(t *testing.T) {
+	parsed, err := parseToolCallArgs([]string{
+		"--request-state", "opaque-state",
+		"--input-responses", `{"confirm":{"action":"accept","content":{"ok":true}}}`,
+		`{"query":"mcp"}`,
+	}, bytes.NewBuffer(nil), true)
+	if err != nil {
+		t.Fatalf("parseToolCallArgs() error = %v", err)
+	}
+	if parsed.requestState != "opaque-state" {
+		t.Fatalf("requestState = %q, want opaque-state", parsed.requestState)
+	}
+	if string(parsed.inputResponses) != `{"confirm":{"action":"accept","content":{"ok":true}}}` {
+		t.Fatalf("inputResponses = %s", parsed.inputResponses)
+	}
+}
+
+func TestParseToolCallArgsRequiresCompleteMultiRoundTripPair(t *testing.T) {
+	if _, err := parseToolCallArgs([]string{"--request-state", "state"}, bytes.NewBuffer(nil), true); err == nil {
+		t.Fatal("parseToolCallArgs() error = nil, want missing input responses")
+	}
+	if _, err := parseToolCallArgs([]string{"--input-responses", `{}`}, bytes.NewBuffer(nil), true); err == nil {
+		t.Fatal("parseToolCallArgs() error = nil, want missing request state")
 	}
 }
 

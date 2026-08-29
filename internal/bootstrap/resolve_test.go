@@ -293,6 +293,50 @@ func TestResolveHTTPURLFallsBackToDirectMCPOn406(t *testing.T) {
 	}
 }
 
+func TestResolveHTTPURLProbesAmbiguous404BeforeTreatingAsDirectMCP(t *testing.T) {
+	source := "https://example.com/mcp"
+	probeCalls := 0
+	resolved, err := Resolve(context.Background(), source, ResolveOptions{
+		FetchURL: func(context.Context, string) ([]byte, error) {
+			return nil, &httpStatusError{statusCode: 404}
+		},
+		ProbeMCPURL: func(_ context.Context, got string) (bool, error) {
+			probeCalls++
+			if got != source {
+				t.Fatalf("probe source = %q, want %q", got, source)
+			}
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if probeCalls != 1 {
+		t.Fatalf("probe calls = %d, want 1", probeCalls)
+	}
+	if resolved.Server.URL != source {
+		t.Fatalf("resolved URL = %q, want %q", resolved.Server.URL, source)
+	}
+}
+
+func TestResolveHTTPURLRejectsAmbiguous404WhenMCPProbeFails(t *testing.T) {
+	source := "https://example.com/mcp"
+	_, err := Resolve(context.Background(), source, ResolveOptions{
+		FetchURL: func(context.Context, string) ([]byte, error) {
+			return nil, &httpStatusError{statusCode: 404}
+		},
+		ProbeMCPURL: func(context.Context, string) (bool, error) {
+			return false, nil
+		},
+	})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want source access error")
+	}
+	if !IsSourceAccessError(err) {
+		t.Fatalf("IsSourceAccessError(%v) = false, want true", err)
+	}
+}
+
 func TestResolveHTTPURLFallsBackToDirectMCPWithOverrideName(t *testing.T) {
 	source := "https://mcp.deepwiki.com/mcp"
 	resolved, err := Resolve(context.Background(), source, ResolveOptions{

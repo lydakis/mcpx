@@ -55,6 +55,33 @@ func TestPrintToolHelpShowsUndeclaredOutput(t *testing.T) {
 	}
 }
 
+func TestPrintToolHelpRequiresJSONForComposedInputSchema(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"target": map[string]any{
+				"oneOf": []any{
+					map[string]any{"type": "string"},
+					map[string]any{"type": "integer"},
+				},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	printToolHelp(&out, "example", "composed", "", input, nil)
+	got := out.String()
+	if !bytes.Contains(out.Bytes(), []byte("unavailable: input.target uses oneOf")) {
+		t.Fatalf("help missing JSON-only explanation: %q", got)
+	}
+	if bytes.Contains(out.Bytes(), []byte("mcpx example composed --target=")) {
+		t.Fatalf("help contains an unsafe flag example: %q", got)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("mcpx example composed '{")) {
+		t.Fatalf("help missing positional JSON example: %q", got)
+	}
+}
+
 func TestParseToolHelpPayloadSupportsStructuredAndLegacy(t *testing.T) {
 	structured := []byte(`{
 		"name":"search_repositories",
@@ -199,10 +226,13 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 	input := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"cache":   map[string]any{"type": "boolean"},
-			"query":   map[string]any{"type": "string"},
-			"dry_run": map[string]any{"type": "boolean"},
-			"inputs":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"cache":           map[string]any{"type": "boolean"},
+			"query":           map[string]any{"type": "string"},
+			"dry_run":         map[string]any{"type": "boolean"},
+			"inputs":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"interactive":     map[string]any{"type": "boolean"},
+			"request-state":   map[string]any{"type": "string"},
+			"input-responses": map[string]any{"type": "object"},
 		},
 		"required": []any{"query"},
 	}
@@ -220,6 +250,11 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("--tool-no-cache <boolean>")) {
 		t.Fatalf("missing reserved negative tool flag prefix: %q", got)
 	}
+	for _, flag := range []string{"--tool-interactive <boolean>", "--tool-request-state <string>", "--tool-input-responses <object>"} {
+		if !bytes.Contains(out.Bytes(), []byte(flag)) {
+			t.Fatalf("missing reserved MRTR tool flag %q: %q", flag, got)
+		}
+	}
 	if !bytes.Contains(out.Bytes(), []byte("--dry_run <boolean>")) {
 		t.Fatalf("missing boolean tool flag: %q", got)
 	}
@@ -234,6 +269,11 @@ func TestPrintToolHelpShowsGlobalFlagsAndCollisionNamespace(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--cache <duration>")) {
 		t.Fatalf("missing global cache flag help: %q", got)
+	}
+	for _, flag := range []string{"--interactive", "--request-state <state>", "--input-responses <json>"} {
+		if !bytes.Contains(out.Bytes(), []byte(flag)) {
+			t.Fatalf("missing global MRTR flag help %q: %q", flag, got)
+		}
 	}
 	if !bytes.Contains(out.Bytes(), []byte("Namespace:")) {
 		t.Fatalf("missing namespace section: %q", got)

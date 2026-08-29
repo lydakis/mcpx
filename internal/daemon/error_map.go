@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	"github.com/lydakis/mcpx/internal/ipc"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/lydakis/mcpx/internal/mcppool"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
 func classifyCallToolError(err error) int {
@@ -16,7 +17,11 @@ func classifyCallToolError(err error) int {
 		return ipc.ExitUsageErr
 	}
 
-	if errors.Is(err, mcp.ErrInvalidParams) || errors.Is(err, mcp.ErrMethodNotFound) {
+	if errors.Is(err, mcppool.ErrInvalidParams) {
+		return ipc.ExitUsageErr
+	}
+	var rpcErr *jsonrpc.Error
+	if errors.As(err, &rpcErr) && (rpcErr.Code == jsonrpc.CodeInvalidParams || rpcErr.Code == jsonrpc.CodeMethodNotFound) {
 		return ipc.ExitUsageErr
 	}
 

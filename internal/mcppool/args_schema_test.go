@@ -8,18 +8,18 @@ import (
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/config"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestCallToolCoercesArgsByInputSchema(t *testing.T) {
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"page":    map[string]any{"type": "integer"},
@@ -107,11 +107,11 @@ func TestCallToolCoercesArgsByInputSchema(t *testing.T) {
 
 func TestCallToolRejectsMissingRequiredArgs(t *testing.T) {
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"query": map[string]any{"type": "string"},
@@ -136,7 +136,7 @@ func TestCallToolRejectsMissingRequiredArgs(t *testing.T) {
 	if err == nil {
 		t.Fatal("CallTool() error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("CallTool() error = %v, want invalid params", err)
 	}
 }
@@ -145,11 +145,11 @@ func TestCallToolAllowsUnknownFlagsWhenAdditionalPropertiesIsOmitted(t *testing.
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"query": map[string]any{"type": "string"},
@@ -180,11 +180,11 @@ func TestCallToolAllowsUnknownFlagsWhenAdditionalPropertiesIsOmitted(t *testing.
 
 func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalse(t *testing.T) {
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"query": map[string]any{"type": "string"},
@@ -209,7 +209,7 @@ func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalse(t *testing.T) 
 	if err == nil {
 		t.Fatal("CallTool() error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("CallTool() error = %v, want invalid params", err)
 	}
 }
@@ -218,11 +218,11 @@ func TestCallToolAllowsBooleanPropertySchemaWhenAdditionalPropertiesFalse(t *tes
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"query": true,
@@ -255,11 +255,11 @@ func TestCallToolCoercesUnknownFlagsWithAdditionalPropertiesSchema(t *testing.T)
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"query": map[string]any{"type": "string"},
@@ -291,11 +291,11 @@ func TestCallToolCoercesUnknownFlagsWithAdditionalPropertiesSchema(t *testing.T)
 
 func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalseAndNoProperties(t *testing.T) {
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type:                 "object",
 						AdditionalProperties: false,
 					},
@@ -317,7 +317,7 @@ func TestCallToolRejectsUnknownFlagsWhenAdditionalPropertiesFalseAndNoProperties
 	if err == nil {
 		t.Fatal("CallTool() error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("CallTool() error = %v, want invalid params", err)
 	}
 }
@@ -326,11 +326,11 @@ func TestCallToolCoercesUnknownFlagsWithAdditionalPropertiesSchemaAndNoPropertie
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type:                 "object",
 						AdditionalProperties: map[string]any{"type": "integer"},
 					},
@@ -361,11 +361,11 @@ func TestCallToolTreatsNoPrefixedAliasAsBooleanNegation(t *testing.T) {
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"dry-run": map[string]any{"type": "boolean"},
@@ -401,11 +401,11 @@ func TestCallToolPreservesLiteralNoPrefixedBooleanParams(t *testing.T) {
 	var calledArgs map[string]any
 
 	conn := &connection{
-		listTools: func(context.Context) ([]mcp.Tool, error) {
-			return []mcp.Tool{
+		listTools: func(context.Context) ([]*mcp.Tool, error) {
+			return []*mcp.Tool{
 				{
 					Name: "search",
-					InputSchema: mcp.ToolInputSchema{
+					InputSchema: testToolSchema{
 						Type: "object",
 						Properties: map[string]any{
 							"no-color": map[string]any{"type": "boolean"},
@@ -485,7 +485,7 @@ func TestCoerceIntegerCoversSupportedInputTypesAndFailures(t *testing.T) {
 			if err == nil {
 				t.Fatalf("coerceInteger(%v) error = nil, want non-nil", tc.value)
 			}
-			if !errors.Is(err, mcp.ErrInvalidParams) {
+			if !errors.Is(err, ErrInvalidParams) {
 				t.Fatalf("coerceInteger(%v) error = %v, want invalid params", tc.value, err)
 			}
 			if !strings.Contains(err.Error(), tc.wantSubstr) {
@@ -544,7 +544,7 @@ func TestCoerceNumberCoversSupportedInputTypesAndFailures(t *testing.T) {
 			if err == nil {
 				t.Fatalf("coerceNumber(%v) error = nil, want non-nil", tc.value)
 			}
-			if !errors.Is(err, mcp.ErrInvalidParams) {
+			if !errors.Is(err, ErrInvalidParams) {
 				t.Fatalf("coerceNumber(%v) error = %v, want invalid params", tc.value, err)
 			}
 			if !strings.Contains(err.Error(), tc.wantSubstr) {
@@ -605,7 +605,7 @@ func TestCoerceArrayReturnsInvalidParamsForBadInput(t *testing.T) {
 	if err == nil {
 		t.Fatal("coerceArray(invalid json) error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("coerceArray(invalid json) error = %v, want invalid params", err)
 	}
 	if !strings.Contains(err.Error(), `must be JSON array`) {
@@ -616,7 +616,7 @@ func TestCoerceArrayReturnsInvalidParamsForBadInput(t *testing.T) {
 	if err == nil {
 		t.Fatal("coerceArray(invalid item) error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("coerceArray(invalid item) error = %v, want invalid params", err)
 	}
 	if !strings.Contains(err.Error(), `tags[0]`) {
@@ -651,7 +651,7 @@ func TestInvalidParamsTypeWrapsErrInvalidParams(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalidParamsType() error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("invalidParamsType() error = %v, want invalid params", err)
 	}
 	if !strings.Contains(err.Error(), `argument "page" must be integer, got bool`) {
@@ -666,7 +666,7 @@ func TestCompileToolArgsRejectsNonObjectSchemaType(t *testing.T) {
 	if err == nil {
 		t.Fatal("compileToolArgsAgainstSchema() error = nil, want non-nil")
 	}
-	if !errors.Is(err, mcp.ErrInvalidParams) {
+	if !errors.Is(err, ErrInvalidParams) {
 		t.Fatalf("compileToolArgsAgainstSchema() error = %v, want invalid params", err)
 	}
 	if !strings.Contains(err.Error(), `tool input schema must be object`) {

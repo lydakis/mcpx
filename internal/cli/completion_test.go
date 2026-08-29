@@ -30,8 +30,14 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("bash completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("--name --header --overwrite --help -h")) {
+	if !bytes.Contains(out.Bytes(), []byte("--name --header --oauth --oauth-client-metadata-url --overwrite --help -h")) {
 		t.Fatalf("bash completion missing add flags: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_auth_server()")) || !bytes.Contains(out.Bytes(), []byte("login status logout")) {
+		t.Fatalf("bash completion missing auth command support: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_doctor_server()")) || !bytes.Contains(out.Bytes(), []byte("--json --help -h")) {
+		t.Fatalf("bash completion missing doctor command support: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_skill_server()")) {
 		t.Fatalf("bash completion missing skill server guard helper: %q", out.String())
@@ -217,8 +223,14 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("zsh completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("flags=(--name --header --overwrite --help -h)")) {
+	if !bytes.Contains(out.Bytes(), []byte("flags=(--name --header --oauth --oauth-client-metadata-url --overwrite --help -h)")) {
 		t.Fatalf("zsh completion missing add flags: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("_values 'auth command' login status logout")) {
+		t.Fatalf("zsh completion missing auth commands: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("_describe 'doctor target' servers")) {
+		t.Fatalf("zsh completion missing doctor command: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"skill\" ]] && ! _mcpx_has_skill_server; then")) {
 		t.Fatalf("zsh completion missing conditional skill branch: %q", out.String())
@@ -269,8 +281,14 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = add; and not __mcpx_has_add_server")) {
 		t.Fatalf("fish completion missing guarded add subcommand branch: %q", out.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("--name --header --overwrite --help -h")) {
+	if !bytes.Contains(out.Bytes(), []byte("--name --header --oauth --oauth-client-metadata-url --overwrite --help -h")) {
 		t.Fatalf("fish completion missing add flags: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_auth_server")) || !bytes.Contains(out.Bytes(), []byte("login status logout")) {
+		t.Fatalf("fish completion missing auth command support: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_doctor_server")) || !bytes.Contains(out.Bytes(), []byte("--json --help -h")) {
+		t.Fatalf("fish completion missing doctor command support: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" != add; or __mcpx_has_add_server")) {
 		t.Fatalf("fish completion missing guarded add exclusion in tool completion path: %q", out.String())
@@ -314,11 +332,14 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 	input := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"cache":   map[string]any{"type": "boolean"},
-			"json":    map[string]any{"type": "boolean"},
-			"query":   map[string]any{"type": "string"},
-			"verbose": map[string]any{"type": "string"},
-			"dry_run": map[string]any{"type": "boolean"},
+			"cache":           map[string]any{"type": "boolean"},
+			"json":            map[string]any{"type": "boolean"},
+			"query":           map[string]any{"type": "string"},
+			"verbose":         map[string]any{"type": "string"},
+			"dry_run":         map[string]any{"type": "boolean"},
+			"interactive":     map[string]any{"type": "boolean"},
+			"request-state":   map[string]any{"type": "string"},
+			"input-responses": map[string]any{"type": "object"},
 		},
 	}
 
@@ -329,6 +350,10 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 		"--tool-json",
 		"--tool-no-json",
 		"--tool-verbose",
+		"--tool-interactive",
+		"--tool-no-interactive",
+		"--tool-request-state",
+		"--tool-input-responses",
 		"--query",
 		"--dry_run",
 		"--no-dry_run",
@@ -337,11 +362,36 @@ func TestToolFlagCompletionsHandlesCollisionsAndBooleanNegation(t *testing.T) {
 		"--verbose",
 		"--help",
 		"--no-cache",
+		"--interactive",
+		"--request-state",
+		"--input-responses",
 	}
 	for _, flag := range want {
 		if !contains(flags, flag) {
 			t.Fatalf("toolFlagCompletions() missing %q in %v", flag, flags)
 		}
+	}
+}
+
+func TestToolFlagCompletionsSuppressesPropertyFlagsForJSONOnlySchema(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"target": map[string]any{
+				"oneOf": []any{
+					map[string]any{"type": "string"},
+					map[string]any{"type": "integer"},
+				},
+			},
+		},
+	}
+
+	flags := toolFlagCompletions(input)
+	if contains(flags, "--target") {
+		t.Fatalf("toolFlagCompletions() = %v, want no JSON-only property flags", flags)
+	}
+	if !contains(flags, "--json") || !contains(flags, "--help") {
+		t.Fatalf("toolFlagCompletions() = %v, want global invocation flags", flags)
 	}
 }
 

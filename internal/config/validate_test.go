@@ -122,6 +122,28 @@ func TestValidateServerConfigValidAndInvalidCases(t *testing.T) {
 	}
 }
 
+func TestValidateOAuthClientMetadataURL(t *testing.T) {
+	valid := ServerConfig{
+		URL:                    "https://example.com/mcp",
+		OAuth:                  true,
+		OAuthClientMetadataURL: "https://client.example.com/mcpx.json",
+	}
+	if err := ValidateServerConfig("remote", valid); err != nil {
+		t.Fatalf("ValidateServerConfig(valid metadata URL) error = %v", err)
+	}
+
+	invalid := valid
+	invalid.OAuth = false
+	invalid.OAuthClientMetadataURL = "http://client.example.com"
+	err := ValidateServerConfig("remote", invalid)
+	if err == nil {
+		t.Fatal("ValidateServerConfig(invalid metadata URL) error = nil")
+	}
+	if !strings.Contains(err.Error(), "non-root HTTPS URL") || !strings.Contains(err.Error(), "requires oauth = true") {
+		t.Fatalf("ValidateServerConfig(invalid metadata URL) error = %q", err)
+	}
+}
+
 func TestServerConfigTransportPredicates(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -196,5 +218,12 @@ func TestCloneToolMapDeepCopiesCachePointers(t *testing.T) {
 	*in["search"].Cache = false
 	if *out["search"].Cache != true {
 		t.Fatalf("cloneToolMap(in) cache pointer tracks source mutation: got %v, want true", *out["search"].Cache)
+	}
+}
+
+func TestValidateRejectsOAuthOnStdioServer(t *testing.T) {
+	err := ValidateServerConfig("local", ServerConfig{Command: "server", OAuth: true})
+	if err == nil || !strings.Contains(err.Error(), "OAuth is only supported for HTTP") {
+		t.Fatalf("ValidateServerConfig() error = %v, want OAuth transport error", err)
 	}
 }

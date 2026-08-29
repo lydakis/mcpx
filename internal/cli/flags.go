@@ -9,18 +9,23 @@ import (
 )
 
 type toolCallArgs struct {
-	toolArgs map[string]any
-	cacheTTL *time.Duration
-	verbose  bool
-	quiet    bool
-	help     bool
-	output   outputMode
+	toolArgs       map[string]any
+	jsonInput      bool
+	inputResponses json.RawMessage
+	requestState   string
+	interactive    bool
+	cacheTTL       *time.Duration
+	verbose        bool
+	quiet          bool
+	help           bool
+	output         outputMode
 }
 
 func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCallArgs, error) {
 	parsed := &toolCallArgs{
-		toolArgs: make(map[string]any),
-		output:   outputModeText,
+		toolArgs:  make(map[string]any),
+		jsonInput: true,
+		output:    outputModeText,
 	}
 
 	var positionalJSON string
@@ -37,6 +42,48 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 
 		if !afterSeparator {
 			switch {
+			case arg == "--interactive":
+				parsed.interactive = true
+				hasAnyFlags = true
+				continue
+			case strings.HasPrefix(arg, "--request-state="):
+				parsed.requestState = strings.TrimPrefix(arg, "--request-state=")
+				if parsed.requestState == "" {
+					return nil, fmt.Errorf("missing value for --request-state")
+				}
+				hasAnyFlags = true
+				continue
+			case arg == "--request-state":
+				if i+1 >= len(args) {
+					return nil, fmt.Errorf("missing value for --request-state")
+				}
+				i++
+				parsed.requestState = args[i]
+				if parsed.requestState == "" {
+					return nil, fmt.Errorf("missing value for --request-state")
+				}
+				hasAnyFlags = true
+				continue
+			case strings.HasPrefix(arg, "--input-responses="):
+				responses, err := parseInputResponses(strings.TrimPrefix(arg, "--input-responses="))
+				if err != nil {
+					return nil, err
+				}
+				parsed.inputResponses = responses
+				hasAnyFlags = true
+				continue
+			case arg == "--input-responses":
+				if i+1 >= len(args) {
+					return nil, fmt.Errorf("missing value for --input-responses")
+				}
+				i++
+				responses, err := parseInputResponses(args[i])
+				if err != nil {
+					return nil, err
+				}
+				parsed.inputResponses = responses
+				hasAnyFlags = true
+				continue
 			case arg == "-v" || arg == "--verbose":
 				parsed.verbose = true
 				hasAnyFlags = true
@@ -104,6 +151,7 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 				return nil, err
 			}
 			putArgValue(parsed.toolArgs, key, value)
+			parsed.jsonInput = false
 			hasToolFlags = true
 			hasAnyFlags = true
 			continue
@@ -128,6 +176,7 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 			return nil, err
 		}
 		parsed.toolArgs = obj
+		parsed.jsonInput = true
 	} else if !hasAnyFlags && !hasToolFlags && !stdinIsTTY && stdin != nil {
 		data, err := io.ReadAll(stdin)
 		if err != nil {
@@ -140,14 +189,35 @@ func parseToolCallArgs(args []string, stdin io.Reader, stdinIsTTY bool) (*toolCa
 				return nil, err
 			}
 			parsed.toolArgs = obj
+			parsed.jsonInput = true
 		}
 	}
 
 	if parsed.output.isJSON() && !parsed.help {
 		return nil, fmt.Errorf("--json is only supported with --help")
 	}
+	if len(parsed.inputResponses) > 0 && parsed.requestState == "" {
+		return nil, fmt.Errorf("--input-responses requires --request-state")
+	}
+	if parsed.requestState != "" && len(parsed.inputResponses) == 0 {
+		return nil, fmt.Errorf("--request-state requires --input-responses")
+	}
+	if parsed.interactive && (len(parsed.inputResponses) > 0 || parsed.requestState != "") {
+		return nil, fmt.Errorf("--interactive cannot be combined with --input-responses or --request-state")
+	}
 
 	return parsed, nil
+}
+
+func parseInputResponses(raw string) (json.RawMessage, error) {
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return nil, fmt.Errorf("invalid --input-responses JSON: %w", err)
+	}
+	if value == nil {
+		return nil, fmt.Errorf("--input-responses must be a JSON object")
+	}
+	return json.RawMessage(raw), nil
 }
 
 // parseFlags parses GNU-style flags (--key=value or --key value) into a map.

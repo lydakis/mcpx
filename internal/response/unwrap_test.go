@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/lydakis/mcpx/internal/ipc"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestUnwrapPrefersStructuredContent(t *testing.T) {
 	result := &mcp.CallToolResult{
 		StructuredContent: map[string]any{"count": 3},
 		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: "ignored"},
+			&mcp.TextContent{Text: "ignored"},
 		},
 	}
 
@@ -33,8 +33,8 @@ func TestUnwrapPrefersStructuredContent(t *testing.T) {
 func TestUnwrapMultipleTextBlocksAreNewlineSeparated(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: "alpha"},
-			mcp.TextContent{Type: "text", Text: "beta"},
+			&mcp.TextContent{Text: "alpha"},
+			&mcp.TextContent{Text: "beta"},
 		},
 	}
 
@@ -48,9 +48,8 @@ func TestUnwrapImageContentWritesTempFileAndPrintsPath(t *testing.T) {
 	payload := []byte("image-bytes")
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
-			mcp.ImageContent{
-				Type:     "image",
-				Data:     base64.StdEncoding.EncodeToString(payload),
+			&mcp.ImageContent{
+				Data:     payload,
 				MIMEType: "application/octet-stream",
 			},
 		},
@@ -80,7 +79,7 @@ func TestUnwrapUsesToolErrorExitCode(t *testing.T) {
 	result := &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: "nope"},
+			&mcp.TextContent{Text: "nope"},
 		},
 	}
 
@@ -171,9 +170,8 @@ func TestMaybeCleanupTempArtifactsRateLimitsSweeps(t *testing.T) {
 func TestUnwrapEmbeddedTextResourceWritesTempFileAndPrintsPath(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
-			mcp.EmbeddedResource{
-				Type: "resource",
-				Resource: mcp.TextResourceContents{
+			&mcp.EmbeddedResource{
+				Resource: &mcp.ResourceContents{
 					URI:      "file:///tmp/note.txt",
 					MIMEType: "text/plain",
 					Text:     "resource text",
@@ -206,11 +204,10 @@ func TestUnwrapEmbeddedBlobResourceUsesMIMEExtension(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.EmbeddedResource{
-				Type: "resource",
-				Resource: &mcp.BlobResourceContents{
+				Resource: &mcp.ResourceContents{
 					URI:      "file:///tmp/payload.json",
 					MIMEType: "application/json",
-					Blob:     base64.StdEncoding.EncodeToString(payload),
+					Blob:     payload,
 				},
 			},
 		},
@@ -232,6 +229,36 @@ func TestUnwrapEmbeddedBlobResourceUsesMIMEExtension(t *testing.T) {
 	}
 	if string(data) != string(payload) {
 		t.Fatalf("file content = %q, want %q", string(data), string(payload))
+	}
+}
+
+func TestUnwrapEmptyEmbeddedResourcesStillWriteArtifacts(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource *mcp.ResourceContents
+	}{
+		{name: "text", resource: &mcp.ResourceContents{URI: "file:///empty.txt", MIMEType: "text/plain", Text: ""}},
+		{name: "blob", resource: &mcp.ResourceContents{URI: "file:///empty.bin", MIMEType: "application/octet-stream", Blob: []byte{}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, code := Unwrap(&mcp.CallToolResult{Content: []mcp.Content{&mcp.EmbeddedResource{Resource: tt.resource}}})
+			if code != ipc.ExitOK {
+				t.Fatalf("Unwrap code = %d, want %d", code, ipc.ExitOK)
+			}
+			path := strings.TrimSpace(string(out))
+			if path == "" {
+				t.Fatal("Unwrap emitted empty path")
+			}
+			defer os.Remove(path) //nolint:errcheck
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile() error = %v", err)
+			}
+			if len(data) != 0 {
+				t.Fatalf("artifact length = %d, want 0", len(data))
+			}
+		})
 	}
 }
 
@@ -279,9 +306,8 @@ func TestRenderResourceJSONWritesBlobPayload(t *testing.T) {
 func TestUnwrapFallsBackToJSONForUnsupportedContentType(t *testing.T) {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{
-			mcp.AudioContent{
-				Type:     "audio",
-				Data:     "invalid-base64",
+			&mcp.AudioContent{
+				Data:     []byte("audio"),
 				MIMEType: "audio/wav",
 			},
 		},
@@ -331,8 +357,8 @@ func TestExtForMIMETypeFallbacks(t *testing.T) {
 	}
 }
 
-func TestRenderResourceContentSupportsPointerAndValueTypes(t *testing.T) {
-	textPath, ok := renderResourceContent(&mcp.TextResourceContents{
+func TestRenderResourceContentSupportsTextAndBlob(t *testing.T) {
+	textPath, ok := renderResourceContent(&mcp.ResourceContents{
 		URI:      "file:///tmp/text.txt",
 		MIMEType: "text/plain",
 		Text:     "hello",
@@ -346,10 +372,10 @@ func TestRenderResourceContentSupportsPointerAndValueTypes(t *testing.T) {
 	}
 
 	blobData := []byte("blob")
-	blobPath, ok := renderResourceContent(mcp.BlobResourceContents{
+	blobPath, ok := renderResourceContent(&mcp.ResourceContents{
 		URI:      "file:///tmp/blob.bin",
 		MIMEType: "application/octet-stream",
-		Blob:     base64.StdEncoding.EncodeToString(blobData),
+		Blob:     blobData,
 	})
 	if !ok {
 		t.Fatal("renderResourceContent(blob value) ok = false, want true")
@@ -360,11 +386,8 @@ func TestRenderResourceContentSupportsPointerAndValueTypes(t *testing.T) {
 	}
 }
 
-func TestRenderContentHandlesUnsupportedAndInvalidImage(t *testing.T) {
-	if path, ok := renderContent(mcp.ResourceLink{Type: "resource_link", URI: "file:///tmp"}); ok || path != "" {
+func TestRenderContentHandlesUnsupportedResourceLink(t *testing.T) {
+	if path, ok := renderContent(&mcp.ResourceLink{URI: "file:///tmp"}); ok || path != "" {
 		t.Fatalf("renderContent(resource_link) = (%q, %v), want (\"\", false)", path, ok)
-	}
-	if path, ok := renderContent(mcp.ImageContent{Type: "image", MIMEType: "image/png", Data: "not-base64"}); ok || path != "" {
-		t.Fatalf("renderContent(invalid image) = (%q, %v), want (\"\", false)", path, ok)
 	}
 }

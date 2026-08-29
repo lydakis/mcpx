@@ -49,6 +49,7 @@ mcpx                         # list servers
 mcpx --json                  # list servers as JSON
 mcpx <server>                # list tools (short descriptions)
 mcpx <server> --json         # list tools as JSON
+mcpx <server> --catalog      # deterministic catalog with full schemas
 mcpx <server> -v             # list tools (full descriptions)
 mcpx <server> <tool> --help  # show schema-aware help
 mcpx <server> <tool> --help --json  # raw schema payload JSON
@@ -56,6 +57,10 @@ mcpx <server> <tool> ...     # call tool
 mcpx <source>                # if <source> is not a known server, resolve and run it ephemerally
 mcpx <source> <tool> ...     # call tools from an ephemeral source (daemon-lifetime only)
 mcpx add <source>            # add server config from install link/manifest/endpoint URL
+mcpx auth login <server>     # authorize an OAuth-enabled HTTP server
+mcpx auth status <server>    # show redacted credential status
+mcpx auth logout <server>    # remove the stored OAuth session
+mcpx doctor [server]         # diagnose config, transport, protocol, and auth source
 mcpx shim install <server>   # install a passthrough command shim for one server
 mcpx shim remove <server>    # remove an installed shim
 mcpx shim list               # list installed mcpx-managed shims
@@ -83,6 +88,50 @@ mcpx github search-repositories --query=mcp
 mcpx github search-repositories '{"query":"mcp"}'
 echo '{"query":"mcp"}' | mcpx github search-repositories
 ```
+
+When a schema uses composition, references, or other shapes that do not map
+unambiguously to flags, mcpx requires positional or stdin JSON and says so in
+`--help`. External `$ref` values are never fetched.
+
+## Multi-Round-Trip Calls
+
+Non-interactive calls never block for server-requested input. They exit 1 and
+print the MCP `input_required` result as JSON. An agent can fulfill it with:
+
+```bash
+mcpx <server> <tool> '{}' \
+  --request-state '<opaque requestState>' \
+  --input-responses '{"confirm":{"action":"accept","content":{"approved":true}}}'
+```
+
+For a human at a terminal, `--interactive` prompts for elicitation responses.
+Sampling and roots requests stay machine-driven because mcpx is not an agent
+host.
+
+## Remote OAuth
+
+```bash
+mcpx add https://example.com/mcp --name example --oauth
+mcpx auth login example
+mcpx auth status example
+mcpx doctor example --json
+mcpx auth logout example
+```
+
+If the client has a public HTTPS Client ID Metadata Document, configure it at
+add time. This implies `--oauth`; dynamic registration remains the fallback
+when the authorization server does not advertise metadata-document support:
+
+```bash
+mcpx add https://example.com/mcp --name example \
+  --oauth-client-metadata-url https://client.example.com/mcpx.json
+```
+
+The browser flow uses PKCE and the OS credential store. Login prints the
+authorization URL for you to open; mcpx does not launch remote authorization
+URLs automatically. Explicit Authorization headers and credentials imported
+from another host retain precedence and are never copied into mcpx's OAuth
+store.
 
 Generic pipeline:
 
@@ -132,6 +181,7 @@ Notes:
 - `mcpx add` writes only to mcpx config; it does not install runtimes/packages.
 - Existing entries require explicit `--overwrite`.
 - `--header KEY=VALUE` can be repeated and is applied only to URL-based servers.
+- `--oauth-client-metadata-url URL` enables OAuth and requires a non-root HTTPS URL.
 
 ## Command Shims (`mcpx shim`)
 

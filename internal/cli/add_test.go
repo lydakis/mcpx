@@ -453,6 +453,32 @@ func TestParseAddArgsParsesHeaderFlags(t *testing.T) {
 	}
 }
 
+func TestParseAddArgsEnablesOAuth(t *testing.T) {
+	parsed, err := parseAddArgs([]string{"https://example.com/mcp", "--oauth"})
+	if err != nil {
+		t.Fatalf("parseAddArgs() error = %v", err)
+	}
+	if !parsed.oauth {
+		t.Fatal("oauth = false, want true")
+	}
+}
+
+func TestParseAddArgsClientMetadataURLImpliesOAuth(t *testing.T) {
+	parsed, err := parseAddArgs([]string{
+		"https://example.com/mcp",
+		"--oauth-client-metadata-url=https://client.example.com/mcpx.json",
+	})
+	if err != nil {
+		t.Fatalf("parseAddArgs() error = %v", err)
+	}
+	if !parsed.oauth {
+		t.Fatal("oauth = false, want true")
+	}
+	if parsed.oauthClientMetadataURL != "https://client.example.com/mcpx.json" {
+		t.Fatalf("oauthClientMetadataURL = %q", parsed.oauthClientMetadataURL)
+	}
+}
+
 func TestParseAddArgsRejectsInvalidHeaderFlag(t *testing.T) {
 	tests := [][]string{
 		{"https://mcp.deepwiki.com/mcp", "--header"},

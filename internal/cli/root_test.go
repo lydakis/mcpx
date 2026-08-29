@@ -45,7 +45,7 @@ func (w errWriter) Write(p []byte) (int, error) {
 }
 
 func TestUtilityCommandDeferredToServerUsesManagedOrigin(t *testing.T) {
-	for _, name := range []string{"add", "shim", "skill", "completion", "__complete"} {
+	for _, name := range []string{"add", "auth", "doctor", "shim", "skill", "completion", "__complete"} {
 		managed := &config.Config{
 			Servers: map[string]config.ServerConfig{name: {Command: "managed"}},
 			ServerOrigins: map[string]config.ServerOrigin{
@@ -373,6 +373,16 @@ func TestParseToolListArgsSupportsJSON(t *testing.T) {
 	}
 	if !parsed.output.isJSON() {
 		t.Fatal("output mode = text, want json")
+	}
+}
+
+func TestParseToolListArgsSupportsCatalog(t *testing.T) {
+	parsed, err := parseToolListArgs([]string{"--catalog"})
+	if err != nil {
+		t.Fatalf("parseToolListArgs() error = %v", err)
+	}
+	if !parsed.catalog || !parsed.output.isJSON() {
+		t.Fatalf("catalog = %v output = %v, want catalog JSON", parsed.catalog, parsed.output)
 	}
 }
 

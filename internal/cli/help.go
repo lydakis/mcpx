@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/lydakis/mcpx/internal/toolschema"
 )
 
 func parseToolHelpPayload(raw []byte) (name, description string, inputSchema map[string]any, outputSchema map[string]any) {
@@ -79,6 +81,11 @@ func printTypeToFlagForms(w io.Writer) {
 }
 
 func printToolInputFlags(w io.Writer, schema map[string]any) {
+	analysis := toolschema.Analyze(schema)
+	if !analysis.FlagSafe {
+		fmt.Fprintf(w, "    (unavailable: %s; pass an object as positional or stdin JSON)\n", analysis.Reason)
+		return
+	}
 	lines := inputFlagLines(schema)
 	if len(lines) == 0 {
 		fmt.Fprintln(w, "    (none)")
@@ -103,6 +110,9 @@ func printGlobalFlags(w io.Writer) {
 	fmt.Fprintln(w, "    --verbose, -v        Print verbose diagnostics to stderr.")
 	fmt.Fprintln(w, "    --quiet, -q          Suppress stderr output.")
 	fmt.Fprintln(w, "    --json               With --help, emit raw schema JSON from mcpx.")
+	fmt.Fprintln(w, "    --interactive        Prompt for supported input-required responses.")
+	fmt.Fprintln(w, "    --request-state <state>  Retry an input-required call with its opaque state.")
+	fmt.Fprintln(w, "    --input-responses <json> Supply responses for an input-required retry.")
 	fmt.Fprintln(w, "    --help, -h           Show this help output.")
 }
 
