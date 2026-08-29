@@ -22,7 +22,7 @@ git push origin v0.1.0
 The workflow:
 1. Builds/publishes release artifacts with GoReleaser
 2. Updates the Homebrew cask in `lydakis/homebrew-mcpx`
-3. Publishes `mcpx-go` to npm from `packaging/npm`
+3. Publishes `mcpx-go` to npm from `packaging/npm` with trusted publishing
 4. Publishes `mcpx-go` to PyPI from `packaging/pypi`
 
 ## Required GitHub Secrets
@@ -30,7 +30,6 @@ The workflow:
 - `GORELEASER_TOKEN`: token with repo write access to:
   - `lydakis/mcpx`
   - `lydakis/homebrew-mcpx`
-- `NPM_TOKEN`: npm publish token with 2FA bypass enabled
 - `PYPI_API_TOKEN`: PyPI token for the `mcpx-go` project
 - `APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64`
 - `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`
@@ -49,6 +48,18 @@ GoReleaser uses:
 Distribution package publishing uses:
 - `scripts/publish_npm_wrapper.sh <version>`
 - `scripts/publish_pypi_wrapper.sh <version>`
+
+## npm Trusted Publishing
+
+Configure `mcpx-go` on npm with this GitHub Actions trusted publisher:
+
+- Repository: `lydakis/mcpx`
+- Workflow filename: `release.yml`
+- Allowed action: `npm publish`
+
+The release job requests a short-lived OIDC credential, so no long-lived npm
+token is stored in GitHub. npm publishes provenance automatically for the
+public package.
 
 ## Install After Release
 

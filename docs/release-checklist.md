@@ -36,6 +36,8 @@
 
 - Ensure `.goreleaser.yml` tap settings match target repos (`mcpx`, `homebrew-mcpx`).
 - Verify `GORELEASER_TOKEN` secret is configured in GitHub Actions.
+- Verify the `mcpx-go` npm trusted publisher targets `lydakis/mcpx`, workflow
+  `release.yml`, with `npm publish` allowed.
 - Verify notarization secrets are configured:
   - `APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64`
   - `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`

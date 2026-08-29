@@ -6,11 +6,6 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
-if [[ -z "${NPM_TOKEN:-}" ]]; then
-  echo "NPM_TOKEN is required" >&2
-  exit 1
-fi
-
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required" >&2
   exit 1
@@ -25,7 +20,6 @@ version="$1"
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src_dir="${root_dir}/packaging/npm"
 work_dir="$(mktemp -d /tmp/mcpx-go-npm.XXXXXX)"
-npmrc="$(mktemp /tmp/mcpx-go.npmrc.XXXXXX)"
 checksums_file="$(mktemp /tmp/mcpx-go.checksums.XXXXXX)"
 
 release_base_url="${MCPX_GO_RELEASE_BASE_URL:-https://github.com/lydakis/mcpx/releases/download}"
@@ -35,7 +29,7 @@ release_tag="${release_tag_prefix}${version}"
 checksums_url="${release_base_url}/${release_tag}/checksums.txt"
 
 cleanup() {
-  trash "$work_dir" "$npmrc" "$checksums_file" >/dev/null 2>&1 || true
+  trash "$work_dir" "$checksums_file" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -86,8 +80,7 @@ for (const asset of expectedAssets) {
 
 fs.writeFileSync(outPath, `${JSON.stringify({ version, checksums: manifestChecksums }, null, 2)}\n`);
 NODE
-printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > "$npmrc"
-npm publish --access public --userconfig "$npmrc"
+npm publish --access public
 popd >/dev/null
 
 echo "Published npm package: mcpx-go@$version"
