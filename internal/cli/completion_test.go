@@ -30,6 +30,9 @@ func TestRunCompletionCommandBash(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"$first\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("bash completion missing guarded add subcommand branch: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_import_server()")) || !bytes.Contains(out.Bytes(), []byte("mcpx __complete import-sources")) {
+		t.Fatalf("bash completion missing general import source support: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("--name --header --oauth --oauth-client-metadata-url --overwrite --help -h")) {
 		t.Fatalf("bash completion missing add flags: %q", out.String())
 	}
@@ -130,6 +133,18 @@ func TestRunInternalCompletionRequiresQueryType(t *testing.T) {
 	}
 }
 
+func TestRunInternalCompletionListsImportSources(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code := runInternalCompletion([]string{"import-sources"}, &out, &errOut)
+	if code != ipc.ExitOK || errOut.Len() != 0 {
+		t.Fatalf("runInternalCompletion(import-sources) = %d, stderr=%q", code, errOut.String())
+	}
+	if got := out.String(); got != "claude\ncline\ncodex\ncursor\nkiro\n" {
+		t.Fatalf("import sources = %q", got)
+	}
+}
+
 func TestRunInternalCompletionRejectsUnknownQueryType(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -223,6 +238,9 @@ func TestRunCompletionCommandZshGuardsSkillBuiltIn(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("if [[ \"${words[2]}\" == \"add\" ]] && ! _mcpx_has_add_server; then")) {
 		t.Fatalf("zsh completion missing guarded add subcommand branch: %q", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("_mcpx_has_import_server()")) || !bytes.Contains(out.Bytes(), []byte("_describe 'import source' servers")) {
+		t.Fatalf("zsh completion missing general import source support: %q", out.String())
+	}
 	if !bytes.Contains(out.Bytes(), []byte("flags=(--name --header --oauth --oauth-client-metadata-url --overwrite --help -h)")) {
 		t.Fatalf("zsh completion missing add flags: %q", out.String())
 	}
@@ -280,6 +298,9 @@ func TestRunCompletionCommandFishGuardsSkillBuiltIn(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("test \"$w[2]\" = add; and not __mcpx_has_add_server")) {
 		t.Fatalf("fish completion missing guarded add subcommand branch: %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("function __mcpx_has_import_server")) || !bytes.Contains(out.Bytes(), []byte("mcpx __complete import-sources")) {
+		t.Fatalf("fish completion missing general import source support: %q", out.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("--name --header --oauth --oauth-client-metadata-url --overwrite --help -h")) {
 		t.Fatalf("fish completion missing add flags: %q", out.String())

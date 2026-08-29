@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lydakis/mcpx/internal/ipc"
+	"github.com/lydakis/mcpx/internal/mcpimport"
 )
 
 func runCompletionCommand(args []string, stdout, stderr io.Writer) int {
@@ -26,11 +27,20 @@ func runCompletionCommand(args []string, stdout, stderr io.Writer) int {
 
 func runInternalCompletion(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "mcpx: usage: mcpx __complete <servers|tools|flags> ...")
+		fmt.Fprintln(stderr, "mcpx: usage: mcpx __complete <import-sources|servers|tools|flags> ...")
 		return ipc.ExitUsageErr
 	}
 
 	switch args[0] {
+	case "import-sources":
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "mcpx: usage: mcpx __complete import-sources")
+			return ipc.ExitUsageErr
+		}
+		for _, source := range mcpimport.Sources() {
+			fmt.Fprintln(stdout, source.Name)
+		}
+		return ipc.ExitOK
 	case "servers":
 		if len(args) != 1 {
 			fmt.Fprintln(stderr, "mcpx: usage: mcpx __complete servers")

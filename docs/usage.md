@@ -57,6 +57,9 @@ mcpx <server> <tool> ...     # call tool
 mcpx <source>                # if <source> is not a known server, resolve and run it ephemerally
 mcpx <source> <tool> ...     # call tools from an ephemeral source (daemon-lifetime only)
 mcpx add <source>            # add server config from install link/manifest/endpoint URL
+mcpx import                  # list external MCP source adapters
+mcpx import <source>         # preview importable servers without writing config
+mcpx import <source> <name>  # import selected servers into managed config
 mcpx auth login <server>     # authorize an OAuth-enabled HTTP server
 mcpx auth status <server>    # show redacted credential status
 mcpx auth logout <server>    # remove the stored OAuth session
@@ -73,7 +76,7 @@ Flag conventions can vary by tool and server, so run `mcpx <server> <tool> --hel
 
 Ephemeral source mode reuses the same source parsing as `mcpx add` (install links, manifests, direct MCP endpoints) but does not write to `config.toml`.
 
-`--json` is only for mcpx-owned outputs (`mcpx`, `mcpx <server>`, and `mcpx <server> <tool> --help`). Tool call output is not transformed.
+`--json` is only for mcpx-owned outputs (`mcpx`, `mcpx import`, `mcpx <server>`, and `mcpx <server> <tool> --help`). Tool call output is not transformed.
 
 `mcpx` server listing shows names by default. Add `-v` to include per-server origin metadata.
 
@@ -183,6 +186,35 @@ Notes:
 - `--header KEY=VALUE` can be repeated and is applied only to URL-based servers.
 - `--oauth-client-metadata-url URL` enables OAuth and requires a non-root HTTPS URL.
 
+## Import Servers (`mcpx import`)
+
+Import adapters promote servers from other MCP clients into managed mcpx
+config. Supported sources are `claude`, `cline`, `codex`, `cursor`, and `kiro`.
+
+```bash
+mcpx import                         # list source adapters
+mcpx import claude                  # redacted preview
+mcpx import claude filesystem       # import selected enabled servers
+mcpx import cursor --all            # import all supported enabled servers
+mcpx import cursor --refresh        # refresh prior Cursor imports
+mcpx import codex                   # adapter preview includes enabled plugins
+```
+
+- Preview is read-only. `--json` emits names, transport kinds, statuses, and
+  safe details without command, environment, or header values.
+- Existing managed names are skipped by `--all` and rejected for explicit
+  selections unless `--overwrite` is supplied.
+- Import provenance is generic. `--refresh` dispatches through the original
+  source adapter and source context, preserving project-scoped resolution plus
+  mcpx cache and OAuth policy while updating source-owned transport fields.
+- Relative stdio working directories are normalized against their manifest.
+- File-backed adapters prefer the nearest project manifest before user-level
+  configuration; the import context makes that precedence stable on refresh.
+- Codex imports use `codex mcp list --json`, so enabled plugin MCPs participate
+  without putting Codex on the daemon request path.
+- Codex keyring OAuth tokens are not exported. Add `--oauth` when importing an
+  HTTP server that mcpx should authorize, then run `mcpx auth login <server>`.
+
 ## Command Shims (`mcpx shim`)
 
 Create optional convenience wrappers that forward directly to `mcpx <server> ...`.
@@ -278,7 +310,9 @@ man mcpx
   - Fix transport settings (`command` xor `url`), URL format, cache TTL, or glob patterns.
 - `calling tool: ...`
   - Use `-v` to get cache diagnostics and confirm server-side credentials/env vars.
-- No fallback servers discovered:
+- No fallback or imported servers discovered:
+  - Bootstrap fallbacks are read only when mcpx has no managed servers. Use
+    `mcpx import` once you want an explicit mixed managed catalog.
   - By default, mcpx checks:
     - `~/.cursor/mcp.json`
     - Claude Desktop config

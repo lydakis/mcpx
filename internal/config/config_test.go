@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/lydakis/mcpx/internal/paths"
@@ -109,11 +110,15 @@ func TestExpandServerForCurrentEnvExpandsFields(t *testing.T) {
 	t.Setenv("HOST", "example.com")
 
 	in := ServerConfig{
-		Command: "${HOST}",
-		Args:    []string{"--token", "${TOKEN}"},
-		Env:     map[string]string{"AUTH": "${TOKEN}"},
-		Headers: map[string]string{"Authorization": "Bearer ${TOKEN}"},
-		URL:     "https://${HOST}/mcp",
+		Command:       "${HOST}",
+		Args:          []string{"--token", "${TOKEN}"},
+		CWD:           "/plugins/${HOST}",
+		Env:           map[string]string{"AUTH": "${TOKEN}"},
+		Headers:       map[string]string{"Authorization": "Bearer ${TOKEN}"},
+		URL:           "https://${HOST}/mcp",
+		ImportSource:  "codex",
+		ImportName:    "remote-host",
+		ImportContext: "/work/project",
 	}
 
 	out := ExpandServerForCurrentEnv(in)
@@ -126,11 +131,49 @@ func TestExpandServerForCurrentEnvExpandsFields(t *testing.T) {
 	if out.Args[1] != "abc123" {
 		t.Fatalf("expanded args = %#v, want token expanded", out.Args)
 	}
+	if out.CWD != "/plugins/example.com" {
+		t.Fatalf("expanded cwd = %q, want environment expanded", out.CWD)
+	}
+	if out.ImportSource != "codex" || out.ImportName != "remote-host" || out.ImportContext != "/work/project" {
+		t.Fatalf("expanded import metadata = (%q, %q, %q)", out.ImportSource, out.ImportName, out.ImportContext)
+	}
 	if out.Env["AUTH"] != "abc123" {
 		t.Fatalf("expanded env = %#v, want AUTH expanded", out.Env)
 	}
 	if out.Headers["Authorization"] != "Bearer abc123" {
 		t.Fatalf("expanded headers = %#v, want Authorization expanded", out.Headers)
+	}
+}
+
+func TestExpandServerForCurrentEnvSupportsDefaultValueExpressions(t *testing.T) {
+	t.Setenv("MCPX_DEFAULT_SET", "configured")
+	t.Setenv("MCPX_DEFAULT_EMPTY", "")
+	previousUnset, hadPreviousUnset := os.LookupEnv("MCPX_DEFAULT_UNSET")
+	if err := os.Unsetenv("MCPX_DEFAULT_UNSET"); err != nil {
+		t.Fatalf("Unsetenv() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if hadPreviousUnset {
+			_ = os.Setenv("MCPX_DEFAULT_UNSET", previousUnset)
+			return
+		}
+		_ = os.Unsetenv("MCPX_DEFAULT_UNSET")
+	})
+
+	out := ExpandServerForCurrentEnv(ServerConfig{
+		Command: "${MCPX_DEFAULT_SET:-fallback}",
+		Args: []string{
+			"${MCPX_DEFAULT_UNSET:-https://example.com/mcp}",
+			"${MCPX_DEFAULT_EMPTY:-fallback}",
+			"${MCPX_DEFAULT_UNSET}",
+		},
+	})
+	if out.Command != "configured" {
+		t.Fatalf("command = %q, want configured", out.Command)
+	}
+	want := []string{"https://example.com/mcp", "fallback", "${MCPX_DEFAULT_UNSET}"}
+	if !reflect.DeepEqual(out.Args, want) {
+		t.Fatalf("args = %#v, want %#v", out.Args, want)
 	}
 }
 

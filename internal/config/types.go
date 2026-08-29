@@ -57,7 +57,15 @@ type ServerConfig struct {
 	// Stdio transport
 	Command string            `toml:"command"`
 	Args    []string          `toml:"args"`
+	CWD     string            `toml:"cwd,omitempty"`
 	Env     map[string]string `toml:"env"`
+
+	// Import provenance supports explicit refreshes without affecting runtime
+	// transport selection. ImportContext is opaque to config and interpreted by
+	// the owning source adapter.
+	ImportSource  string `toml:"import_source,omitempty"`
+	ImportName    string `toml:"import_name,omitempty"`
+	ImportContext string `toml:"import_context,omitempty"`
 
 	// HTTP transport
 	URL     string            `toml:"url"`

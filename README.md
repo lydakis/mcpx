@@ -41,7 +41,20 @@ mcpx skill install --guidance --openclaw-link
 mcpx skill install --guidance --guidance-text "Prefer mcpx when MCP work benefits from CLI composition."
 ```
 
-If you already use MCP in Cursor, Claude Code, Cline, Codex, or Kiro, `mcpx` auto-discovers those server configs.
+If you already use MCP elsewhere, preview and explicitly import the servers you
+want mcpx to manage:
+
+```bash
+mcpx import                         # list supported source adapters
+mcpx import claude                  # redacted preview
+mcpx import claude filesystem       # import selected servers
+mcpx import cursor --all            # import every supported Cursor server
+mcpx import codex                   # Codex adapter also resolves plugins
+```
+
+When mcpx has no managed servers, it still reads common client configs as a
+bootstrap fallback. Once you manage servers, `mcpx import` keeps ownership and
+collisions explicit.
 
 ```bash
 mcpx github search-repositories --query=mcp | jq -r '.items[:3][].full_name'
@@ -96,6 +109,25 @@ not launch remote authorization URLs automatically.
 
 Servers with a published OAuth Client ID Metadata Document can opt into it
 with `--oauth-client-metadata-url https://client.example.com/mcpx.json`.
+
+### Importing From MCP Clients
+
+`mcpx import` supports Claude, Cline, Codex, Cursor, and Kiro through a shared
+source-adapter contract. A source preview is read-only and redacted. Selected
+imports are snapshotted into mcpx config with source, name, and source-context
+provenance so they can be refreshed later from the same workspace:
+
+```bash
+mcpx import claude
+mcpx import claude filesystem
+mcpx import claude --refresh
+```
+
+Existing managed names require `--overwrite`. `--oauth` enables first-class
+mcpx OAuth only for imported HTTP servers. Codex keyring tokens are never
+exported; authorize the managed copy with `mcpx auth login <server>`.
+Project-scoped manifests take precedence over user-level configuration and
+refresh from the workspace where they were imported.
 
 ### Ephemeral Sources
 
@@ -187,6 +219,7 @@ Windows: use WSL2 and run install commands inside your Linux distro shell.
 | Command | Purpose |
 |---------|---------|
 | `mcpx add <source>` | Bootstrap a server config from a source |
+| `mcpx import [<source> ...]` | Preview, import, or refresh external client servers |
 | `mcpx auth login/status/logout <server>` | Manage first-class remote OAuth |
 | `mcpx doctor [server] [--json]` | Diagnose config, protocol, transport, and redacted auth |
 | `mcpx shim install <server>` | Install a local passthrough shim |
@@ -199,7 +232,7 @@ Windows: use WSL2 and run install commands inside your Linux distro shell.
 
 ### Output Modes
 
-`--json` applies to mcpx-owned surfaces only (`mcpx`, `mcpx <server>`, `mcpx <server> <tool> --help`). Tool-call output passes through unmodified.
+`--json` applies to mcpx-owned surfaces only (`mcpx`, `mcpx import`, `mcpx <server>`, `mcpx <server> <tool> --help`). Tool-call output passes through unmodified.
 
 Use `mcpx <server> --catalog` for deterministic full tool descriptors,
 including input/output schemas and annotations. Complex JSON Schema inputs that

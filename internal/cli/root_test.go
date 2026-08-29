@@ -45,7 +45,7 @@ func (w errWriter) Write(p []byte) (int, error) {
 }
 
 func TestUtilityCommandDeferredToServerUsesManagedOrigin(t *testing.T) {
-	for _, name := range []string{"add", "auth", "doctor", "shim", "skill", "completion", "__complete"} {
+	for _, name := range []string{"add", "auth", "doctor", "import", "shim", "skill", "completion", "__complete"} {
 		managed := &config.Config{
 			Servers: map[string]config.ServerConfig{name: {Command: "managed"}},
 			ServerOrigins: map[string]config.ServerOrigin{

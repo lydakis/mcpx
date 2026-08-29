@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -23,11 +24,46 @@ type projectEntry struct {
 }
 
 type mcpServerEntry struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
+	Type              string            `json:"type"`
+	Command           string            `json:"command"`
+	Args              []string          `json:"args"`
+	CWD               string            `json:"cwd"`
+	Env               map[string]string `json:"env"`
+	EnvVars           []string          `json:"env_vars"`
+	URL               string            `json:"url"`
+	Headers           map[string]string `json:"headers"`
+	HTTPHeaders       map[string]string `json:"http_headers"`
+	EnvHTTPHeaders    map[string]string `json:"env_http_headers"`
+	BearerTokenEnvVar string            `json:"bearer_token_env_var"`
+	OAuthScopes       []string          `json:"oauthScopes"`
+	OAuth             mcpOAuthEntry     `json:"oauth"`
+	Disabled          bool              `json:"disabled"`
+}
+
+type mcpOAuthEntry struct {
+	ClientID          string   `json:"clientId"`
+	ClientSecret      string   `json:"clientSecret"`
+	RedirectURI       string   `json:"redirectUri"`
+	ClientMetadataURL string   `json:"clientMetadataUrl"`
+	OAuthScopes       []string `json:"oauthScopes"`
+}
+
+// FallbackImportEntry preserves source metadata needed while promoting a
+// file-backed server into managed config.
+type FallbackImportEntry struct {
+	Server                 ServerConfig
+	TransportType          string
+	Disabled               bool
+	OAuthScopes            []string
+	OAuthClientMetadataURL string
+	OAuthUnsupportedReason string
+}
+
+// FallbackImportLayers preserves the two precedence layers represented by
+// JSON documents such as Claude Code's ~/.claude.json.
+type FallbackImportLayers struct {
+	MatchedProject map[string]FallbackImportEntry
+	TopLevel       map[string]FallbackImportEntry
 }
 
 type codexConfigDocument struct {
@@ -293,34 +329,140 @@ func loadMCPServersFile(path string) (map[string]ServerConfig, error) {
 }
 
 func loadMCPServersFileForCWD(path, cwd string) (map[string]ServerConfig, error) {
-	data, err := os.ReadFile(path)
+	entries, err := loadMCPServersFileForCWDMode(path, cwd, true)
+	if err != nil {
+		return nil, err
+	}
+	servers := make(map[string]ServerConfig, len(entries))
+	for name, entry := range entries {
+		if !entry.Disabled {
+			servers[name] = entry.Server
+		}
+	}
+	return servers, nil
+}
+
+// LoadFallbackSourceForImport reads one JSON MCP source without expanding
+// environment placeholders so an explicit import can persist references rather
+// than credential values.
+func LoadFallbackSourceForImport(path, cwd string) (map[string]FallbackImportEntry, error) {
+	return loadMCPServersFileForCWDMode(path, cwd, false)
+}
+
+// LoadFallbackSourceLayersForImport reads the matched project and top-level
+// entries separately so an adapter can interleave other source scopes.
+func LoadFallbackSourceLayersForImport(path, cwd string) (FallbackImportLayers, error) {
+	doc, baseDir, err := readMCPServersDocument(path)
+	if err != nil {
+		return FallbackImportLayers{}, err
+	}
+	layers := FallbackImportLayers{
+		MatchedProject: make(map[string]FallbackImportEntry),
+		TopLevel:       make(map[string]FallbackImportEntry),
+	}
+	mergeServerEntries(layers.MatchedProject, matchProjectServers(doc.Projects, cwd), baseDir, false)
+	mergeServerEntries(layers.TopLevel, doc.MCPServers, baseDir, false)
+	return layers, nil
+}
+
+func loadMCPServersFileForCWDMode(path, cwd string, expand bool) (map[string]FallbackImportEntry, error) {
+	doc, baseDir, err := readMCPServersDocument(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var doc mcpServersDocument
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parsing mcpServers JSON: %w", err)
-	}
-
-	servers := make(map[string]ServerConfig, len(doc.MCPServers))
-	mergeServerEntries(servers, matchProjectServers(doc.Projects, cwd))
-	mergeServerEntries(servers, doc.MCPServers)
+	servers := make(map[string]FallbackImportEntry, len(doc.MCPServers))
+	mergeServerEntries(servers, matchProjectServers(doc.Projects, cwd), baseDir, expand)
+	mergeServerEntries(servers, doc.MCPServers, baseDir, expand)
 	return servers, nil
 }
 
-func mergeServerEntries(dst map[string]ServerConfig, src map[string]mcpServerEntry) {
+func readMCPServersDocument(path string) (mcpServersDocument, string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return mcpServersDocument{}, "", err
+	}
+	var doc mcpServersDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return mcpServersDocument{}, "", fmt.Errorf("parsing mcpServers JSON: %w", err)
+	}
+	return doc, filepath.Dir(path), nil
+}
+
+func mergeServerEntries(dst map[string]FallbackImportEntry, src map[string]mcpServerEntry, baseDir string, expand bool) {
 	for name, srv := range src {
 		if _, exists := dst[name]; exists {
 			continue
 		}
-		dst[name] = expandServerEnvVars(ServerConfig{
+		env := copyStringMap(srv.Env)
+		headers := copyStringMap(srv.Headers)
+		for header, value := range srv.HTTPHeaders {
+			header = strings.TrimSpace(header)
+			if header == "" || hasHeaderKey(headers, header) {
+				continue
+			}
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers[header] = value
+		}
+		for header, envVar := range srv.EnvHTTPHeaders {
+			if strings.TrimSpace(header) == "" || strings.TrimSpace(envVar) == "" || hasHeaderKey(headers, header) {
+				continue
+			}
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers[header] = "${" + strings.TrimSpace(envVar) + "}"
+		}
+		if tokenEnv := strings.TrimSpace(srv.BearerTokenEnvVar); tokenEnv != "" && !hasHeaderKey(headers, authorizationHeader) {
+			if headers == nil {
+				headers = make(map[string]string)
+			}
+			headers[authorizationHeader] = bearerAuthPrefix + "${" + tokenEnv + "}"
+		}
+		workingDir := strings.TrimSpace(srv.CWD)
+		if workingDir != "" && !filepath.IsAbs(workingDir) {
+			workingDir = filepath.Join(baseDir, workingDir)
+		}
+		server := ServerConfig{
 			Command: srv.Command,
 			Args:    srv.Args,
-			Env:     srv.Env,
+			CWD:     workingDir,
+			Env:     env,
 			URL:     srv.URL,
-			Headers: srv.Headers,
-		})
+			Headers: headers,
+		}
+		if expand {
+			server = expandServerEnvVars(server)
+		}
+		oauthScopes := append([]string(nil), srv.OAuthScopes...)
+		if srv.OAuth.OAuthScopes != nil {
+			oauthScopes = append([]string(nil), srv.OAuth.OAuthScopes...)
+		}
+		var unsupportedOAuthFields []string
+		for field, value := range map[string]string{
+			"clientId":     srv.OAuth.ClientID,
+			"clientSecret": srv.OAuth.ClientSecret,
+			"redirectUri":  srv.OAuth.RedirectURI,
+		} {
+			if strings.TrimSpace(value) != "" {
+				unsupportedOAuthFields = append(unsupportedOAuthFields, field)
+			}
+		}
+		sort.Strings(unsupportedOAuthFields)
+		unsupportedOAuthReason := ""
+		if len(unsupportedOAuthFields) > 0 {
+			unsupportedOAuthReason = "source OAuth settings require manual configuration: " + strings.Join(unsupportedOAuthFields, ", ")
+		}
+		dst[name] = FallbackImportEntry{
+			Server:                 server,
+			TransportType:          strings.TrimSpace(srv.Type),
+			Disabled:               srv.Disabled,
+			OAuthScopes:            oauthScopes,
+			OAuthClientMetadataURL: strings.TrimSpace(srv.OAuth.ClientMetadataURL),
+			OAuthUnsupportedReason: unsupportedOAuthReason,
+		}
 	}
 }
 
@@ -614,7 +756,7 @@ func hasManagedConfigServers(cfg *Config) bool {
 
 func isReservedFallbackServerName(name string) bool {
 	switch name {
-	case "add", "auth", "doctor", "shim", "skill", "completion", "__complete":
+	case "add", "auth", "doctor", "import", "shim", "skill", "completion", "__complete":
 		return true
 	default:
 		return false

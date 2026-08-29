@@ -9,7 +9,7 @@ import (
 	"github.com/lydakis/mcpx/internal/paths"
 )
 
-var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 
 // Load reads the config file and returns the parsed Config.
 // If the config file does not exist, it returns an empty Config (no error).
@@ -97,6 +97,7 @@ func expandServerEnvVars(srv ServerConfig) ServerConfig {
 	for i := range srv.Args {
 		srv.Args[i] = expandEnvVars(srv.Args[i])
 	}
+	srv.CWD = expandEnvVars(srv.CWD)
 	for i := range srv.NoCacheTools {
 		srv.NoCacheTools[i] = expandEnvVars(srv.NoCacheTools[i])
 	}
@@ -113,12 +114,16 @@ func expandServerEnvVars(srv ServerConfig) ServerConfig {
 	return srv
 }
 
-// expandEnvVars replaces ${VAR_NAME} with the value of the environment variable.
+// expandEnvVars replaces ${VAR_NAME} and ${VAR_NAME:-default} expressions.
 func expandEnvVars(s string) string {
 	return envVarRe.ReplaceAllStringFunc(s, func(match string) string {
-		name := envVarRe.FindStringSubmatch(match)[1]
-		if val, ok := os.LookupEnv(name); ok {
+		parts := envVarRe.FindStringSubmatch(match)
+		name := parts[1]
+		if val, ok := os.LookupEnv(name); ok && (parts[2] == "" || val != "") {
 			return val
+		}
+		if parts[2] != "" {
+			return parts[3]
 		}
 		return match // leave unresolved vars as-is
 	})

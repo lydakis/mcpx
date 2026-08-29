@@ -728,6 +728,46 @@ func TestLoadMCPServersFileReadsClaudeCodeProjectServers(t *testing.T) {
 	}
 }
 
+func TestLoadMCPServersFileHonorsDisabledProjectOverride(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "project")
+	projectSubdir := filepath.Join(projectRoot, "nested")
+	if err := os.MkdirAll(projectSubdir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", projectSubdir, err)
+	}
+	docPath := filepath.Join(root, ".claude.json")
+	raw := []byte(`{
+		"mcpServers": {
+			"shared": {"command":"global"},
+			"global-only": {"command":"global-only"}
+		},
+		"projects": {
+			"` + projectRoot + `": {
+				"mcpServers": {
+					"shared": {"command":"project","disabled":true},
+					"disabled-only": {"disabled":true}
+				}
+			}
+		}
+	}`)
+	if err := os.WriteFile(docPath, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	servers, err := loadMCPServersFileForCWD(docPath, projectSubdir)
+	if err != nil {
+		t.Fatalf("loadMCPServersFileForCWD() error = %v", err)
+	}
+	for _, name := range []string{"shared", "disabled-only"} {
+		if _, exists := servers[name]; exists {
+			t.Fatalf("servers unexpectedly contains disabled %q: %#v", name, servers)
+		}
+	}
+	if got := servers["global-only"].Command; got != "global-only" {
+		t.Fatalf("global-only command = %q, want global-only", got)
+	}
+}
+
 func TestMergeFallbackServersForCWDDoesNotDiscoverProjectLocalConfigs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -845,6 +885,7 @@ func TestMergeFallbackServersOmitsReservedUtilityNames(t *testing.T) {
 		"add":{"command":"false"},
 		"auth":{"command":"false"},
 		"doctor":{"command":"false"},
+		"import":{"command":"false"},
 		"shim":{"command":"false"},
 		"skill":{"command":"false"},
 		"completion":{"command":"false"},
@@ -862,7 +903,7 @@ func TestMergeFallbackServersOmitsReservedUtilityNames(t *testing.T) {
 	if _, ok := cfg.Servers["github"]; !ok {
 		t.Fatalf("cfg.Servers = %#v, want github", cfg.Servers)
 	}
-	for _, name := range []string{"add", "auth", "doctor", "shim", "skill", "completion", "__complete"} {
+	for _, name := range []string{"add", "auth", "doctor", "import", "shim", "skill", "completion", "__complete"} {
 		if _, ok := cfg.Servers[name]; ok {
 			t.Fatalf("cfg.Servers unexpectedly contains reserved name %q: %#v", name, cfg.Servers)
 		}

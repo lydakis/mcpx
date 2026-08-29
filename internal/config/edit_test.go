@@ -49,8 +49,12 @@ func TestSaveToWritesConfigAndCreatesParentDir(t *testing.T) {
 	cfg := &Config{
 		Servers: map[string]ServerConfig{
 			"github": {
-				Command: "npx",
-				Args:    []string{"-y", "@modelcontextprotocol/server-github"},
+				Command:       "npx",
+				Args:          []string{"-y", "@modelcontextprotocol/server-github"},
+				CWD:           "/tmp/github",
+				ImportSource:  "codex",
+				ImportName:    "github-plugin",
+				ImportContext: "/work/project",
 			},
 		},
 	}
@@ -69,6 +73,11 @@ func TestSaveToWritesConfigAndCreatesParentDir(t *testing.T) {
 	}
 	if !strings.Contains(text, `command = "npx"`) {
 		t.Fatalf("saved config missing command: %q", text)
+	}
+	for _, want := range []string{`cwd = "/tmp/github"`, `import_source = "codex"`, `import_name = "github-plugin"`, `import_context = "/work/project"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("saved config missing %q: %q", want, text)
+		}
 	}
 }
 

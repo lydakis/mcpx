@@ -133,6 +133,18 @@ func validateServer(name string, srv ServerConfig) []error {
 	if srv.OAuth && !hasURL {
 		errs = append(errs, fmt.Errorf("servers.%s.oauth: OAuth is only supported for HTTP servers", name))
 	}
+	if strings.TrimSpace(srv.CWD) != "" && !hasCommand {
+		errs = append(errs, fmt.Errorf("servers.%s.cwd: working directory is only supported for stdio servers", name))
+	}
+	importFields := 0
+	for _, value := range []string{srv.ImportSource, srv.ImportName, srv.ImportContext} {
+		if strings.TrimSpace(value) != "" {
+			importFields++
+		}
+	}
+	if importFields != 0 && importFields != 3 {
+		errs = append(errs, fmt.Errorf("servers.%s: import_source, import_name, and import_context must be configured together", name))
+	}
 	if raw := strings.TrimSpace(srv.OAuthClientMetadataURL); raw != "" {
 		parsed, err := url.ParseRequestURI(raw)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || strings.Trim(parsed.Path, "/") == "" {

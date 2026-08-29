@@ -169,8 +169,8 @@ mcpx github search-repositories --query="mcp" | jq .
 - **No interactive shell mode.** `--interactive` is a bounded elicitation retry,
   not a persistent shell.
 - **No general identity platform.** OAuth is a narrow remote-server provider
-  boundary with OS credential storage; imported and explicit auth stay owned by
-  their source.
+  boundary with OS credential storage. Bootstrap fallback auth stays owned by
+  its source; explicitly imported servers use mcpx auth only when requested.
 - **No agent identity/coordination.** Out of scope for mcpx; it is a tool, not a platform.
 - **No invented behavior.** If Unix already does it, mcpx doesn't reinvent it.
 
@@ -210,7 +210,12 @@ Daemon/client model. The daemon handles both stdio servers (spawned locally) and
 - Sliding window keep-alive: each call resets the per-server TTL (default 60s). Daemon dies when everything times out.
 - Communication over Unix domain socket. Fast, no network overhead.
 
-Config lives at `~/.config/mcpx/config.toml`. If no servers are configured, mcpx can import `mcpServers` from common MCP client JSON files as read-only fallback sources. You can override or disable fallback paths with `fallback_sources`.
+Config lives at `~/.config/mcpx/config.toml`. If no servers are configured,
+mcpx can read `mcpServers` from common MCP client files as read-only bootstrap
+fallbacks. `mcpx import <source>` is the explicit promotion boundary: it
+previews a source adapter, snapshots selected transports into managed config,
+and persists generic provenance for later refreshes. You can override or
+disable bootstrap fallback paths with `fallback_sources`.
 
 ## Config
 
@@ -237,11 +242,12 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
 
 Config supports:
 - `command`/`args` for stdio servers (daemon spawns and manages the process)
+- `cwd` for a stdio server working directory
 - `url` for HTTP servers (daemon makes HTTP requests, no process to manage)
-- `${ENV_VAR}` expansion for secrets
+- `${ENV_VAR}` and `${ENV_VAR:-default}` expansion for portable configuration
 - Per-server and per-tool cache defaults
 - `fallback_sources = ["/abs/path/source1.json", "/abs/path/source2.json"]` to control MCP fallback discovery (`[]` disables defaults)
-- That's it
+- Import provenance fields written and maintained by `mcpx import`
 
 The CLI surface is identical regardless of transport. The agent doesn't know or care whether `mcpx github ...` talks to a local process or a remote URL.
 
@@ -303,7 +309,7 @@ Schema inspection is bounded and never fetches external references.
 
 **Streaming:** For v1, mcpx buffers the complete MCP response then emits to stdout. Streaming to stdout is more Unix-native but conflicts with caching and with guaranteeing valid output. May add `--stream` in a future version if there's demand.
 
-**No tool subcommands.** `mcpx` (bare) lists servers, and the first positional argument is the server namespace. Reserved utility commands are `add`, `shim`, `skill`, `completion`, and `__complete`; each one explicitly defers to a same-named configured server when present.
+**No tool subcommands.** `mcpx` (bare) lists servers, and the first positional argument is the server namespace. Reserved utility commands are `add`, `auth`, `doctor`, `import`, `shim`, `skill`, `completion`, and `__complete`; each one explicitly defers to a same-named configured server when present.
 
 **Man pages:** Ship a static root man page (`mcpx.1`) in release artifacts and install it as part of package installation (`man mcpx`). Tool-level docs are served through `mcpx <server> <tool> --help` rather than generated tool man pages.
 
@@ -316,7 +322,19 @@ No inference, no caching of observed shapes. A tool can return different structu
 
 **XDG compliance:** Config in `$XDG_CONFIG_HOME/mcpx/`, cache in `$XDG_CACHE_HOME/mcpx/`, daemon socket in `$XDG_RUNTIME_DIR/mcpx/` (fallback: `$XDG_STATE_HOME/mcpx/`).
 
-**Config fallback:** On startup, if no servers are defined in `config.toml`, mcpx reads `mcpServers` from configured fallback JSON sources. By default it checks common MCP client locations; `fallback_sources` can override this list or disable fallback entirely.
+**Config fallback and import:** On startup, if no servers are defined in
+`config.toml`, mcpx reads `mcpServers` from configured fallback sources. By
+default it checks common MCP client locations; `fallback_sources` can override
+this list or disable fallback entirely. Managed config never silently unions
+every client catalog. The general `mcpx import <source>` registry handles
+Claude, Cline, Codex, Cursor, and Kiro explicitly. Codex resolves its catalog
+through `codex mcp list --json` only during import so plugin MCPs are visible
+without adding Codex work to the daemon warm path. File-backed adapters share
+one manifest loader. Imports retain source/name/context provenance, normalized
+stdio working directories, and environment references. Source context is opaque
+to config and lets each adapter replay project-scoped resolution during refresh.
+Refresh updates source-owned transport fields while preserving mcpx cache and
+OAuth settings.
 
 **Binary size target:** Under 15MB. Go's net/http and crypto/tls are in the standard library so HTTP transport support doesn't require external deps, but keep an eye on binary bloat from TLS.
 

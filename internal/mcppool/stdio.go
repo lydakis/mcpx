@@ -5,20 +5,26 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/lydakis/mcpx/internal/buildinfo"
 	"github.com/lydakis/mcpx/internal/config"
+	"github.com/lydakis/mcpx/internal/processenv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func connectStdio(ctx context.Context, scfg config.ServerConfig) (*connection, error) {
-	env := make([]string, 0, len(scfg.Env))
+	env := make(map[string]string, len(scfg.Env)+1)
 	for k, v := range scfg.Env {
-		env = append(env, k+"="+v)
+		env[k] = v
 	}
 
 	cmd := exec.Command(scfg.Command, scfg.Args...)
-	cmd.Env = append(os.Environ(), env...)
+	if cwd := strings.TrimSpace(scfg.CWD); cwd != "" {
+		cmd.Dir = cwd
+		env["PWD"] = cwd
+	}
+	cmd.Env = processenv.Merge(os.Environ(), env)
 
 	conn := &connection{}
 	client := mcp.NewClient(&mcp.Implementation{Name: "mcpx", Version: buildinfo.Version()}, &mcp.ClientOptions{

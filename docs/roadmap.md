@@ -9,7 +9,7 @@ runtime, or application UI.
 
 ## Current Baseline
 
-Released through `v1.0.2`:
+Released through `v1.1.0`:
 
 - Stable command contract:
   - `mcpx` lists servers
@@ -20,16 +20,15 @@ Released through `v1.0.2`:
 - Stdio and Streamable HTTP transports behind a local daemon.
 - Hardened daemon IPC, lifecycle, runtime-source invalidation, and cache
   identity behavior.
-- Read-only discovery from common MCP client configurations.
+- Read-only bootstrap discovery from common MCP client configurations.
 - Ephemeral URL and manifest sources plus managed `mcpx add` configuration.
 - Optional command shims and agent skill generation.
 - Reuse of available Codex-hosted connector and OAuth credentials without
   taking ownership of those login flows.
 - Release automation for GitHub, Homebrew, npm, and PyPI wrappers.
 
-Main contains additional correctness and dependency work after `v1.0.2`. The
-next maintenance release should publish that work before or alongside the
-modern-protocol release.
+Main additionally adds explicit, refreshable imports through general Claude,
+Cline, Codex, Cursor, and Kiro source adapters.
 
 ## Compatibility Matrix
 

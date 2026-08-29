@@ -8,6 +8,7 @@ mcpx \- MCP tools as Unix commands
 \fBmcpx --json -v\fR
 \fBmcpx completion\fR \fIbash|zsh|fish\fR
 \fBmcpx add\fR \fIsource\fR [\fB--name\fR \fIserver\fR] [\fB--header\fR \fIKEY=VALUE\fR]... [\fB--oauth\fR] [\fB--oauth-client-metadata-url\fR \fIURL\fR] [\fB--overwrite\fR]
+\fBmcpx import\fR [\fIsource\fR [\fIserver...\fR | \fB--all\fR | \fB--refresh\fR]] [\fIFLAGS\fR]
 \fBmcpx auth\fR \fIlogin|status|logout\fR \fIserver\fR
 \fBmcpx doctor\fR [\fIserver\fR] [\fB--json\fR]
 \fBmcpx skill install\fR [\fIFLAGS\fR]
@@ -24,8 +25,19 @@ By default, mcpx writes content to stdout and diagnostics to stderr.
 .TP
 \fB--json\fR
 Emits mcpx-owned outputs as JSON for:
-mcpx, mcpx <server>, and mcpx <server> <tool> --help.
+mcpx, mcpx import, mcpx <server>, and mcpx <server> <tool> --help.
 Normal tool-call output is not transformed.
+.SH IMPORT
+\fBmcpx import\fR lists external MCP source adapters. With a source, it prints a redacted preview unless server names, \fB--all\fR, or \fB--refresh\fR are supplied. Supported adapters are Claude, Cline, Codex, Cursor, and Kiro.
+.TP
+\fB--all\fR
+Import every supported enabled server from the source. Existing names are skipped unless \fB--overwrite\fR is supplied.
+.TP
+\fB--refresh\fR
+Refresh servers previously imported from the same source context while preserving project resolution plus mcpx cache and OAuth policy.
+.TP
+\fB--oauth\fR
+Enable first-class mcpx OAuth for imported HTTP servers. Codex keyring OAuth tokens are never exported.
 .SH ADD
 \fBmcpx add\fR accepts install-link URLs, manifest URLs/files, and direct MCP endpoint URLs.
 .TP
@@ -123,6 +135,11 @@ mcpx --json -v
 mcpx add https://example.com/mcp-manifest.json
 mcpx add https://mcp.deepwiki.com/mcp
 mcpx add https://example.com/mcp --name example --oauth
+mcpx import
+mcpx import claude
+mcpx import claude filesystem
+mcpx import cursor --all
+mcpx import codex
 mcpx auth login example
 mcpx doctor example --json
 mcpx add https://mcp.devin.ai/mcp --name deepwiki --header "Authorization=Bearer ${DEEPWIKI_API_KEY}"

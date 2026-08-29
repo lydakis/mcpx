@@ -95,6 +95,30 @@ func TestValidateServerConfigRequiresServerName(t *testing.T) {
 	}
 }
 
+func TestValidateServerConfigScopesWorkingDirectoryAndImportProvenance(t *testing.T) {
+	if err := ValidateServerConfig("stdio", ServerConfig{
+		Command:       "server",
+		CWD:           "/plugins/server",
+		ImportSource:  "cursor",
+		ImportName:    "server",
+		ImportContext: "/work/project",
+	}); err != nil {
+		t.Fatalf("ValidateServerConfig(valid imported stdio) error = %v", err)
+	}
+
+	for name, server := range map[string]ServerConfig{
+		"http-cwd":        {URL: "https://example.com/mcp", CWD: "/tmp"},
+		"source-only":     {Command: "server", ImportSource: "cursor"},
+		"name-only":       {Command: "server", ImportName: "server"},
+		"context-only":    {Command: "server", ImportContext: "/work/project"},
+		"missing-context": {Command: "server", ImportSource: "cursor", ImportName: "server"},
+	} {
+		if err := ValidateServerConfig(name, server); err == nil {
+			t.Fatalf("ValidateServerConfig(%s) error = nil, want invariant failure", name)
+		}
+	}
+}
+
 func TestValidateServerConfigValidAndInvalidCases(t *testing.T) {
 	if err := ValidateServerConfig("github", ServerConfig{Command: "npx"}); err != nil {
 		t.Fatalf("ValidateServerConfig(valid) error = %v, want nil", err)

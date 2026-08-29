@@ -56,6 +56,10 @@ func Run(args []string) int {
 		return code
 	}
 
+	if handled, code := maybeHandleImportCommand(args, cfg, rootStdout, rootStderr); handled {
+		return code
+	}
+
 	if handled, code := maybeHandleAddCommand(args, cfg, rootStdout, rootStderr); handled {
 		return code
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -120,6 +121,37 @@ func TestPoolStdioIntegrationFallsBackToLegacyProtocol(t *testing.T) {
 	}
 	if typed["protocol"] != legacyProtocol {
 		t.Fatalf("StructuredContent[protocol] = %v, want %q", typed["protocol"], legacyProtocol)
+	}
+}
+
+func TestPoolStdioIntegrationUsesConfiguredWorkingDirectory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wantCWD := t.TempDir()
+
+	pool := New(&config.Config{Servers: map[string]config.ServerConfig{
+		"stdio": {
+			Command: os.Args[0],
+			Args:    []string{"-test.run=TestMCPXStdioHelperProcess", "--", "stdio-helper"},
+			CWD:     wantCWD,
+			Env:     map[string]string{stdioHelperEnv: "1"},
+		},
+	}})
+	defer pool.CloseAll()
+
+	result, err := pool.CallTool(ctx, "stdio", "echo_tool", json.RawMessage(`{"query":"cwd"}`))
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	gotCWD, _ := result.StructuredContent.(map[string]any)["cwd"].(string)
+	gotPWD, _ := result.StructuredContent.(map[string]any)["pwd"].(string)
+	gotResolved, gotErr := filepath.EvalSymlinks(gotCWD)
+	wantResolved, wantErr := filepath.EvalSymlinks(wantCWD)
+	if gotErr != nil || wantErr != nil || gotResolved != wantResolved {
+		t.Fatalf("StructuredContent[cwd] = %q, want %q", gotCWD, wantCWD)
+	}
+	if gotPWD != wantCWD {
+		t.Fatalf("StructuredContent[pwd] = %q, want %q", gotPWD, wantCWD)
 	}
 }
 
@@ -578,8 +610,8 @@ func TestMCPXStdioHelperProcess(t *testing.T) {
 		}`),
 		OutputSchema: json.RawMessage(`{
 			"type":"object",
-			"properties":{"echo":{"type":"string"},"protocol":{"type":"string"}},
-			"required":["echo","protocol"]
+			"properties":{"echo":{"type":"string"},"protocol":{"type":"string"},"cwd":{"type":"string"},"pwd":{"type":"string"}},
+			"required":["echo","protocol","cwd","pwd"]
 		}`),
 	}, func(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args struct {
@@ -588,9 +620,15 @@ func TestMCPXStdioHelperProcess(t *testing.T) {
 		if err := json.Unmarshal(request.Params.Arguments, &args); err != nil {
 			return nil, err
 		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
 		return &mcp.CallToolResult{StructuredContent: map[string]any{
 			"echo":     args.Query,
 			"protocol": request.ProtocolVersion(),
+			"cwd":      cwd,
+			"pwd":      os.Getenv("PWD"),
 		}}, nil
 	})
 
