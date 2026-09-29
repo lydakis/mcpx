@@ -119,7 +119,7 @@ func spawnDaemon() error {
 		return fmt.Errorf("spawning daemon: %w", err)
 	}
 
-	// Detach: don't wait for the daemon process
+	// Reap the daemon without blocking the CLI.
 	go cmd.Wait() //nolint: errcheck
 	return nil
 }
@@ -134,7 +134,7 @@ func newDaemonCommand(exe string) (*exec.Cmd, func(), error) {
 	cmd.Stdin = devNull
 	cmd.Stdout = devNull
 	cmd.Stderr = devNull
-	cmd.SysProcAttr = nil // daemon inherits signals; caller detaches
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // survive caller process-group cleanup
 	return cmd, func() {
 		_ = devNull.Close()
 	}, nil

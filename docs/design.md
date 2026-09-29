@@ -207,6 +207,7 @@ Daemon/client model. The daemon handles both stdio servers (spawned locally) and
 
 - `mcpx` is the thin CLI client. Translates flags to JSON-RPC, sends to daemon, prints result, exits.
 - `mcpxd` is auto-spawned on first call. For stdio servers, it holds process connections open and manages keep-alive. For HTTP servers, it maintains connection pools and handles request routing.
+- The daemon starts in its own session with standard streams connected to `/dev/null`, so shell process-group cleanup does not kill it or its stdio servers. Later CLI calls reuse those connections until the keep-alive expires.
 - Sliding window keep-alive: each call resets the per-server TTL (default 60s). Daemon dies when everything times out.
 - Communication over Unix domain socket. Fast, no network overhead.
 
